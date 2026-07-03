@@ -362,6 +362,39 @@
     border: 1px solid var(--line); background: #fff;
   }
 
+  /* ---------- 文章目录与阅读进度 ---------- */
+  .toc {
+    border: 1px solid var(--line); background: var(--surface);
+    padding: 14px 18px; margin-bottom: 28px; max-width: 800px;
+    font-size: 12.5px;
+  }
+  .toc-t { letter-spacing: 0.2em; color: var(--ink2); font-size: 11px; margin-bottom: 8px; }
+  .toc ul { list-style: none; margin: 0; padding: 0; }
+  .toc li { line-height: 2; }
+  .toc li.d3 { padding-left: 18px; }
+  .toc a { color: var(--ink2); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+  @media (min-width: 1380px) {
+    .toc {
+      position: fixed; right: 24px; top: 96px; width: 250px;
+      max-height: calc(100vh - 150px); overflow: auto; margin: 0;
+    }
+  }
+  .md-body h1, .md-body h2, .md-body h3, .md-body h4 { scroll-margin-top: 72px; }
+  .md-body pre { position: relative; }
+  .code-copy {
+    position: absolute; top: 6px; right: 6px;
+    border: 1px solid var(--line); background: var(--surface2);
+    color: var(--ink2); font-size: 11px; padding: 3px 9px;
+    cursor: pointer; opacity: 0; transition: opacity 0.15s;
+  }
+  .md-body pre:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
+  .code-copy:hover { color: var(--accent); border-color: var(--accent); }
+  #read-progress {
+    position: fixed; left: 0; top: 0; height: 2px; width: 0;
+    background: var(--accent); z-index: 60;
+  }
+
   /* ---------- console ---------- */
   .console {
     margin-top: 72px;
