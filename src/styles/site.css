@@ -390,6 +390,21 @@
   }
   .md-body pre:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
   .code-copy:hover { color: var(--accent); border-color: var(--accent); }
+  .post-nav {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    max-width: 800px; margin-top: 50px;
+  }
+  .post-nav a {
+    border: 1px solid var(--line); background: var(--surface);
+    padding: 13px 16px; text-decoration: none; color: var(--ink);
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .post-nav a:hover { border-color: var(--accent); }
+  .post-nav .dir { font-size: 11px; color: var(--ink2); letter-spacing: 0.1em; }
+  .post-nav .pn-t { font-size: 13.5px; font-weight: 600; }
+  .related { max-width: 800px; margin-top: 34px; }
+  .related .rel-t { font-size: 11px; letter-spacing: 0.16em; color: var(--ink2); margin-bottom: 6px; }
+  .related .post { grid-template-columns: 14px 1fr auto; }
   #read-progress {
     position: fixed; left: 0; top: 0; height: 2px; width: 0;
     background: var(--accent); z-index: 60;

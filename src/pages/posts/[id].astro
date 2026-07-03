@@ -3,11 +3,19 @@ import Base from '../../layouts/Base.astro';
 import { getCollection, render } from 'astro:content';
 
 export async function getStaticPaths() {
-  const posts = await getCollection('posts');
-  return posts.map((post) => ({ params: { id: post.id }, props: { post } }));
+  const posts = (await getCollection('posts')).sort((a, b) => +b.data.date - +a.data.date);
+  return posts.map((post, i) => ({
+    params: { id: post.id },
+    props: {
+      post,
+      newer: i > 0 ? posts[i - 1] : null,
+      older: i < posts.length - 1 ? posts[i + 1] : null,
+      related: posts.filter((p) => p.data.cat === post.data.cat && p.id !== post.id).slice(0, 3),
+    },
+  }));
 }
 
-const { post } = Astro.props;
+const { post, newer, older, related } = Astro.props;
 const { Content, headings } = await render(post);
 const toc = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
@@ -40,6 +48,34 @@ const CAT_SW: Record<string, string> = {
   </article>
   {post.data.iframe && (
     <iframe class="rd-frame" src={post.data.iframe} title={post.data.title}></iframe>
+  )}
+
+  <nav class="post-nav" aria-label="相邻文章">
+    {older ? (
+      <a href={`/posts/${older.id}/`}>
+        <span class="mono dir">← 较早</span>
+        <span class="pn-t">{older.data.title}</span>
+      </a>
+    ) : <span></span>}
+    {newer ? (
+      <a href={`/posts/${newer.id}/`} style="text-align:right;">
+        <span class="mono dir">较新 →</span>
+        <span class="pn-t">{newer.data.title}</span>
+      </a>
+    ) : <span></span>}
+  </nav>
+
+  {related.length > 0 && (
+    <section class="related">
+      <div class="mono rel-t">「{post.data.cat}」的更多文章</div>
+      {related.map((p) => (
+        <a class="post" href={`/posts/${p.id}/`}>
+          <span class="sw" style={`background:var(${CAT_SW[p.data.cat]});`}></span>
+          <span class="t">{p.data.title}</span>
+          <span class="d mono">{fmt(p.data.date)} · {p.data.mins} min</span>
+        </a>
+      ))}
+    </section>
   )}
 </main>
 </Base>
