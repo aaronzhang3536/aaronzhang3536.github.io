@@ -8,7 +8,8 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
+const toc = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
   '渲染管线': '--c-render', '引擎定制': '--c-engine', '角色技术': '--c-char',
@@ -24,6 +25,16 @@ const CAT_SW: Record<string, string> = {
     <a href={`/cat/${post.data.cat}/`}>{post.data.cat}</a>
     <span>{fmt(post.data.date)} · {post.data.mins} min</span>
   </div>
+  {toc.length >= 3 && (
+    <nav class="toc" aria-label="文章目录">
+      <div class="toc-t mono">目录 / CONTENTS</div>
+      <ul>
+        {toc.map((h) => (
+          <li class={`d${h.depth}`}><a href={`#${h.slug}`}>{h.text}</a></li>
+        ))}
+      </ul>
+    </nav>
+  )}
   <article class="md-body">
     <Content />
   </article>

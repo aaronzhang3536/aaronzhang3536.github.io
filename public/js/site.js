@@ -3557,6 +3557,59 @@
       }
     };
 
+    /* ---------- 阅读进度条（仅文章页） ---------- */
+    if (document.querySelector('.md-body')) {
+      var rpBar = document.createElement('div');
+      rpBar.id = 'read-progress';
+      document.body.appendChild(rpBar);
+      var rpTick = false;
+      window.addEventListener('scroll', function () {
+        if (rpTick) return;
+        rpTick = true;
+        requestAnimationFrame(function () {
+          var max = document.documentElement.scrollHeight - window.innerHeight;
+          rpBar.style.width = (max > 0 ? (window.scrollY / max * 100) : 0) + '%';
+          rpTick = false;
+        });
+      }, { passive: true });
+
+      /* 代码块复制按钮 */
+      document.querySelectorAll('.md-body pre').forEach(function (pre) {
+        var btn = document.createElement('button');
+        btn.className = 'code-copy mono';
+        btn.type = 'button';
+        btn.textContent = '复制';
+        btn.addEventListener('click', function () {
+          var code = pre.querySelector('code');
+          var txt = code ? code.textContent : pre.textContent;
+          function ok() {
+            btn.textContent = '✓ 已复制';
+            setTimeout(function () { btn.textContent = '复制'; }, 1400);
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(ok, ok);
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = txt;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (err) {}
+            ta.remove();
+            ok();
+          }
+        });
+        pre.appendChild(btn);
+      });
+
+      /* 站外链接新窗口打开 */
+      document.querySelectorAll('.md-body a[href^="http"]').forEach(function (a) {
+        if (a.hostname !== location.hostname) {
+          a.target = '_blank';
+          a.rel = 'noopener';
+        }
+      });
+    }
+
     /* ---------- 鼠标交互（仅精确指针设备） ---------- */
     var fine = window.matchMedia('(pointer: fine)').matches;
     if (!fine) return;
