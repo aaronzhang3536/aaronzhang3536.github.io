@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import { getCollection } from 'astro:content';
 const posts = (await getCollection('posts')).sort((a, b) => +b.data.date - +a.data.date);
+const latest = posts.slice(0, 5);
 const counts: Record<string, number> = {};
 for (const p of posts) counts[p.data.cat] = (counts[p.data.cat] || 0) + 1;
 const cnt = (c: string, empty = '筹备中') => (counts[c] ? `${counts[c]} 篇` : empty);
@@ -54,7 +55,7 @@ const CAT_SW: Record<string, string> = {
     <div class="sec-head">
       <h2 id="series">专栏</h2><span class="k mono">SERIES / 06</span>
       <span class="rule"></span>
-      <a class="more mono" href="#">全部 →</a>
+      <a class="more mono" href="/archive/">归档 →</a>
     </div>
     <div class="cols">
       <a class="col-card" href="/cat/渲染管线/">
@@ -100,10 +101,10 @@ const CAT_SW: Record<string, string> = {
     <div class="sec-head">
       <h2>最新文章</h2><span class="k mono">LATEST</span>
       <span class="rule"></span>
-      <a class="more mono" href="#">归档 →</a>
+      <a class="more mono" href="/archive/">全部 {posts.length} 篇 →</a>
     </div>
     <div class="posts">
-      {posts.map((p) => (
+      {latest.map((p) => (
         <a class="post" href={`/posts/${p.id}/`}>
           <span class="sw" style={`background:var(${CAT_SW[p.data.cat]});`}></span>
           <span class="t">{p.data.title}</span>
