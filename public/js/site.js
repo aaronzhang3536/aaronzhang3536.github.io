@@ -16,7 +16,9 @@
       snow:  SVG + '<path d="M8 1.8v12.4M2.6 4.9l10.8 6.2M13.4 4.9 2.6 11.1"/></svg>',
       sand:  SVG + '<path d="M1.6 4.6c2.4-1.6 4.8 1.6 7.2 0 1.2-.8 2.4-1 3.6-.4M1.6 8.2c2.4-1.6 4.8 1.6 7.2 0 1.2-.8 2.4-1 3.6-.4M1.6 11.8c2.4-1.6 4.8 1.6 7.2 0"/><circle cx="13.6" cy="8.6" r=".7" fill="currentColor" stroke="none"/><circle cx="12.6" cy="12.2" r=".7" fill="currentColor" stroke="none"/></svg>',
       clear: SVG + SUN + '</svg>',
-      off:   SVG + SUN + '<path d="M2 14 14 2"/></svg>'
+      off:   SVG + SUN + '<path d="M2 14 14 2"/></svg>',
+      snd:   SVG + '<path d="M2.5 6v4h2.8L9 13V3L5.3 6z"/><path d="M10.8 5.5a3.4 3.4 0 0 1 0 5M12.6 3.8a5.8 5.8 0 0 1 0 8.4"/></svg>',
+      sndoff: SVG + '<path d="M2.5 6v4h2.8L9 13V3L5.3 6z"/><path d="M11 6.5l3 3M14 6.5l-3 3"/></svg>'
     };
 
     var btnTheme = document.getElementById('btn-theme');
@@ -128,8 +130,10 @@
         case 'dark': setTheme('dark'); echo.textContent = 'Theme: Dark'; break;
         case 'light': setTheme('light'); echo.textContent = 'Theme: Light'; break;
         case 'lit': setTheme(lastLit); echo.textContent = 'Theme: ' + themeNames[lastLit]; break;
+        case 'sound on': if (!sndOn) sndToggle(); echo.textContent = '环境音已开启。'; break;
+        case 'sound off': if (sndOn) sndToggle(); echo.textContent = '环境音已关闭。'; break;
         case 'stat fps': echo.textContent = '60.2 FPS — 16.61 ms（稳如老狗）'; break;
-        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather rain|storm|… | bg on|off|next|<秒> | play arcade|tea|workout|idle|zen | stat fps | quit'; break;
+        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather rain|storm|… | bg on|off|next|<秒> | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
         case 'quit':
           if (pieMode) exitPie(false);
           else echo.textContent = '想得美。写完这周的博客再走。';
@@ -291,12 +295,149 @@
       var wl = '天气：' + wxNames[m] + '（点击切换）';
       btnWx.title = wl;
       btnWx.setAttribute('aria-label', wl);
+      sndSet(m);
       if (!silent) echo.textContent = '天气切换：' + wxNames[m];
     }
     btnWx.addEventListener('click', function () {
       var next = wxOrder[(wxOrder.indexOf(wxMode) + 1) % wxOrder.length];
       setWeather(next, true);
     });
+
+    /* ---------- 天气环境音（WebAudio 合成，无音频文件） ---------- */
+    var btnSnd = document.getElementById('btn-snd');
+    var sndOn = false;
+    try { sndOn = localStorage.getItem('yzzn-snd') === '1'; } catch (err) {}
+    var AC = null, sndNoise = null, sndStopFn = null, sndMode = 'clear';
+
+    function sndCtx() {
+      if (!AC) {
+        var A = window.AudioContext || window.webkitAudioContext;
+        AC = new A();
+        var len = AC.sampleRate * 2;
+        sndNoise = AC.createBuffer(1, len, AC.sampleRate);
+        var d = sndNoise.getChannelData(0);
+        for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      }
+      if (AC.state === 'suspended') AC.resume();
+      return AC;
+    }
+    function sndStop() {
+      if (sndStopFn) { try { sndStopFn(); } catch (err) {} sndStopFn = null; }
+    }
+    /* 每种天气一套合成配方：噪声源 + 滤波 + 缓慢 LFO */
+    function sndBuild(mode) {
+      sndStop();
+      if (mode === 'clear' || !sndOn) return;
+      var ctx = sndCtx();
+      var master = ctx.createGain();
+      master.gain.value = 0;
+      master.connect(ctx.destination);
+      master.gain.linearRampToValueAtTime(1, ctx.currentTime + 1.2);
+      var nodes = [master];
+      function layer(filterType, freq, q, gain) {
+        var src = ctx.createBufferSource();
+        src.buffer = sndNoise; src.loop = true;
+        var f = ctx.createBiquadFilter();
+        f.type = filterType; f.frequency.value = freq; f.Q.value = q;
+        var g = ctx.createGain(); g.gain.value = gain;
+        src.connect(f); f.connect(g); g.connect(master);
+        src.start();
+        nodes.push(src);
+        return { f: f, g: g };
+      }
+      function lfo(param, base, depth, hz) {
+        var o = ctx.createOscillator();
+        o.frequency.value = hz;
+        var og = ctx.createGain(); og.gain.value = depth;
+        param.value = base;
+        o.connect(og); og.connect(param);
+        o.start();
+        nodes.push(o);
+      }
+      if (mode === 'rain') {
+        layer('lowpass', 800, 0.7, 0.05);
+        layer('bandpass', 2400, 1.5, 0.012);          /* 高频雨点沙沙 */
+      } else if (mode === 'storm') {
+        layer('lowpass', 700, 0.7, 0.065);
+        var rumble = layer('lowpass', 120, 0.5, 0.05); /* 持续低频滚雷 */
+        lfo(rumble.g.gain, 0.04, 0.025, 0.11);
+      } else if (mode === 'wind') {
+        var w = layer('bandpass', 380, 0.6, 0.045);
+        lfo(w.f.frequency, 380, 220, 0.13);            /* 呼啸的音高起伏 */
+        lfo(w.g.gain, 0.04, 0.028, 0.17);
+      } else if (mode === 'snow') {
+        var s = layer('lowpass', 350, 0.5, 0.018);     /* 几乎无声的柔风 */
+        lfo(s.g.gain, 0.015, 0.008, 0.08);
+      } else if (mode === 'sand') {
+        var g1 = layer('bandpass', 950, 0.5, 0.05);
+        layer('bandpass', 2600, 0.8, 0.02);            /* 沙砾摩擦感 */
+        lfo(g1.f.frequency, 950, 350, 0.2);
+      }
+      sndStopFn = function () {
+        var t = ctx.currentTime;
+        master.gain.cancelScheduledValues(t);
+        master.gain.setValueAtTime(master.gain.value, t);
+        master.gain.linearRampToValueAtTime(0, t + 0.5);
+        setTimeout(function () {
+          nodes.forEach(function (n) {
+            try { if (n.stop) n.stop(); n.disconnect(); } catch (err) {}
+          });
+        }, 600);
+      };
+    }
+    function sndSet(mode) {
+      sndMode = mode;
+      if (sndOn && AC) sndBuild(mode);
+    }
+    /* 雷声：跟随闪电触发，条数越多越响，延迟模拟距离 */
+    function thunder(strikes) {
+      if (!sndOn || !AC) return;
+      var ctx = AC;
+      setTimeout(function () {
+        var src = ctx.createBufferSource();
+        src.buffer = sndNoise;
+        var f = ctx.createBiquadFilter();
+        f.type = 'lowpass'; f.Q.value = 0.6;
+        var g = ctx.createGain();
+        src.connect(f); f.connect(g); g.connect(ctx.destination);
+        var t = ctx.currentTime;
+        var peak = Math.min(0.16 + strikes * 0.05, 0.4);
+        f.frequency.setValueAtTime(420, t);
+        f.frequency.exponentialRampToValueAtTime(70, t + 2.4);
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(peak, t + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+        src.start(t);
+        src.stop(t + 2.8);
+      }, 250 + Math.random() * 1200);
+    }
+    function sndRefreshBtn() {
+      if (!btnSnd) return;
+      btnSnd.innerHTML = icons[sndOn ? 'snd' : 'sndoff'];
+      var st = '环境音：' + (sndOn ? '开' : '关') + '（点击切换）';
+      btnSnd.title = st;
+      btnSnd.setAttribute('aria-label', st);
+    }
+    function sndToggle() {
+      sndOn = !sndOn;
+      try { localStorage.setItem('yzzn-snd', sndOn ? '1' : '0'); } catch (err) {}
+      if (sndOn) { sndCtx(); sndBuild(sndMode); }
+      else sndStop();
+      sndRefreshBtn();
+    }
+    if (btnSnd) btnSnd.addEventListener('click', sndToggle);
+    sndRefreshBtn();
+    /* 上次开着音：等第一次交互手势后恢复（浏览器自动播放策略） */
+    if (sndOn) {
+      var sndArm = function () {
+        document.removeEventListener('pointerdown', sndArm);
+        document.removeEventListener('keydown', sndArm);
+        sndCtx();
+        sndBuild(sndMode);
+      };
+      document.addEventListener('pointerdown', sndArm);
+      document.addEventListener('keydown', sndArm);
+    }
 
     if (reduced) {
       btnWx.innerHTML = icons.off;
@@ -356,6 +497,7 @@
           if (wxMode === 'storm') {
             if (ts > nextBolt) {
               bolts = makeStrike(); boltAge = 0;
+              thunder(bolts.length);
               nextBolt = ts + 4500 + Math.random() * 8000;
             }
             if (bolts) {
