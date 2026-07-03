@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ghost of Yotei 环境漫反射光照技术总结</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+    <style>
+        :root { --bg:#1a1a2e; --surface:#16213e; --card:#0f3460; --accent:#e94560; --text:#eaeaea; --muted:#a0a0b0; --border:#2a2a4a; }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.8;padding:2rem 1rem}
+        .container{max-width:960px;margin:0 auto}
+        h1{font-size:2rem;color:var(--accent);margin-bottom:.5rem;border-bottom:2px solid var(--accent);padding-bottom:.5rem}
+        .meta{color:var(--muted);margin-bottom:2rem;font-size:.9rem}
+        h2{font-size:1.5rem;color:#53cfcf;margin:2.5rem 0 1rem;border-left:4px solid #53cfcf;padding-left:.75rem}
+        h3{font-size:1.15rem;color:#f0a500;margin:1.5rem 0 .5rem}
+        p,li{margin-bottom:.6rem}
+        ul,ol{padding-left:1.5rem;margin-bottom:1rem}
+        table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.9rem}
+        th,td{border:1px solid var(--border);padding:.5rem .75rem;text-align:left}
+        th{background:var(--card);color:#53cfcf}
+        tr:nth-child(even){background:var(--surface)}
+        .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.25rem;margin:1rem 0}
+        .pros{border-left:4px solid #4caf50}
+        .cons{border-left:4px solid var(--accent)}
+        a{color:#53cfcf;text-decoration:none}
+        a:hover{text-decoration:underline}
+        code{background:var(--card);padding:2px 6px;border-radius:3px;font-size:.85em}
+    </style>
+</head>
+<body><a href="/" style="position:fixed;left:14px;top:14px;z-index:9999;background:#151b21;color:#dbe3ea;border:1px solid #2a343e;padding:7px 14px;font:600 12px Consolas,monospace;text-decoration:none;border-radius:3px;">← 一帧之内</a>
+<div class="container">
+<h1>Ghost of Yotei — 环境漫反射光照技术详解</h1>
+<p class="meta">演讲者：Eric Wohllaib（Sucker Punch Productions 图形程序员）| GDC 演讲 | 147页</p>
+
+<h2>一、项目背景与挑战</h2>
+
+<h3>1.1 上一代《Ghost of Tsushima》方案回顾</h3>
+<ul>
+    <li><strong>世界级 probe 网格</strong> + <strong>手工放置的 tetrahedral mesh（四面体网格）</strong>用于精细区域</li>
+    <li>每个 probe 存储天空可见性（sky visibility）的球谐（SH）表示及反弹光照</li>
+    <li>通过 <strong>interior/exterior 标记</strong>防止漏光：内部 probe 影响内部表面，外部 probe 影响外部表面</li>
+</ul>
+
+<h3>1.2 续作面临的挑战</h3>
+<ol>
+    <li><strong>tetmesh 创作成本高</strong>：单建筑 5 小时到 2 天，村落最长 2 周；任何环境改动都需返工</li>
+    <li><strong>interior/exterior 标记繁琐</strong>：组件常跨内外使用，标错率高</li>
+    <li><strong>天空可见性 GI 不响应局部光源</strong>：内部光照大量靠手工放置 fill light</li>
+    <li><strong>首款 PS5 独占需上 RT</strong>：cutout 与顶点动画对 RT 性能不友好；目标基础 PS5 60Hz + 30Hz 光追模式，两模式视觉必须接近</li>
+</ol>
+
+<h2>二、用八叉树（Octree）替代 Tetmesh</h2>
+
+<h3>2.1 构建流程</h3>
+<ol>
+    <li>美术绘制定向包围盒（OBB）</li>
+    <li>切分为艺术家指定大小的八叉树根节点（示例 16m）</li>
+    <li>包含几何的节点递归细分至最小尺寸（示例 2m）</li>
+    <li>几何略微膨胀以保证细分够保守</li>
+    <li>每个节点的 8 个角点放置 ambient probe</li>
+</ol>
+
+<h3>2.2 嵌入几何的 Probe 处理</h3>
+<ul>
+    <li>烘焙时用<strong>双面渲染</strong>捕获 probe 周围的 G-Buffer（不翻转背面法线）</li>
+    <li>若大多数法线指向远离相机方向 → 判定 probe 嵌入几何 → 剔除</li>
+    <li>剔除后记录相邻 probe 列表，运行时混合邻居数据填充</li>
+</ul>
+
+<h3>2.3 八叉树插值（避免不连续）</h3>
+<ul>
+    <li><strong>同尺寸节点</strong>：trilinear 混合即可平滑过渡</li>
+    <li><strong>跨尺寸节点</strong>：逐渐 blend 到父节点；强制约束相邻节点尺寸差不超过一级</li>
+    <li>每节点位字段记录每面/边/角是否通向更大节点</li>
+    <li><strong>法线偏置</strong>：降低位于表面背后 probe 的权重，减少漏光</li>
+</ul>
+
+<h3>2.4 边缘混合与多八叉树</h3>
+<ul>
+    <li>八叉树边缘渐隐回退到全局 probe 网格</li>
+    <li>多八叉树重叠时取均值混合，便于拼出洞穴等不规则空间</li>
+</ul>
+
+<div class="card pros">
+<h3>2.5 收益</h3>
+<ul>
+    <li>创作时间从天/周降到分钟级</li>
+    <li>小改不需美术介入，自动每周重烘 2 次</li>
+    <li>大改只需调整包围盒尺寸</li>
+    <li>内存开销低，遍历性能合理</li>
+</ul>
+</div>
+
+<h2>三、Interior Masking 改进</h2>
+
+<h3>3.1 标记来源</h3>
+<ul>
+    <li>整对象标记、shader 参数、deferred decal、顶点画刷</li>
+    <li>动态对象运行时计算</li>
+</ul>
+
+<h3>3.2 Interior Volume Geometry（核心新工具）</h3>
+<p>美术作一层"建筑墙体内部的水密网格"，类似 stencil shadow 的体积技术：</p>
+<ol>
+    <li>绑定深度缓冲 + 全新模板缓冲区</li>
+    <li>双面渲染 volume 几何（不绑 RT），仅写模板</li>
+    <li>前面 fail depth → stencil +1；背面 fail depth → stencil −1</li>
+    <li>最终：stencil = 0 → 外部；stencil ≠ 0 → 内部</li>
+</ol>
+<p>支持非凸形状。门窗仍需 vertex paint 实现过渡混合。</p>
+
+<h3>3.3 动态对象（角色）</h3>
+<ul>
+    <li>CPU 端获取角色所在八叉树节点</li>
+    <li>每帧发一根物理射线测试 8 个 probe 可见性（一帧一根，缓存结果）</li>
+    <li>对可见 probe 做 trilinear 混合得到 mask；与上一帧再混合抑制 popping</li>
+</ul>
+
+<div class="card pros">
+<h3>优点</h3>
+<ul>
+    <li>薄墙友好（适合障子屏风）</li>
+    <li>灯光可标 interior/exterior 仅照对应表面</li>
+    <li>八叉树支持任意位置 interior 查询，可驱动风效、玩法</li>
+</ul>
+</div>
+<div class="card cons">
+<h3>缺点</h3>
+<ul>
+    <li>仅二值，相邻内部空间间无法防漏</li>
+    <li>标记仍重，美术工作量仍然可观</li>
+    <li>粒子、体积雾难以精确标记</li>
+</ul>
+</div>
+
+<h2>四、用 Octahedral G-Buffer 替代天空可见性</h2>
+
+<h3>4.1 动机</h3>
+<ul>
+    <li>天空可见性无法表达局部光源响应</li>
+    <li>与 RT 路径差异大，难以做到 RT/非 RT 视觉一致</li>
+</ul>
+
+<h3>4.2 数据结构</h3>
+<p>每个 probe 存一个 octahedral 小型 G-Buffer（八叉树 16×16，世界网格 8×8），BC7 压缩：</p>
+<table>
+    <tr><th>通道</th><th>大小</th></tr>
+    <tr><td>Albedo</td><td>3 字节</td></tr>
+    <tr><td>Translucency</td><td>0.5 字节</td></tr>
+    <tr><td>Normal</td><td>2 字节</td></tr>
+    <tr><td>Surface Distance</td><td>1 字节</td></tr>
+    <tr><td>Interior Mask</td><td>0.5 字节</td></tr>
+    <tr><td>Sky Visibility</td><td>1 字节</td></tr>
+</table>
+<p>Translucency 与 Interior Mask 共享一字节互斥编码：内部映射 $[0.5,1]$，外部 translucency 映射 $[0,0.5]$。</p>
+
+<h3>4.3 Relighting 流程</h3>
+<ul>
+    <li>每个 texel 视作真实表面：用 distance 重建世界空间位置，用材质数据照亮</li>
+    <li>方向光阴影：先采样阴影级联；若 texel 落在视锥外，回退到附近 probe 天空可见性方向值；缓存结果避免 popping</li>
+</ul>
+
+<h3>4.4 SH 转换：Texel 立体角加权</h3>
+<p>离线 Python 脚本将每个 texel 近似为两个三角面，按如下公式计算立体角作为 SH 累积权重：</p>
+<p>$$\Omega = 2\arctan\!\left(\frac{|\mathbf{a}\cdot(\mathbf{b}\times\mathbf{c})|}{1+\mathbf{a}\cdot\mathbf{b}+\mathbf{a}\cdot\mathbf{c}+\mathbf{b}\cdot\mathbf{c}}\right)$$</p>
+
+<h3>4.5 Probe 更新策略</h3>
+<ul>
+    <li>全更新太贵（最坏 12000 个）</li>
+    <li>采样时打标记；下帧更新超 1 帧未更新且被采样过的 probe，约 1200 个/帧</li>
+    <li>余量更新更老的 probe；相机切换或新加载强制全量 relight</li>
+</ul>
+
+<div class="card pros">
+<h3>收益</h3>
+<ul>
+    <li>响应局部光源</li>
+    <li>美术放灯所见即所得（烘焙几何/材质而非光照）</li>
+    <li>与 RT hit 着色路径几乎一致 → RT/非 RT 视觉对齐</li>
+</ul>
+</div>
+
+<h2>五、RTGI 增强</h2>
+
+<h3>5.1 RT 选项权衡</h3>
+<table>
+    <tr><th>选项</th><th>问题</th></tr>
+    <tr><td>RT 反射</td><td>古日本场景反射面少，性价比低</td></tr>
+    <tr><td>RT 阴影</td><td>顶点动画 + cutout 难匹配</td></tr>
+    <tr><td>RTAO</td><td>影响相对小</td></tr>
+    <tr><td><strong>RTGI</strong></td><td>对 BVH 与栅格化失配最容忍 → 选定方向</td></tr>
+</table>
+
+<h3>5.2 BVH 构建与内容</h3>
+<ul>
+    <li>CPU 剔除：复制一份基于 BVH 包围盒的剔除流程</li>
+    <li>GPU 剔除：最终迁移到 GPU，多耗内存但满足性能</li>
+    <li>仅纳入相机 20m 之外的 LOD；无 RT 专用几何</li>
+    <li><strong>包含</strong>：角色、动画布料、地形、大部分静态几何</li>
+    <li><strong>不包含</strong>：植被顶点动画、非角色 cutout、程序化草/实例、地形洞、水</li>
+    <li>程序化几何用 imposter 纹理烘到地形 diffuse 近似替代</li>
+</ul>
+
+<h3>5.3 内存挑战（约 380MB）</h3>
+<p>把最大渲染分辨率从 4K 降到 1728p，从渲染目标空隙中挤出空间：</p>
+<table>
+    <tr><th>用途</th><th>MB</th></tr>
+    <tr><td>BLAS 池</td><td>235</td></tr>
+    <tr><td>中间光照缓冲</td><td>32</td></tr>
+    <tr><td>Ray hits</td><td>32</td></tr>
+    <tr><td>漫反射材质数据（Swatch）</td><td>25</td></tr>
+    <tr><td>各类暂存</td><td>20</td></tr>
+    <tr><td>TLAS</td><td>16</td></tr>
+    <tr><td>Shadow rays</td><td>8</td></tr>
+    <tr><td>Instance Buffer</td><td>7.5</td></tr>
+    <tr><td>Screen Space Probes</td><td>3.5</td></tr>
+    <tr><td>SH 结果</td><td>1.75</td></tr>
+    <tr><td><strong>合计</strong></td><td><strong>~380</strong></td></tr>
+</table>
+
+<h3>5.4 Material Swatch 系统</h3>
+<p>灵感来自 Santa Monica Studio 的 Bryan McPhail。每个 swatch 是 32×32 mini-G-Buffer（albedo / translucency / alpha）。</p>
+<ul>
+    <li>渲染方法：调用常规 vertex shader，但用 UV 当作输出位置（摊平到 UV 空间）；启用保守光栅化确保亚像素三角形输出</li>
+    <li>像素着色器走正常 deferred 路径，保留层混合、UV 变换等复杂特性；渲染后 dilate 防止 bilinear 越界</li>
+    <li>每个 mesh+shader 组合共享一份 swatch；含方向相关特性的 shader 按实例独立烘焙</li>
+    <li>也用于角色 cutout（头发、帽子）</li>
+    <li>总量上限 5120 个，约 25MB；多数缓存命中，单 swatch 渲染数微秒</li>
+</ul>
+
+<h3>5.5 RTGI 七步流水线</h3>
+
+<p><strong>Step 1: Spawn Screen-Space Probes</strong></p>
+<ul>
+    <li>屏幕分 16×16 tile，每 tile 随机选 8×8 象限的一个像素生成 probe</li>
+    <li>其余象限与已有 probe 比较"覆盖度"（平面距离 + 法线差异），覆盖差则新增 probe</li>
+    <li>上限 32k 个；1440p 时每 tile 2–3 个</li>
+</ul>
+
+<p><strong>Step 2: Ray-Guided Sampling</strong></p>
+<ul>
+    <li>上一帧 octahedral irradiance map 作为采样指引（缺历史时用八叉树 octmap）</li>
+    <li>每 64 线程组：各线程对 texel luminance×N·L 做 InclusivePrefixSum → 随机数二分查找定位方向</li>
+</ul>
+
+<p><strong>Step 3: Cast Rays</strong></p>
+<ul>
+    <li>animated 表面增大最小 hit 距离避免自相交</li>
+    <li>每 probe 64 根，最大 4m；超出回退世界空间 probe</li>
+    <li>击中点超出阴影级联 → 入队 shadow ray</li>
+    <li>最坏约 200 万根/帧</li>
+</ul>
+
+<p><strong>Step 4: Light Rays</strong></p>
+<ul>
+    <li>Hit：从 swatch atlas 取漫反射 + 采样八叉树 → 等效 2 次反弹</li>
+    <li>Miss：回退到八叉树/网格 irradiance（采样位置取 probe 原点，非射线终点，防止漏光）</li>
+</ul>
+
+<p><strong>Step 5: Spatial Filter</strong></p>
+<ul>
+    <li>每 probe 搜索 7×7 tile 邻域相似 probe（49 线程一线程一 tile）</li>
+    <li>用 hit distance 重投影命中点位置；atomic 写回任意 texel 保留细节</li>
+</ul>
+
+<p><strong>Step 6: History Filter（Probe 级）</strong></p>
+<ul>
+    <li>与 AMD GI-1.0 [Boissé '22] 思路一致：$$w = \frac{|L_\text{cur}-L_\text{hist}|}{\max(L_\text{cur},L_\text{hist})}$$</li>
+    <li>用 lane intrinsics 在 probe 内对所有 texel 取平均 history weight，避免单 texel 噪声破坏整体历史</li>
+    <li>完成后转换为 SH</li>
+</ul>
+
+<p><strong>Step 7: Final Per-Pixel Evaluation</strong></p>
+<ul>
+    <li>屏幕分 8×8 tile，预算 min/max 深度，预判八叉树影响 + 是否需 RTGI</li>
+    <li>80m 内启用 RTGI；远处混入八叉树 SH</li>
+    <li>像素层做 luminance-delta 历史滤波；剩余噪声交给 FSR3 / PSSR</li>
+</ul>
+
+<h3>5.6 Edge-Case 多级回退</h3>
+<ol>
+    <li>像素无强相关 probe → 用线程组内任一 probe（均匀但不精确）</li>
+    <li>完全无 probe → 上一帧结果</li>
+    <li>也无历史（disocclusion） → lane intrinsics 取线程组内其他像素均值</li>
+    <li>全 group 无效 → 输出黑色</li>
+</ol>
+
+<h3>5.7 透明物 / 头发特例</h3>
+<ul>
+    <li>透明物（粒子、体积雾、头发）无表面让屏幕空间 probe 落脚 → 回退到八叉树/网格</li>
+    <li>头发问题：开 RTGI 后帽檐变暗但头发未变，相对偏亮显灰</li>
+    <li><strong>解决</strong>：从角色头部内部向各方向发射 0.5m 短射线，忽略背面，命中累积成 SH 遮蔽函数；与头发用的 ambient SH 相乘得到匹配整体的暗化</li>
+</ul>
+
+<h2>六、性能数据（1440p）</h2>
+<table>
+    <tr><th>阶段</th><th>PS5 Pro 60Hz (ms)</th><th>PS5 30Hz (ms)</th></tr>
+    <tr><td>Spawn Probes</td><td>0.17</td><td>0.23</td></tr>
+    <tr><td>Choose Rays</td><td>0.22</td><td>0.36</td></tr>
+    <tr><td>Cast Rays</td><td>1.08</td><td>3.32</td></tr>
+    <tr><td>Cast Shadow Rays</td><td>0.03</td><td>0.07</td></tr>
+    <tr><td>Light Rays</td><td>0.45</td><td>0.75</td></tr>
+    <tr><td>Filter Probes</td><td>0.37</td><td>0.57</td></tr>
+    <tr><td>Evaluate Per Pixel</td><td>0.38</td><td>0.80</td></tr>
+    <tr><td><strong>Total</strong></td><td><strong>2.78</strong></td><td><strong>6.12</strong></td></tr>
+</table>
+<p>每帧约发射 140 万根 ray。</p>
+
+<h2>七、总体收益与未来方向</h2>
+<ul>
+    <li><strong>八叉树</strong>取代 tetmesh，光照美术工时减少数量级</li>
+    <li><strong>Interior Volume Geometry</strong> 将大部分 interior/exterior 标记自动化</li>
+    <li><strong>Octahedral G-Buffer Probe</strong> 让 ambient diffuse 响应局部光源、与 RT 视觉一致</li>
+    <li><strong>RTGI</strong> 在内存与性能受限下落地，强化过场与光追模式画面质量</li>
+</ul>
+<p>未来希望改进：CPU/GPU 剔除路径合并、GPU 剔除几何的 swatch 唯一化、程序化几何的随机体积式 RT 表达、地形洞 cutout、多 interior 之间的漏光防护。</p>
+
+<h2>八、参考资料</h2>
+<ul>
+    <li><a href="https://www.youtube.com/watch?v=GOee6lcEbWg">Jasmin Patry — Real-Time Samurai Cinema: Lighting, Atmosphere, and Tonemapping in Ghost of Tsushima (SIGGRAPH 2021)</a></li>
+    <li><a href="https://gdcvault.com/play/1027011/Advanced-Graphics-Summit-Lifting-the">Bruce Woodard — Lifting the Fog: Geometry & Lighting in Demon's Souls (GDC)</a></li>
+    <li><a href="https://jcgt.org/published/0003/02/01/">Survey of Efficient Representations for Independent Unit Vectors (JCGT 2014)</a></li>
+    <li><a href="https://gpuopen.com/download/GPUOpen2022_GI1_0.pdf">GI-1.0: A Fast Scalable Two-Level Radiance Caching Scheme for Real-Time GI (AMD GPUOpen 2022)</a></li>
+</ul>
+
+<hr style="margin-top:3rem;border-color:var(--border)">
+<p style="color:var(--muted);font-size:.8rem;margin-top:1rem">整理自 Eric Wohllaib GDC 演讲 PDF（147页）。本文档仅作技术学习总结用途。</p>
+
+</div>
+</body>
+</html>

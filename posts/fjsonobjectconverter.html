@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FJsonObjectConverter 深度技术分析 · 一帧之内</title>
+<style>
+  :root {
+    --bg:#101418; --surface:#151b21; --surface2:#1b232b; --line:#2a343e;
+    --ink:#dbe3ea; --ink2:#7f8d9a; --accent:#ff8a1e;
+    --c-render:#d96a60; --c-engine:#58aa72; --c-char:#6b99d8; --c-tool:#cfa23a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#eceff1; --surface:#f7f9fa; --surface2:#e2e7ea; --line:#c8d1d8;
+      --ink:#1a232c; --ink2:#5c6b78; --accent:#d2650a;
+      --c-render:#bd4a41; --c-engine:#2f7f4c; --c-char:#3a6cb2; --c-tool:#a07a14;
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",sans-serif;
+    font-size:16px; line-height:1.85; -webkit-font-smoothing:antialiased;
+  }
+  .mono, code, pre { font-family:"JetBrains Mono",Consolas,"SF Mono",ui-monospace,monospace; }
+  .wrap { max-width:820px; margin:0 auto; padding:0 24px 80px; }
+  .top {
+    position:sticky; top:0; background:var(--bg); z-index:10;
+    border-bottom:1px solid var(--line); padding:13px 0; margin-bottom:40px;
+    display:flex; align-items:center; gap:16px; font-size:13px;
+  }
+  .top a { color:var(--ink2); text-decoration:none; letter-spacing:0.08em; }
+  .top a:hover { color:var(--accent); }
+  h1.post-title { font-size:clamp(26px,4.5vw,36px); line-height:1.3; margin:0 0 10px; font-weight:800; }
+  .meta { display:flex; align-items:center; gap:12px; font-size:12.5px; color:var(--ink2); margin-bottom:44px; }
+  .meta .sw { width:9px; height:9px; background:var(--c-engine); display:inline-block; }
+  article h1 { font-size:24px; margin-top:2em; }
+  article h2 { font-size:21px; margin-top:2em; padding-top:0.8em; border-top:1px solid var(--line); }
+  article h3 { font-size:17px; margin-top:1.6em; }
+  article a { color:var(--accent); text-decoration:none; }
+  article a:hover { text-decoration:underline; }
+  article code {
+    background:var(--surface2); border:1px solid var(--line);
+    padding:1px 6px; font-size:0.86em; border-radius:2px;
+  }
+  article pre {
+    background:var(--surface); border:1px solid var(--line);
+    padding:16px 18px; overflow-x:auto; font-size:13px; line-height:1.7;
+  }
+  article pre code { background:none; border:0; padding:0; }
+  article blockquote {
+    margin:1.2em 0; padding:2px 20px; color:var(--ink2);
+    border-left:3px solid var(--accent); background:var(--surface);
+  }
+  article table { border-collapse:collapse; width:100%; font-size:14px; display:block; overflow-x:auto; }
+  article th, article td { border:1px solid var(--line); padding:7px 12px; text-align:left; }
+  article th { background:var(--surface2); }
+  article hr { border:0; border-top:1px solid var(--line); margin:2.2em 0; }
+  footer { margin-top:70px; padding-top:22px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink2); }
+  footer a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top mono"><a href="/">← 一帧之内</a></div>
+  <h1 class="post-title">FJsonObjectConverter 深度技术分析</h1>
+  <div class="meta mono"><span class="sw"></span><span>引擎定制</span><span>2026-04-02</span></div>
+  <article>
+<blockquote>
+<p>基于 UE 5.7 引擎源码逐行分析 + 权威网络资源 + 项目实际状况的完整技术评估。</p>
+<p>分析日期：2026-03-26</p>
+</blockquote>
+<hr />
+<h2 id="_1">一、概述</h2>
+<p><code>FJsonObjectConverter</code> 是 UE 引擎 <code>JsonUtilities</code> 模块中的核心类，提供 <strong>USTRUCT/UObject 与 JSON 之间的自动双向序列化</strong>。它基于 UE 反射系统（<code>FProperty</code> / <code>TFieldIterator</code>）自动遍历结构体的所有属性，无需手动编写每个字段的序列化代码。</p>
+<ul>
+<li><strong>所在模块</strong>: <code>Engine/Source/Runtime/JsonUtilities</code></li>
+<li><strong>头文件</strong>: <code>JsonObjectConverter.h</code></li>
+<li><strong>关联文件</strong>: <code>JsonObjectStructInterface.h</code>（静态接口注册）、<code>JsonObjectWrapper.h</code>（JSON 透传结构体）</li>
+</ul>
+<hr />
+<h2 id="api">二、核心 API 架构</h2>
+<h3 id="21-ustruct-json">2.1 导出方向（UStruct → JSON）</h3>
+<table>
+<thead>
+<tr>
+<th>API</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>UStructToJsonObject&lt;T&gt;(InStruct)</code></td>
+<td>模板版，自动推导 <code>StaticStruct</code>，返回 <code>TSharedPtr&lt;FJsonObject&gt;</code></td>
+</tr>
+<tr>
+<td><code>UStructToJsonObject(UStruct*, void*, TSharedRef&lt;FJsonObject&gt;)</code></td>
+<td>非模板版，接受任意 UStruct 定义</td>
+</tr>
+<tr>
+<td><code>UStructToJsonObjectString(...)</code></td>
+<td>直接输出 JSON 字符串，支持 PrettyPrint / Condensed</td>
+</tr>
+<tr>
+<td><code>UStructToFormattedJsonObjectString&lt;CharType, PrintPolicy&gt;</code></td>
+<td>自定义输出策略的模板版</td>
+</tr>
+<tr>
+<td><code>UStructToJsonAttributes(...)</code></td>
+<td>输出到 <code>TMap&lt;FString, TSharedPtr&lt;FJsonValue&gt;&gt;</code> 属性表</td>
+</tr>
+<tr>
+<td><code>UPropertyToJsonValue(...)</code></td>
+<td>单个属性级别的转换</td>
+</tr>
+</tbody>
+</table>
+<h3 id="22-json-ustruct">2.2 导入方向（JSON → UStruct）</h3>
+<table>
+<thead>
+<tr>
+<th>API</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>JsonObjectToUStruct&lt;T&gt;(JsonObject, OutStruct)</code></td>
+<td>模板版，自动推导 <code>StaticStruct</code> / <code>StaticClass</code></td>
+</tr>
+<tr>
+<td><code>JsonObjectStringToUStruct&lt;T&gt;(JsonString, OutStruct)</code></td>
+<td>从 JSON 字符串直接反序列化</td>
+</tr>
+<tr>
+<td><code>JsonArrayStringToUStruct&lt;T&gt;(JsonString, TArray&lt;T&gt;*)</code></td>
+<td>JSON 数组 → <code>TArray</code></td>
+</tr>
+<tr>
+<td><code>JsonArrayToUStruct&lt;T&gt;(JsonArray, TArray&lt;T&gt;*)</code></td>
+<td><code>TArray&lt;FJsonValue&gt;</code> → <code>TArray&lt;T&gt;</code></td>
+</tr>
+<tr>
+<td><code>JsonAttributesToUStruct(...)</code></td>
+<td>从属性表直接导入</td>
+</tr>
+<tr>
+<td><code>JsonValueToUProperty(...)</code></td>
+<td>单个属性级别导入</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23">2.3 自定义回调机制</h3>
+<pre><code class="language-cpp">// 导出回调 — 优先级最高，返回有效值则跳过默认逻辑
+using CustomExportCallback = TDelegate&lt;TSharedPtr&lt;FJsonValue&gt;(FProperty* Property, const void* Value)&gt;;
+
+// 导入回调 — 返回 true 表示已处理，false 回退到默认
+using CustomImportCallback = TDelegate&lt;bool(const TSharedPtr&lt;FJsonValue&gt;&amp; JsonValue, FProperty* Property, void* Value)&gt;;
+</code></pre>
+<p>引擎内置了一个导出回调实例：</p>
+<pre><code class="language-cpp">// 将 FDateTime 输出为 ISO8601 格式字符串
+static const CustomExportCallback ExportCallback_WriteISO8601Dates;
+</code></pre>
+<p>其实现：</p>
+<pre><code class="language-cpp">const FJsonObjectConverter::CustomExportCallback FJsonObjectConverter::ExportCallback_WriteISO8601Dates =
+    FJsonObjectConverter::CustomExportCallback::CreateLambda(
+        [](FProperty* Prop, const void* Data) -&gt; TSharedPtr&lt;FJsonValue&gt;
+        {
+            if (FStructProperty* StructProperty = CastField&lt;FStructProperty&gt;(Prop))
+            {
+                checkSlow(StructProperty-&gt;Struct);
+                if (StructProperty-&gt;Struct-&gt;GetFName() == NAME_DateTime)
+                {
+                    return MakeShared&lt;FJsonValueString&gt;(static_cast&lt;const FDateTime*&gt;(Data)-&gt;ToIso8601());
+                }
+            }
+            return {};
+        });
+</code></pre>
+<hr />
+<h2 id="_2">三、类型处理策略（源码实现分析）</h2>
+<h3 id="31">3.1 导出时的类型分派优先级</h3>
+<p>源码 <code>ConvertScalarFPropertyToJsonValueWithContainer</code> 中的处理顺序：</p>
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>类型</th>
+<th>JSON 输出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><strong>CustomExportCallback</strong></td>
+<td>用户自定义（最高优先级）</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>FEnumProperty</code></td>
+<td><code>FJsonValueString</code>（枚举名字符串）</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>FNumericProperty</code> + Enum</td>
+<td><code>FJsonValueString</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>FNumericProperty</code>（float）</td>
+<td><code>FJsonValueNumber</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>FNumericProperty</code>（int）</td>
+<td><code>FJsonValueNumber</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>FBoolProperty</code></td>
+<td><code>FJsonValueBoolean</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>FStrProperty</code></td>
+<td><code>FJsonValueString</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>FTextProperty</code></td>
+<td><code>FJsonValueString</code>（简单/复杂格式可控）</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>FArrayProperty</code></td>
+<td><code>FJsonValueArray</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>FSetProperty</code></td>
+<td><code>FJsonValueArray</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>FMapProperty</code></td>
+<td><code>FJsonValueObject</code>（Key→String, Value→JsonValue）</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>FStructProperty</code></td>
+<td>先查 <code>IJsonObjectStructConverter</code>，再查 <code>ExportTextItem</code>，最后递归展开</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>FObjectProperty</code></td>
+<td>Instanced 对象按值导出（含 <code>_ClassName</code>），其余按引用路径字符串</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>FOptionalProperty</code></td>
+<td>有值则递归内部类型，无值则 <code>FJsonValueNull</code></td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>FByteProperty</code></td>
+<td><code>FJsonValueNumber</code></td>
+</tr>
+<tr>
+<td>15</td>
+<td>其它</td>
+<td><code>ExportTextItem_Direct</code> → 字符串 fallback</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32">3.2 导入时的特殊类型处理</h3>
+<ul>
+<li><strong>FColor / FLinearColor</strong>: 支持从 hex 字符串直接解析（如 <code>"#FF0000FF"</code>）</li>
+<li><strong>FDateTime</strong>: 支持 <code>"min"</code>, <code>"max"</code>, <code>"now"</code> 关键字 + ISO8601 格式 + 通用 <code>FDateTime::Parse</code></li>
+<li><strong>FText</strong>: 支持从字符串（含 <code>NSLOCTEXT</code> 复杂格式）和多语言 JSON 对象（<code>{"en":"Hello","zh":"你好"}</code>）导入</li>
+<li><strong>FObjectProperty</strong>: 从 JSON Object 导入时，读取 <code>_ClassName</code> 字段来动态构造正确的子类实例（<code>StaticAllocateObject</code>）</li>
+<li><strong>Integer 从字符串</strong>: 使用 <code>FCString::Atoi64</code> 避免 double 精度丢失</li>
+</ul>
+<h3 id="33">3.3 属性过滤机制</h3>
+<pre><code class="language-cpp">// 默认跳过标记
+SkipFlags |= CPF_Deprecated | CPF_Transient;
+
+// 可选 unset 的 Optional 属性在导出时自动跳过
+if (const FOptionalProperty* Opt = CastField&lt;FOptionalProperty&gt;(Property))
+    if (!Opt-&gt;IsSet(Value)) continue;
+</code></pre>
+<ul>
+<li><code>CheckFlags</code>: 只转换匹配至少一个 flag 的属性（0 = 全部）</li>
+<li><code>SkipFlags</code>: 跳过匹配任一 flag 的属性</li>
+<li>支持 <code>bStrictMode</code>: 严格模式下缺少/多余字段会报错</li>
+</ul>
+<hr />
+<h2 id="_3">四、高级扩展机制</h2>
+<h3 id="41-ijsonobjectstructconverter">4.1 IJsonObjectStructConverter 静态接口注册</h3>
+<p>UE 5.7 引入了 <code>FJsonObjectStructInterfaceRegistry</code>，允许为特定 <code>UScriptStruct</code> 注册自定义转换器，<strong>绕过默认的反射遍历</strong>：</p>
+<pre><code class="language-cpp">// 你的结构体需要实现两个方法：
+struct FMyCustomStruct
+{
+    EJsonObjectConvertResult ConvertToJson(TSharedPtr&lt;FJsonObject&gt;&amp; OutJsonObject) const;
+    EJsonObjectConvertResult ConvertFromJson(const TSharedPtr&lt;FJsonObject&gt;&amp; InJsonObject);
+};
+
+// 模块启动时注册
+void FMyModule::StartupModule()
+{
+    static const TImplementsJsonObjectStructConverter&lt;FMyCustomStruct&gt; Converter;
+    FJsonObjectStructInterfaceRegistry::RegisterStructConverter(
+        FMyCustomStruct::StaticStruct(), &amp;Converter);
+}
+
+// 模块关闭时注销
+void FMyModule::ShutdownModule()
+{
+    FJsonObjectStructInterfaceRegistry::UnregisterStructConverter(FMyCustomStruct::StaticStruct());
+}
+</code></pre>
+<p>返回值语义：</p>
+<table>
+<thead>
+<tr>
+<th><code>EJsonObjectConvertResult</code></th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>UseDefaultConverter</code></td>
+<td>放弃自定义，回退默认反射</td>
+</tr>
+<tr>
+<td><code>FailAndAbort</code></td>
+<td>失败，终止整棵转换树</td>
+</tr>
+<tr>
+<td><code>IgnoreAndContinue</code></td>
+<td>输出空对象 <code>{}</code>，但不失败</td>
+</tr>
+<tr>
+<td><code>Converted</code></td>
+<td>自定义转换成功</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42-fjsonobjectwrapper">4.2 FJsonObjectWrapper 透传</h3>
+<p><code>FJsonObjectWrapper</code> 是一个特殊的 USTRUCT，内部持有 <code>TSharedPtr&lt;FJsonObject&gt;</code>。当 <code>FJsonObjectConverter</code> 遇到这个类型时：</p>
+<ul>
+<li><strong>导出</strong>: 直接复制 <code>JsonObject-&gt;Values</code> 到输出</li>
+<li><strong>导入</strong>: 直接将输入的 JSON 属性赋给 <code>JsonObject-&gt;Values</code></li>
+</ul>
+<p>这提供了一个"JSON 透传"通道，适合存储半结构化数据。</p>
+<pre><code class="language-cpp">// FJsonObjectWrapper 定义（JsonObjectWrapper.h）
+USTRUCT(BlueprintType, meta = (DisplayName = &quot;JsonObject&quot;))
+struct FJsonObjectWrapper
+{
+    GENERATED_USTRUCT_BODY()
+
+    UPROPERTY(EditAnywhere, Category = &quot;JSON&quot;)
+    FString JsonString;
+
+    TSharedPtr&lt;FJsonObject&gt; JsonObject;
+
+    bool ImportTextItem(const TCHAR*&amp; Buffer, int32 PortFlags, UObject* Parent, FOutputDevice* ErrorText);
+    bool ExportTextItem(FString&amp; ValueStr, FJsonObjectWrapper const&amp; DefaultValue, UObject* Parent, int32 PortFlags, UObject* ExportRootScope) const;
+    void PostSerialize(const FArchive&amp; Ar);
+    bool JsonObjectToString(FString&amp; Str) const;
+    bool JsonObjectFromString(const FString&amp; Str);
+};
+</code></pre>
+<h3 id="43-standardizecase">4.3 StandardizeCase</h3>
+<p>默认行为会将属性名首字母小写化，并将 <code>ID</code> 替换为 <code>Id</code>。可通过 <code>EJsonObjectConversionFlags::SkipStandardizeCase</code> 关闭。</p>
+<pre><code class="language-cpp">FString FJsonObjectConverter::StandardizeCase(const FString &amp;StringIn)
+{
+    FString FixedString = StringIn;
+    FixedString[0] = FChar::ToLower(FixedString[0]);
+    FixedString.ReplaceInline(TEXT(&quot;ID&quot;), TEXT(&quot;Id&quot;), ESearchCase::CaseSensitive);
+    return FixedString;
+}
+</code></pre>
+<hr />
+<h2 id="ejsonobjectconversionflags">五、EJsonObjectConversionFlags</h2>
+<pre><code class="language-cpp">enum class EJsonObjectConversionFlags
+{
+    None = 0,
+    SkipStandardizeCase              = 1 &lt;&lt; 0,  // 保留属性名原始大小写
+    WriteTextAsComplexString         = 1 &lt;&lt; 1,  // FText 以 NSLOCTEXT(...) 格式导出（本地化必需）
+    SuppressClassNameForPersistentObject = 1 &lt;&lt; 2,  // 不写 _ClassName（纯输出场景）
+};
+</code></pre>
+<hr />
+<h2 id="uobject-instanced-subobjects">六、UObject 实例化序列化（Instanced Subobjects）</h2>
+<p>当 <code>FObjectProperty</code> 带有 <code>CPF_PersistentInstance</code> 标记（即 <code>UPROPERTY(Instanced)</code>）或对象在 Container 的 Outer 链中时：</p>
+<p><strong>导出</strong>:
+1. 写入 <code>_ClassName</code> 字段（除非 <code>SuppressClassNameForPersistentObject</code>）
+2. 递归导出对象的所有属性
+3. 使用 <code>ExportedObjects</code> 集合跟踪已导出对象，防止循环引用</p>
+<p><strong>导入</strong>:
+1. 读取 <code>_ClassName</code> 字段确定实际类
+2. 通过 <code>StaticAllocateObject</code> + <code>ClassConstructor</code> 动态创建实例
+3. 递归填充属性</p>
+<p><strong>限制</strong>: 创建对象的 Outer 是 <code>GetTransientPackage()</code>（如果无 Container），生命周期需要调用者管理。</p>
+<hr />
+<h2 id="_4">七、性能特征分析</h2>
+<h3 id="71">7.1 开销来源</h3>
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>开销</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TFieldIterator</code> 反射遍历</td>
+<td>O(N) 属性数量，每次调用都遍历</td>
+</tr>
+<tr>
+<td><code>CastField&lt;&gt;</code> 类型判断</td>
+<td>线性 if-else 链（~15 种类型）</td>
+</tr>
+<tr>
+<td><code>StandardizeCase</code></td>
+<td>每个属性名一次字符串操作</td>
+</tr>
+<tr>
+<td><code>FString</code> 分配</td>
+<td>JSON key/value 大量字符串堆分配</td>
+</tr>
+<tr>
+<td><code>TSharedPtr&lt;FJsonValue&gt;</code></td>
+<td>每个值一次堆分配 + 引用计数</td>
+</tr>
+<tr>
+<td>递归嵌套</td>
+<td>深层结构递归调用，栈深度与嵌套层级成正比</td>
+</tr>
+</tbody>
+</table>
+<h3 id="72">7.2 性能建议</h3>
+<ul>
+<li><strong>不适合热路径（Tick/每帧）</strong>: 反射遍历 + 大量堆分配，不适合高频调用</li>
+<li><strong>适合低频场景</strong>: 配置加载、存档读写、REST API 通信、编辑器工具</li>
+<li><strong>大数据量优化</strong>: 考虑 <code>CustomExportCallback</code> 跳过不需要的字段</li>
+<li><strong>替代方案</strong>: 高性能场景用 <code>FArchive</code> 二进制序列化或 <code>FStructuredArchive</code></li>
+</ul>
+<hr />
+<h2 id="json">八、与其他 JSON 方案的对比</h2>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>自动化程度</th>
+<th>性能</th>
+<th>灵活性</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>FJsonObjectConverter</strong></td>
+<td>全自动（反射驱动）</td>
+<td>中等</td>
+<td>高（回调扩展）</td>
+<td>USTRUCT 配置、存档、API</td>
+</tr>
+<tr>
+<td><strong>FJsonObject 手动构建</strong></td>
+<td>全手动</td>
+<td>最优</td>
+<td>最高</td>
+<td>精确控制输出格式</td>
+</tr>
+<tr>
+<td><strong>FJsonSerializer</strong></td>
+<td>底层解析/写入</td>
+<td>高</td>
+<td>底层</td>
+<td>JSON 字符串 ↔ FJsonObject</td>
+</tr>
+<tr>
+<td><strong>FJsonReader（SAX）</strong></td>
+<td>底层流式</td>
+<td>最优（内存）</td>
+<td>底层</td>
+<td>MB 级大文件解析</td>
+</tr>
+<tr>
+<td><strong>FJsonDomBuilder</strong></td>
+<td>Builder 模式</td>
+<td>高</td>
+<td>中</td>
+<td>程序化构建 JSON</td>
+</tr>
+<tr>
+<td><strong>FStructuredArchive</strong></td>
+<td>中等</td>
+<td>高</td>
+<td>中</td>
+<td>通用序列化（非 JSON 专用）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>何时选择 FJsonObjectConverter</strong>:
+- 拥有 USTRUCT 且其结构与 JSON Schema 一一对应
+- 需要一行代码完成转换
+- 覆盖约 80% 的用例（配置文件、HTTP API、存档数据）</p>
+<p><strong>何时选择 FJsonSerializer + FJsonObject</strong>:
+- JSON Schema 与 USTRUCT 不完全匹配
+- 需要在序列化前检查/修改字段
+- 处理动态/未知结构的 JSON</p>
+<p><strong>组合使用</strong>:</p>
+<pre><code class="language-cpp">// 1. 字符串 → FJsonObject（FJsonSerializer）
+TSharedPtr&lt;FJsonObject&gt; JsonObj;
+TSharedRef&lt;TJsonReader&lt;&gt;&gt; Reader = TJsonReaderFactory&lt;&gt;::Create(JsonString);
+FJsonSerializer::Deserialize(Reader, JsonObj);
+
+// 2. 中间操作（手动修改字段）
+JsonObj-&gt;SetStringField(TEXT(&quot;ExtraField&quot;), TEXT(&quot;value&quot;));
+
+// 3. FJsonObject → USTRUCT（FJsonObjectConverter）
+FMyStruct Result;
+FJsonObjectConverter::JsonObjectToUStruct(JsonObj.ToSharedRef(), &amp;Result);
+</code></pre>
+<hr />
+<h2 id="_5">九、实际应用场景与前景</h2>
+<h3 id="91">9.1 典型应用</h3>
+<ol>
+<li><strong>游戏配置/数据表</strong>: USTRUCT 定义的配置数据与 JSON 文件互转</li>
+<li><strong>REST API 通信</strong>: HTTP 请求/响应体的自动序列化</li>
+<li><strong>存档系统</strong>: 玩家存档的 JSON 格式持久化</li>
+<li><strong>编辑器工具</strong>: 蓝图/编辑器数据的 JSON 导入导出</li>
+<li><strong>调试输出</strong>: 快速将任意 USTRUCT 转为可读 JSON 字符串</li>
+</ol>
+<h3 id="92-actionrpg">9.2 在 ActionRPG 项目中的潜在应用</h3>
+<ul>
+<li><strong>技能/属性配置</strong>: GAS 相关的 <code>URPGAttributeSet</code> 或技能参数可 JSON 化管理</li>
+<li><strong>AI 配置</strong>: <code>FTKAIMessage</code> 等 AI 消息结构的序列化</li>
+<li><strong>存档系统</strong>: 玩家进度、装备、属性的 JSON 存储</li>
+<li><strong>远程调试</strong>: 运行时状态快照导出为 JSON</li>
+</ul>
+<h3 id="93">9.3 技术趋势</h3>
+<ul>
+<li>UE 5.7 新增的 <code>IJsonObjectStructConverter</code> 静态接口注册表明 Epic 在持续增强此方案的可扩展性</li>
+<li><code>FOptionalProperty</code> 支持（UE 5.4+）表明与 C++ 新特性保持同步</li>
+<li><code>EJsonObjectConversionFlags</code> 的持续扩展为不同场景提供精细控制</li>
+<li><code>FJsonObjectWrapper</code> 为半结构化数据提供了 "Schema-on-Read" 能力</li>
+</ul>
+<hr />
+<h2 id="_6">十、已知限制与注意事项</h2>
+<h3 id="101">10.1 通用限制</h3>
+<ol>
+<li><strong>Map Key 必须可转为 String</strong>: JSON 对象的 Key 只能是字符串，非字符串 Key 会通过 <code>ExportTextItem</code> fallback</li>
+<li><strong>int64 精度</strong>: 导出为 <code>FJsonValueNumber</code>（double），超过 2^53 的 int64 会丢精度；导入时字符串格式 int64 会用 <code>Atoi64</code> 保留精度</li>
+<li><strong>循环引用</strong>: 通过 <code>ExportedObjects</code> 集合追踪防止无限递归，但仅限同一转换树</li>
+<li><strong>UObject 生命周期</strong>: 导入时动态创建的对象 Outer 为 <code>TransientPackage</code>，需要手动管理</li>
+<li><strong>属性名大小写</strong>: 默认 <code>StandardizeCase</code> 会修改输出名（首字母小写、ID→Id），可能与外部 API 不兼容</li>
+<li><strong>无 Schema 验证</strong>: 非严格模式下缺少字段静默跳过，可能导致数据不完整</li>
+<li><strong>非线程安全</strong>: 反射系统本身非线程安全，不要在多线程中并发使用</li>
+<li><strong>嵌套容器不支持</strong>: UE 不支持嵌套容器属性（如 <code>TArray&lt;TArray&lt;int32&gt;&gt;</code>），<code>FJsonObjectConverter</code> 继承此限制</li>
+<li><strong>无多态 Struct 支持</strong>: 基类 struct 指针使用声明的静态类型，非运行时派生类型</li>
+</ol>
+<h3 id="102-bug">10.2 已知引擎 Bug</h3>
+<p><strong>UE-230676: TMap\&lt;FString, UStruct&gt; 反序列化数据错误</strong></p>
+<p>当 TMap 的 Value 是 USTRUCT 时，反序列化时 diff 对比使用的是零初始化的成员而非正确的默认构造实例，导致数值属性被错误覆盖。</p>
+<p><strong>规避方案</strong>: 将 <code>TMap&lt;FString, FMyStruct&gt;</code> 替换为 <code>TArray&lt;FMyPairStruct&gt;</code>：</p>
+<pre><code class="language-cpp">USTRUCT()
+struct FMyPairStruct
+{
+    GENERATED_BODY()
+
+    UPROPERTY()
+    FString Key;
+
+    UPROPERTY()
+    FMyStruct Value;
+};
+</code></pre>
+<h3 id="103">10.3 属性名变换陷阱</h3>
+<p><code>StandardizeCase</code> 默认行为会：
+- 将属性名首字母变为小写（<code>MyProperty</code> → <code>myProperty</code>）
+- 将 <code>ID</code> 替换为 <code>Id</code>（<code>PlayerID</code> → <code>playerId</code>）</p>
+<p>与外部 API 对接时可能导致字段不匹配。解决方案：使用 <code>SkipStandardizeCase</code> flag，或在模板版 API 不支持 flags 时使用非模板版本手动传入。</p>
+<h3 id="104-float">10.4 float 精度问题</h3>
+<p>浮点数序列化到 JSON 时使用 <code>double</code> 表示，<code>float</code> 值如 <code>1.1f</code> 可能输出为 <code>1.10000002384185791</code>。对精度敏感的场景（如货币、坐标同步）需要通过 <code>CustomExportCallback</code> 自定义格式化。</p>
+<hr />
+<h2 id="actionrpg-json">十一、当前项目（ActionRPG）的 JSON 使用现状</h2>
+<p>ActionRPG 项目当前 <strong>未使用</strong> <code>FJsonObjectConverter</code>。现有序列化方案：</p>
+<table>
+<thead>
+<tr>
+<th>子系统</th>
+<th>序列化方式</th>
+<th>关键文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>存档系统</td>
+<td><code>USaveGame</code> + <code>FArchive</code> 二进制</td>
+<td><code>RPGSaveGame.h/cpp</code></td>
+</tr>
+<tr>
+<td>游戏设置</td>
+<td><code>UPROPERTY(Config)</code> → INI 文件</td>
+<td><code>TKGameUserSettings.h/cpp</code></td>
+</tr>
+<tr>
+<td>网络同步</td>
+<td>UE 原生 Replication</td>
+<td>ASC / Character</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="buildcs">十二、Build.cs 集成要求</h2>
+<p>使用 <code>FJsonObjectConverter</code> 需要在模块的 <code>Build.cs</code> 中添加：</p>
+<pre><code class="language-csharp">PrivateDependencyModuleNames.AddRange(new string[] { &quot;Json&quot;, &quot;JsonUtilities&quot; });
+</code></pre>
+<p>头文件包含：</p>
+<pre><code class="language-cpp">#include &quot;JsonObjectConverter.h&quot;
+</code></pre>
+<hr />
+<h2 id="_7">十三、基础使用示例</h2>
+<h3 id="131-struct-json">13.1 Struct → JSON 字符串</h3>
+<pre><code class="language-cpp">USTRUCT()
+struct FMyData
+{
+    GENERATED_BODY()
+
+    UPROPERTY()
+    FString Name;
+
+    UPROPERTY()
+    int32 Score = 0;
+
+    UPROPERTY()
+    TArray&lt;FString&gt; Tags;
+};
+
+FMyData Data;
+Data.Name = TEXT(&quot;Player1&quot;);
+Data.Score = 100;
+Data.Tags = { TEXT(&quot;VIP&quot;), TEXT(&quot;Active&quot;) };
+
+FString JsonString;
+FJsonObjectConverter::UStructToJsonObjectString(Data, JsonString);
+// 输出: {&quot;name&quot;:&quot;Player1&quot;,&quot;score&quot;:100,&quot;tags&quot;:[&quot;VIP&quot;,&quot;Active&quot;]}
+</code></pre>
+<h3 id="132-json-struct">13.2 JSON 字符串 → Struct</h3>
+<pre><code class="language-cpp">FMyData ParsedData;
+FJsonObjectConverter::JsonObjectStringToUStruct(JsonString, &amp;ParsedData);
+</code></pre>
+<h3 id="133-json-tarray">13.3 JSON 数组 → TArray</h3>
+<pre><code class="language-cpp">FString JsonArrayString = TEXT(&quot;[{\&quot;name\&quot;:\&quot;A\&quot;},{\&quot;name\&quot;:\&quot;B\&quot;}]&quot;);
+TArray&lt;FMyData&gt; DataArray;
+FJsonObjectConverter::JsonArrayStringToUStruct(JsonArrayString, &amp;DataArray);
+</code></pre>
+<h3 id="134">13.4 自定义导出回调</h3>
+<pre><code class="language-cpp">FJsonObjectConverter::CustomExportCallback ExportCb;
+ExportCb.BindLambda([](FProperty* Property, const void* Value) -&gt; TSharedPtr&lt;FJsonValue&gt;
+{
+    if (auto* StructProperty = CastField&lt;FStructProperty&gt;(Property))
+    {
+        if (StructProperty-&gt;Struct == TBaseStructure&lt;FDateTime&gt;::Get())
+        {
+            const FDateTime&amp; DateTime = *static_cast&lt;const FDateTime*&gt;(Value);
+            return MakeShared&lt;FJsonValueString&gt;(DateTime.ToIso8601());
+        }
+    }
+    return {}; // 返回空则使用默认处理
+});
+
+TSharedPtr&lt;FJsonObject&gt; JsonObj = FJsonObjectConverter::UStructToJsonObject(Data, 0, 0, &amp;ExportCb);
+</code></pre>
+<hr />
+<h2 id="_8">十四、方案选型决策树</h2>
+<pre><code>需要 JSON 序列化?
+├── USTRUCT 结构与 JSON Schema 一致?
+│   ├── 是 → FJsonObjectConverter（一行代码搞定）
+│   └── 否 → FJsonSerializer + FJsonObject 手动构建
+├── 数据量极大（MB 级）?
+│   └── 是 → FJsonReader SAX 流式解析
+├── 需要运行时多态（基类指针→派生类）?
+│   └── 是 → 自定义 CustomImportCallback + _ClassName 字段
+│         或使用 IJsonObjectStructConverter 注册
+└── 高频热路径（每帧）?
+    └── 是 → FArchive 二进制序列化，避免 JSON
+</code></pre>
+<hr />
+<h2 id="_9">参考资料</h2>
+<ul>
+<li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/JsonUtilities/FJsonObjectConverter">FJsonObjectConverter UE 5.7 API Reference</a></li>
+<li><a href="https://issues.unrealengine.com/issue/UE-230676">UE Bug Tracker: UE-230676（TMap 反序列化问题）</a></li>
+<li><a href="https://blog.jamesbrooks.net/posts/struct-to-json-serialization/">Struct to JSON Serialization - James Brooks</a></li>
+<li><a href="https://forums.unrealengine.com/t/how-to-use-fjsonobjectconverter/119290">How to use FJsonObjectConverter? - Epic Forums</a></li>
+<li><a href="https://forums.unrealengine.com/t/json-conversion-of-tmaps-of-ustructs-cant-deserialize/350757">JSON Conversion of TMaps of UStructs - Epic Forums</a></li>
+<li>引擎源码: <code>Engine/Source/Runtime/JsonUtilities/Public/JsonObjectConverter.h</code></li>
+<li>引擎源码: <code>Engine/Source/Runtime/JsonUtilities/Private/JsonObjectConverter.cpp</code></li>
+<li>引擎源码: <code>Engine/Source/Runtime/JsonUtilities/Public/JsonObjectStructInterface.h</code></li>
+<li>引擎源码: <code>Engine/Source/Runtime/JsonUtilities/Public/JsonObjectWrapper.h</code></li>
+</ul>
+  </article>
+  <footer class="mono">© 2026 一帧之内 · <a href="/">aaronzhang3536.github.io</a></footer>
+</div>
+</body>
+</html>

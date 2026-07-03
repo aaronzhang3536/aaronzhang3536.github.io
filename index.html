@@ -685,31 +685,31 @@
         <div class="col-tag mono"><span class="sw" style="background:var(--c-render);"></span>渲染管线</div>
         <h3>MegaLights 实战</h3>
         <p>从距离驱动的 ShadowMethod 切换，到 Shadow LOD Subsystem 的设计与排错 —— 在主机预算内点亮上千盏灯。</p>
-        <div class="n mono">8 篇 · 连载中</div>
+        <div class="n mono">筹备中</div>
       </article>
       <article class="col-card">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-char);"></span>角色技术</div>
         <h3>断肢系统 Devlog</h3>
         <p>SkeletalMesh 运行时切割：切面几何、凸包生成、UV 稳定性、PhysicsAsset 复用与预生成资产的过期策略。</p>
-        <div class="n mono">12 篇 · 连载中</div>
+        <div class="n mono">筹备中</div>
       </article>
       <article class="col-card">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-engine);"></span>引擎定制</div>
         <h3>引擎分支维护手记</h3>
         <p>维护一条自己的 UE 分支意味着什么：5.7 → 5.8 的升级合并、编辑器扩展、Outliner 改造与规范落地。</p>
-        <div class="n mono">6 篇</div>
+        <div class="n mono">1 篇</div>
       </article>
       <article class="col-card">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-tool);"></span>读渲染</div>
         <h3>Paper 精读</h3>
         <p>逐段拆解一线大作的渲染分享：Ghost of Yotei 的 Ambient Diffuse Lighting、八面体烘焙、BVH 与 LOD 的取舍。</p>
-        <div class="n mono">3 篇</div>
+        <div class="n mono">2 篇</div>
       </article>
       <article class="col-card">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-ai);"></span>AI 与认知</div>
         <h3>解码大脑</h3>
         <p>深度学习与脑机接口的实验手记：用扩散模型从 EEG 信号里重建所见图像，以及一路读下来的认知科学。</p>
-        <div class="n mono">4 篇 · 连载中</div>
+        <div class="n mono">筹备中</div>
       </article>
       <article class="col-card">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-life);"></span>音乐与生活</div>
@@ -727,53 +727,35 @@
       <a class="more mono" href="#">归档 →</a>
     </div>
     <div class="posts">
-      <a class="post" href="#">
-        <span class="sw" style="background:var(--c-render);"></span>
-        <span class="t">方向光阴影：级联采样，与那些落在视锥外的 texel</span>
-        <span class="cat mono">渲染管线</span>
-        <span class="d mono">2026-06-28 · 14 min</span>
-      </a>
-      <a class="post" href="#">
+      <a class="post" href="posts/motionwarping-rotation-race.html">
         <span class="sw" style="background:var(--c-char);"></span>
-        <span class="t">断肢切割的 UV 稳定性：一次切面顶点属性修复记</span>
+        <span class="t">Motion Warping 旋转间歇失效 —— 一次竞态的确认</span>
         <span class="cat mono">角色技术</span>
-        <span class="d mono">2026-06-19 · 11 min</span>
+        <span class="d mono">2026-06-10 · 8 min</span>
       </a>
-      <a class="post" href="#">
-        <span class="sw" style="background:var(--c-ai);"></span>
-        <span class="t">用扩散模型解码 EEG：DreamDiffusion 复现踩坑记</span>
-        <span class="cat mono">AI 与认知</span>
-        <span class="d mono">2026-06-12 · 15 min</span>
-      </a>
-      <a class="post" href="#">
-        <span class="sw" style="background:var(--c-render);"></span>
-        <span class="t">MegaLights 显示 missing？一次调试 UI 引发的排查</span>
-        <span class="cat mono">渲染管线</span>
-        <span class="d mono">2026-06-07 · 9 min</span>
-      </a>
-      <a class="post" href="#">
-        <span class="sw" style="background:var(--c-life);"></span>
-        <span class="t">从傅里叶变换到管弦配器：频谱思维的两种用法</span>
-        <span class="cat mono">音乐与生活</span>
-        <span class="d mono">2026-06-01 · 8 min</span>
-      </a>
-      <a class="post" href="#">
-        <span class="sw" style="background:var(--c-engine);"></span>
-        <span class="t">从 5.7.4 合到 5.8：一次定制引擎升级的完整记录</span>
-        <span class="cat mono">引擎定制</span>
-        <span class="d mono">2026-05-30 · 18 min</span>
-      </a>
-      <a class="post" href="#">
+      <a class="post" href="posts/yotei-pipeline-flowchart.html">
         <span class="sw" style="background:var(--c-tool);"></span>
-        <span class="t">读 Yotei（一）：为什么在八面体上烘焙几何与材质，而非光照</span>
+        <span class="t">Yotei 渲染管线全流程图（可交互长图）</span>
         <span class="cat mono">读渲染</span>
-        <span class="d mono">2026-05-21 · 16 min</span>
+        <span class="d mono">2026-06-09 · 6 min</span>
       </a>
-      <a class="post" href="#">
+      <a class="post" href="posts/yotei-ambient-lighting.html">
+        <span class="sw" style="background:var(--c-tool);"></span>
+        <span class="t">读 Yotei：Ambient Diffuse Lighting 技术总结</span>
+        <span class="cat mono">读渲染</span>
+        <span class="d mono">2026-06-08 · 12 min</span>
+      </a>
+      <a class="post" href="posts/blendstack-syncgroup.html">
         <span class="sw" style="background:var(--c-char);"></span>
-        <span class="t">Chaos Cloth 与 ML Deformer：UE 布料方案初探</span>
+        <span class="t">Blend Stack 与 Sync Group / Sync Marker 兼容性分析</span>
         <span class="cat mono">角色技术</span>
-        <span class="d mono">2026-05-12 · 10 min</span>
+        <span class="d mono">2026-04-13 · 15 min</span>
+      </a>
+      <a class="post" href="posts/fjsonobjectconverter.html">
+        <span class="sw" style="background:var(--c-engine);"></span>
+        <span class="t">FJsonObjectConverter 深度技术分析</span>
+        <span class="cat mono">引擎定制</span>
+        <span class="d mono">2026-04-02 · 18 min</span>
       </a>
     </div>
   </section>
