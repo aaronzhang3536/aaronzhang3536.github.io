@@ -14,6 +14,20 @@ const pageTitle = title ? `${title} · 一帧之内` : '一帧之内 · Within O
 <title>{pageTitle}</title>
 </head>
 <body>
+<script is:inline>
+/* 首屏前应用已保存的主题，避免闪烁 */
+(function () {
+  try {
+    var t = localStorage.getItem('yzzn-theme');
+    if (t === 'wire') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.body.classList.add('vm-wire');
+    } else if (t === 'dark' || t === 'light') {
+      document.documentElement.setAttribute('data-theme', t);
+    }
+  } catch (e) {}
+})();
+</script>
 <header class="site">
   <div class="wrap site-bar">
     <a class="logo" href="#">

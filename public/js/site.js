@@ -25,10 +25,14 @@
     var themeOrder = ['dark', 'light', 'wire'];
     var themeNames = { dark: 'DARK', light: 'LIGHT', wire: 'WIREFRAME' };
     var themeZh = { dark: '暗色', light: '亮色', wire: '线框' };
-    var curTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-    var lastLit = curTheme;
+    var storedTheme = null;
+    try { storedTheme = localStorage.getItem('yzzn-theme'); } catch (err) {}
+    var curTheme = storedTheme ||
+      (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    var lastLit = curTheme === 'wire' ? 'dark' : curTheme;
     function setTheme(m) {
       curTheme = m;
+      try { localStorage.setItem('yzzn-theme', m); } catch (err) {}
       body.classList.toggle('vm-wire', m === 'wire');
       if (m !== 'wire') {
         document.documentElement.setAttribute('data-theme', m);
@@ -88,17 +92,19 @@
         var ba = v.slice(2).trim();
         if (ba === 'off') {
           bgOn = false;
+          bgSave();
           if (bgTimer) clearInterval(bgTimer);
           bgImgs.forEach(function (im) { im.classList.remove('show'); });
           echo.textContent = '背景图已关闭。';
         } else if (ba === 'on') {
-          bgOn = true; bgNext(); bgStart();
+          bgOn = true; bgSave(); bgNext(); bgStart();
           echo.textContent = '背景图已开启，每 ' + (bgInterval / 1000) + ' 秒刷新。';
         } else if (ba === 'next') {
           if (!bgOn) { echo.textContent = '背景图处于关闭状态，先执行 bg on。'; }
           else { bgNext(); echo.textContent = '正在拉取下一张背景图…'; }
         } else if (/^\d+$/.test(ba)) {
           bgInterval = Math.max(5, parseInt(ba, 10)) * 1000;
+          bgSave();
           if (bgOn) bgStart();
           echo.textContent = '背景图刷新间隔已设为 ' + (bgInterval / 1000) + ' 秒。';
         } else {
@@ -153,8 +159,13 @@
       function () { return 'https://api.dujin.org/bing/1920.php?t=' + Date.now(); },
       function () { return 'https://picsum.photos/1920/1080?t=' + Date.now(); }
     ];
-    var bgImgs = [], bgCur = 0, bgTimer = null, bgOn = true;
-    var bgInterval = 60000, bgLoading = false;
+    var bgPref = '';
+    try { bgPref = localStorage.getItem('yzzn-bg') || ''; } catch (err) {}
+    var bgImgs = [], bgCur = 0, bgTimer = null, bgOn = bgPref !== 'off';
+    var bgInterval = (parseInt(bgPref, 10) || 60) * 1000, bgLoading = false;
+    function bgSave() {
+      try { localStorage.setItem('yzzn-bg', bgOn ? String(bgInterval / 1000) : 'off'); } catch (err) {}
+    }
     (function bgInit() {
       var layer = document.createElement('div');
       layer.id = 'bg-layer';
@@ -286,6 +297,7 @@
         return;
       }
       wxMode = m;
+      try { localStorage.setItem('yzzn-wx', m); } catch (err) {}
       wxLoad = wxLoadMap[m];
       bolts = null; wxFlashEl.style.opacity = '0';
       nextBolt = performance.now() + 2500;
@@ -456,7 +468,9 @@
       window.addEventListener('resize', wxResize);
       wxResize();
       wxRefreshColors();
-      setWeather('rain', true);
+      var storedWx = null;
+      try { storedWx = localStorage.getItem('yzzn-wx'); } catch (err) {}
+      setWeather(storedWx && wxLoadMap.hasOwnProperty(storedWx) ? storedWx : 'rain', true);
 
       var wxPrev = 0;
       (function wxLoop(ts) {
