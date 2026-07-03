@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Ghost of Yotei — Ambient Lighting Pipeline Flowchart</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+<style>
+:root{
+ --bg:#0a0e1a;--bg2:#111827;--surface:#16213e;--card:#0f3460;
+ --offline:#7c3aed;--offline2:#a78bfa;
+ --octree:#06b6d4;--octree2:#22d3ee;
+ --interior:#10b981;--interior2:#34d399;
+ --octmap:#f59e0b;--octmap2:#fbbf24;
+ --rtgi:#ef4444;--rtgi2:#f87171;
+ --output:#ec4899;--output2:#f472b6;
+ --buffer:#3b82f6;--buffer2:#60a5fa;
+ --text:#e5e7eb;--muted:#94a3b8;--border:#334155;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;overflow-x:auto}
+.toolbar{position:sticky;top:0;z-index:100;background:rgba(10,14,26,.95);border-bottom:2px solid var(--border);padding:.8rem 1.5rem;backdrop-filter:blur(8px)}
+.toolbar h1{font-size:1.4rem;color:#fbbf24;display:inline-block;margin-right:1.5rem}
+.toolbar .meta{color:var(--muted);font-size:.85rem;display:inline-block}
+.legend{display:inline-flex;gap:.8rem;margin-left:2rem;flex-wrap:wrap;font-size:.78rem;vertical-align:middle}
+.legend span{display:inline-flex;align-items:center;gap:.3rem}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.canvas{padding:2rem;min-width:3400px;width:max-content}
+
+/* row layout */
+.row{display:flex;gap:1.5rem;margin-bottom:2rem;align-items:stretch;position:relative}
+.row.center{justify-content:center}
+.arrow-down{display:flex;justify-content:center;height:40px;align-items:center;color:#fbbf24;font-size:1.4rem;letter-spacing:8px}
+.arrow-down::before{content:"▼ ▼ ▼"}
+
+/* stage block */
+.stage{border-radius:14px;padding:1.2rem;border:2px solid;position:relative;display:flex;flex-direction:column}
+.stage h2{font-size:1.1rem;margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.stage h2 .num{display:inline-block;width:1.7rem;height:1.7rem;line-height:1.7rem;text-align:center;border-radius:50%;font-weight:bold;font-size:.85rem;flex-shrink:0}
+.s-offline{background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(124,58,237,.05));border-color:var(--offline)}
+.s-offline h2{color:var(--offline2)} .s-offline .num{background:var(--offline);color:#fff}
+.s-octree{background:linear-gradient(135deg,rgba(6,182,212,.18),rgba(6,182,212,.05));border-color:var(--octree)}
+.s-octree h2{color:var(--octree2)} .s-octree .num{background:var(--octree);color:#fff}
+.s-interior{background:linear-gradient(135deg,rgba(16,185,129,.18),rgba(16,185,129,.05));border-color:var(--interior)}
+.s-interior h2{color:var(--interior2)} .s-interior .num{background:var(--interior);color:#fff}
+.s-octmap{background:linear-gradient(135deg,rgba(245,158,11,.18),rgba(245,158,11,.05));border-color:var(--octmap)}
+.s-octmap h2{color:var(--octmap2)} .s-octmap .num{background:var(--octmap);color:#1f2937}
+.s-rtgi{background:linear-gradient(135deg,rgba(239,68,68,.18),rgba(239,68,68,.05));border-color:var(--rtgi)}
+.s-rtgi h2{color:var(--rtgi2)} .s-rtgi .num{background:var(--rtgi);color:#fff}
+.s-output{background:linear-gradient(135deg,rgba(236,72,153,.18),rgba(236,72,153,.05));border-color:var(--output)}
+.s-output h2{color:var(--output2)} .s-output .num{background:var(--output);color:#fff}
+.s-buffer{background:linear-gradient(135deg,rgba(59,130,246,.18),rgba(59,130,246,.05));border-color:var(--buffer)}
+.s-buffer h2{color:var(--buffer2)} .s-buffer .num{background:var(--buffer);color:#fff}
+
+.node{background:rgba(15,52,96,.45);border:1px solid var(--border);border-radius:8px;padding:.55rem .7rem;margin-bottom:.5rem;font-size:.78rem;line-height:1.45}
+.node .t{font-weight:600;color:#fbbf24;margin-bottom:.2rem;font-size:.82rem}
+.node .d{color:var(--muted);font-size:.72rem}
+.node code{background:#0a0e1a;padding:1px 5px;border-radius:3px;color:#34d399;font-size:.7rem}
+.node ul{margin:.25rem 0 0 1rem;padding:0}
+.node li{margin-bottom:.15rem;font-size:.72rem;color:#cbd5e1}
+.node.in{border-left:3px solid #22d3ee}
+.node.out{border-right:3px solid #f472b6;background:rgba(236,72,153,.1)}
+.node.proc{border-top:2px solid #fbbf24}
+.node.fb{border-left:3px dashed #ef4444;background:rgba(239,68,68,.08)}
+.node.buf{background:rgba(59,130,246,.15);border-color:var(--buffer)}
+.node.formula{background:rgba(124,58,237,.12);border-color:var(--offline);font-size:.72rem}
+
+.subtitle{font-size:.72rem;color:var(--octree2);text-transform:uppercase;letter-spacing:1px;margin:.6rem 0 .3rem;font-weight:600;opacity:.85}
+
+.struct{display:grid;grid-template-columns:auto 1fr;gap:.15rem .4rem;font-size:.7rem;background:#0a0e1a;border:1px solid var(--border);padding:.4rem .6rem;border-radius:6px;margin:.3rem 0;font-family:'Consolas',monospace}
+.struct .k{color:#22d3ee} .struct .v{color:#fbbf24;text-align:right}
+
+.tag{display:inline-block;padding:1px 6px;border-radius:10px;font-size:.65rem;background:#1f2937;color:#fbbf24}
+.tag.gpu{background:#7c2d12;color:#fdba74}
+.tag.cpu{background:#1e3a8a;color:#93c5fd}
+.tag.offline{background:#581c87;color:#d8b4fe}
+.tag.hot{background:#7f1d1d;color:#fca5a5}
+
+.section-title{font-size:1.5rem;color:#fbbf24;text-align:center;margin:1rem 0;letter-spacing:3px;border-top:1px dashed var(--border);border-bottom:1px dashed var(--border);padding:.5rem 0}
+.dual{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.connector{font-size:.72rem;color:var(--muted);font-style:italic;text-align:center;padding:.4rem}
+.connector.h{writing-mode:vertical-rl;align-self:center;padding:1rem .3rem}
+
+.perf-table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:.5rem}
+.perf-table th,.perf-table td{border:1px solid var(--border);padding:.35rem .55rem;text-align:left}
+.perf-table th{background:rgba(59,130,246,.2);color:#93c5fd}
+.perf-table tr:nth-child(even){background:rgba(15,52,96,.2)}
+.perf-table .total{background:rgba(239,68,68,.15);font-weight:bold;color:#fca5a5}
+
+.h-arrow{display:flex;align-items:center;color:#fbbf24;font-size:1.4rem;letter-spacing:4px;writing-mode:vertical-rl;justify-content:center;padding:0 .3rem}
+.h-arrow::before{content:"▶ ▶ ▶"}
+
+.callout{background:rgba(245,158,11,.1);border:1px dashed var(--octmap);border-radius:6px;padding:.5rem .7rem;font-size:.72rem;color:var(--muted);margin:.5rem 0}
+.callout strong{color:var(--octmap2)}
+</style>
+</head>
+<body><a href="/" style="position:fixed;left:14px;top:14px;z-index:9999;background:#151b21;color:#dbe3ea;border:1px solid #2a343e;padding:7px 14px;font:600 12px Consolas,monospace;text-decoration:none;border-radius:3px;">← 一帧之内</a>
+<div class="toolbar">
+ <h1>Ghost of Yotei — Ambient Lighting Pipeline Flowchart</h1>
+ <span class="meta">Eric Wohllaib · Sucker Punch Productions · GDC · 147 slides</span>
+ <div class="legend">
+  <span><i style="background:var(--offline)"></i>Offline Bake</span>
+  <span><i style="background:var(--octree)"></i>Octree Runtime</span>
+  <span><i style="background:var(--interior)"></i>Interior Mask</span>
+  <span><i style="background:var(--octmap)"></i>Octmap Relight</span>
+  <span><i style="background:var(--rtgi)"></i>RTGI Pipeline</span>
+  <span><i style="background:var(--output)"></i>Pixel Output</span>
+  <span><i style="background:var(--buffer)"></i>Memory Buffer</span>
+  <span><i style="background:#ef4444"></i>Fallback</span>
+ </div>
+</div>
+<div class="canvas">
+<div class="section-title">═══ PHASE 1: OFFLINE BAKE ═══</div>
+
+<div class="row">
+ <!-- A: 八叉树构建 -->
+ <div class="stage s-offline" style="flex:1;max-width:900px">
+  <h2><span class="num">A</span> 八叉树构建 (Octree Construction) <span class="tag offline">Offline</span></h2>
+  <div class="node in">
+   <div class="t">输入: 美术 OBB 包围盒</div>
+   <div class="d">美术定义定向包围盒覆盖需精细光照区域</div>
+  </div>
+  <div class="node proc">
+   <div class="t">切分为根节点 (示例 16m)</div>
+   <div class="d">按美术指定大小均匀分割</div>
+  </div>
+  <div class="node proc">
+   <div class="t">递归细分至最小尺寸 (2m)</div>
+   <ul>
+    <li>仅包含几何的节点细分</li>
+    <li>几何略微膨胀确保保守细分</li>
+    <li>强制约束相邻节点尺寸差 ≤ 1 级</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">节点角点生成 Ambient Probe</div>
+   <div class="d">每个节点的 8 个角点各放置一个 probe</div>
+  </div>
+  <div class="node proc">
+   <div class="t">嵌入几何检测 &amp; 剔除</div>
+   <ul>
+    <li>双面渲染 probe 周围 G-Buffer</li>
+    <li>大多数法线指向远离方向 → 判定嵌入 → 剔除</li>
+    <li>记录相邻 probe 列表供运行时填充</li>
+   </ul>
+  </div>
+  <div class="node out">
+   <div class="t">输出: Octree 结构 + Probe 位置</div>
+   <div class="d">自动每周重烘 2 次，小改无需美术介入</div>
+  </div>
+ </div>
+
+ <div class="connector h">═══▶ probe 位置信息 ═══▶</div>
+
+ <!-- B: Probe G-Buffer 烘焙 -->
+ <div class="stage s-offline" style="flex:1;max-width:900px">
+  <h2><span class="num">B</span> Probe Octahedral G-Buffer 烘焙 <span class="tag offline">Offline</span></h2>
+  <div class="node proc">
+   <div class="t">双面渲染 Probe 周围几何</div>
+   <ul>
+    <li>分辨率: 八叉树 16×16 / 世界网格 8×8</li>
+    <li>BC7 压缩存储</li>
+    <li>不翻转背面法线</li>
+   </ul>
+  </div>
+  <div class="node buf">
+   <div class="t">G-Buffer 通道布局</div>
+   <div class="struct">
+    <span class="k">Albedo</span><span class="v">3 Bytes</span>
+    <span class="k">Translucency</span><span class="v">0.5 B</span>
+    <span class="k">Normal (Oct)</span><span class="v">2 B</span>
+    <span class="k">Surface Distance</span><span class="v">1 B</span>
+    <span class="k">Interior Mask</span><span class="v">0.5 B</span>
+    <span class="k">Sky Visibility</span><span class="v">1 B</span>
+   </div>
+   <div class="d">Translucency 与 Interior Mask 互斥共享 1B:<br>内部 $[0.5, 1]$，外部 translucency $[0, 0.5]$</div>
+  </div>
+  <div class="subtitle">立体角 SH 权重预计算 (Python)</div>
+  <div class="node formula">
+   <div class="t">Texel → 立体角权重</div>
+   <div class="d">每个 texel 近似为两个三角面:</div>
+   <div style="margin:.4rem 0;text-align:center">$$\Omega = 2\arctan\!\left(\frac{|\mathbf{a}\cdot(\mathbf{b}\times\mathbf{c})|}{1+\mathbf{a}\cdot\mathbf{b}+\mathbf{a}\cdot\mathbf{c}+\mathbf{b}\cdot\mathbf{c}}\right)$$</div>
+  </div>
+  <div class="node out">
+   <div class="t">输出: Baked Octahedral G-Buffers + 立体角 LUT</div>
+   <div class="d">烘焙几何和材质而非光照 → 运行时 relighting 可响应动态光源变化</div>
+  </div>
+ </div>
+
+ <div class="connector h">═══▶ interior 数据 ═══▶</div>
+
+ <!-- C: Interior Masking -->
+ <div class="stage s-interior" style="flex:1;max-width:800px">
+  <h2><span class="num">C</span> Interior Masking <span class="tag gpu">GPU Runtime</span></h2>
+  <div class="subtitle">Interior Volume Geometry</div>
+  <div class="node in">
+   <div class="t">输入: 美术制作的水密网格</div>
+   <div class="d">建筑墙体内侧, 类 stencil shadow volume</div>
+  </div>
+  <div class="node proc">
+   <div class="t">Stencil Pass (双面渲染)</div>
+   <ul>
+    <li>绑定深度缓冲 + 全新模板缓冲</li>
+    <li>不绑 RT，仅写 Stencil</li>
+    <li>前面 depth fail → stencil +1</li>
+    <li>背面 depth fail → stencil −1</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">判定: stencil=0 外部 / ≠0 内部</div>
+   <div class="d">支持非凸形状</div>
+  </div>
+  <div class="subtitle">其他标记来源</div>
+  <div class="node proc">
+   <div class="t">多源叠加</div>
+   <ul>
+    <li>整对象标记 / Shader 参数</li>
+    <li>Deferred Decal / 顶点画刷 (门窗过渡)</li>
+   </ul>
+  </div>
+  <div class="subtitle">动态对象 (角色)</div>
+  <div class="node proc">
+   <div class="t">CPU 射线查询 <span class="tag cpu">CPU</span></div>
+   <ul>
+    <li>获取角色所在八叉树节点</li>
+    <li>每帧 1 根射线测 8 个 probe 可见性</li>
+    <li>Trilinear 混合 + 帧间混合抑制 popping</li>
+   </ul>
+  </div>
+  <div class="node out">
+   <div class="t">输出: Per-pixel Interior Mask</div>
+   <div class="d">驱动: probe 选择、灯光过滤、风效、玩法</div>
+  </div>
+ </div>
+</div><div class="arrow-down"></div>
+<div class="section-title">═══ PHASE 2: RUNTIME OCTREE SAMPLING & RELIGHTING ═══</div>
+
+<div class="row">
+ <!-- D: 运行时八叉树采样 -->
+ <div class="stage s-octree" style="flex:1;max-width:900px">
+  <h2><span class="num">D</span> 运行时八叉树采样 (Octree Lookup) <span class="tag gpu">GPU</span></h2>
+  <div class="subtitle">插值策略</div>
+  <div class="node proc">
+   <div class="t">同尺寸节点: Trilinear 混合</div>
+   <div class="d">8 个角点 probe 直接三线性插值</div>
+  </div>
+  <div class="node proc">
+   <div class="t">跨尺寸节点: 渐进 Blend 到父节点</div>
+   <ul>
+    <li>位字段记录每面/边/角是否通向更大节点</li>
+    <li>约束: 相邻尺寸差 ≤ 1 级</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">法线偏置权重</div>
+   <div class="d">降低表面背后 probe 的权重，减少跨墙漏光</div>
+  </div>
+  <div class="subtitle">边缘 &amp; 多八叉树</div>
+  <div class="node proc">
+   <div class="t">边缘渐隐 → 全局 probe 网格</div>
+   <div class="d">八叉树边缘处回退到世界网格 (8×8 分辨率)</div>
+  </div>
+  <div class="node proc">
+   <div class="t">多八叉树重叠 → 取均值混合</div>
+   <div class="d">拼出洞穴等不规则空间</div>
+  </div>
+  <div class="node out">
+   <div class="t">输出: 插值后 Probe 索引 + 权重</div>
+   <div class="d">供 Relighting 和 RTGI Miss fallback</div>
+  </div>
+ </div>
+
+ <div class="connector h">═══▶ probe data ═══▶</div>
+
+ <!-- E: Octmap Relighting -->
+ <div class="stage s-octmap" style="flex:1.2;max-width:1100px">
+  <h2><span class="num">E</span> Octmap Runtime Relighting <span class="tag gpu">GPU</span><span class="tag hot">~1200 probes/frame</span></h2>
+  <div class="subtitle">更新调度</div>
+  <div class="node proc">
+   <div class="t">优先级队列</div>
+   <ul>
+    <li>采样时打标记 (sampled_this_frame)</li>
+    <li>下帧更新: 超 1 帧未更新 + 被采样的 probe</li>
+    <li>平均 ~1200/帧，最坏 12000 全量</li>
+    <li>余量更新更老的 probe</li>
+    <li>相机切换 / 新加载 → 强制全量 relight</li>
+   </ul>
+  </div>
+  <div class="subtitle">Per-Texel 光照计算</div>
+  <div class="node proc">
+   <div class="t">每 Texel 视作真实表面</div>
+   <ul>
+    <li>Distance 通道 → 重建世界空间位置</li>
+    <li>Albedo + Normal → 执行完整光照</li>
+    <li>方向光: 直接采样阴影级联</li>
+    <li>局部光源: 逐一贡献</li>
+   </ul>
+  </div>
+  <div class="node fb">
+   <div class="t">Fallback: Texel 落在视锥外</div>
+   <div class="d">→ 回退到附近 probe 天空可见性方向值；缓存结果避免 popping</div>
+  </div>
+  <div class="subtitle">SH 转换输出</div>
+  <div class="node proc">
+   <div class="t">Lit Texels → Spherical Harmonics</div>
+   <ul>
+    <li>使用预计算立体角权重累积</li>
+    <li>Interior/Exterior 分别累积两套 SH</li>
+   </ul>
+  </div>
+  <div class="node out">
+   <div class="t">输出: Per-Probe Irradiance SH (1.75 MB)</div>
+   <div class="d">供像素评估三线性插值 + RTGI ray-miss 回退</div>
+  </div>
+ </div>
+</div><div class="arrow-down"></div>
+<div class="section-title">═══ PHASE 3: RT RESOURCE PREPARATION ═══</div>
+
+<div class="row">
+ <!-- F: BVH 构建 -->
+ <div class="stage s-rtgi" style="flex:1;max-width:1000px">
+  <h2><span class="num">F</span> BVH 构建 (Acceleration Structure) <span class="tag cpu">CPU</span><span class="tag gpu">GPU</span></h2>
+  <div class="subtitle">几何筛选</div>
+  <div class="node proc">
+   <div class="t">BLAS 池 (235 MB)</div>
+   <ul>
+    <li>仅纳入相机 20m 外的 LOD1+ 几何</li>
+    <li>✅ 角色、动画布料、地形、大部分静态几何</li>
+    <li>❌ 植被顶点动画、非角色 cutout、程序化草/实例、地形洞、水</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">剔除流程</div>
+   <ul>
+    <li>初始: CPU 基于 BVH 包围盒剔除</li>
+    <li>最终: 迁移到 GPU (更多内存，更好性能)</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">TLAS 构建 (16 MB)</div>
+   <div class="d">Top-Level Acceleration Structure → 指向所有可见 BLAS 实例</div>
+  </div>
+  <div class="node buf">
+   <div class="t">Instance Buffer (7.5 MB)</div>
+   <div class="struct">
+    <span class="k">每实例包含</span><span class="v">transform + BLAS ref + swatch index</span>
+   </div>
+  </div>
+  <div class="subtitle">程序化几何替代</div>
+  <div class="node proc">
+   <div class="t">Imposter → 地形 Diffuse</div>
+   <div class="d">程序化草/实例 → imposter 纹理烘到地形 diffuse 近似</div>
+  </div>
+ </div>
+
+ <div class="connector h">═══▶ hit 时查询 ═══▶</div>
+
+ <!-- G: Material Swatch Atlas -->
+ <div class="stage s-rtgi" style="flex:1;max-width:900px">
+  <h2><span class="num">G</span> Material Swatch Atlas (25 MB) <span class="tag gpu">GPU</span></h2>
+  <div class="callout"><strong>灵感:</strong> Bryan McPhail (Santa Monica Studio)</div>
+  <div class="node proc">
+   <div class="t">Swatch 渲染</div>
+   <ul>
+    <li>每 swatch = 32×32 mini G-Buffer (albedo/translucency/alpha)</li>
+    <li>Vertex Shader: UV 作为输出位置 (摊平到 UV 空间)</li>
+    <li>Pixel Shader: 正常 deferred 路径 (层混合/UV变换)</li>
+    <li>保守光栅化确保亚像素三角形输出</li>
+    <li>渲染后 dilate 防止 bilinear 越界</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">共享策略</div>
+   <ul>
+    <li>每 mesh + shader 组合共享一份 swatch</li>
+    <li>方向相关 shader → 按实例独立烘焙</li>
+    <li>也用于角色 cutout (头发/帽子)</li>
+   </ul>
+  </div>
+  <div class="node buf">
+   <div class="t">Atlas 参数</div>
+   <div class="struct">
+    <span class="k">上限</span><span class="v">5,120 swatches</span>
+    <span class="k">尺寸</span><span class="v">32×32 per swatch</span>
+    <span class="k">总内存</span><span class="v">~25 MB</span>
+    <span class="k">渲染耗时</span><span class="v">数 μs / swatch</span>
+    <span class="k">缓存命中</span><span class="v">大多数帧命中</span>
+   </div>
+  </div>
+  <div class="node out">
+   <div class="t">输出: Swatch Atlas Texture</div>
+   <div class="d">RT hit 时通过 instance buffer swatch index 查询漫反射材质</div>
+  </div>
+ </div>
+</div><div class="arrow-down"></div>
+<div class="section-title">═══ PHASE 4: RTGI 7-STEP PIPELINE (Steps 1–4) ═══</div>
+
+<div class="row">
+ <!-- Step 1 -->
+ <div class="stage s-rtgi" style="flex:1">
+  <h2><span class="num">1</span> Spawn Screen-Space Probes <span class="tag gpu">GPU</span></h2>
+  <div class="node proc">
+   <div class="t">Probe 生成规则</div>
+   <ul>
+    <li>屏幕分 16×16 tile</li>
+    <li>每 tile 随机选 8×8 象限一个像素 → 生成 probe</li>
+    <li>其余象限比较 "覆盖度" (平面距离 + 法线差异)</li>
+    <li>覆盖差 → 新增 probe</li>
+   </ul>
+  </div>
+  <div class="node buf">
+   <div class="t">Screen Probes (3.5 MB)</div>
+   <div class="struct">
+    <span class="k">上限</span><span class="v">32,000</span>
+    <span class="k">1440p 平均</span><span class="v">2–3 / tile</span>
+    <span class="k">每 probe</span><span class="v">64 rays, 8×8 oct</span>
+   </div>
+  </div>
+ </div>
+
+ <div class="connector h">▶▶▶</div>
+
+ <!-- Step 2 -->
+ <div class="stage s-rtgi" style="flex:1">
+  <h2><span class="num">2</span> Ray-Guided Sampling <span class="tag gpu">GPU</span></h2>
+  <div class="node proc">
+   <div class="t">重要性采样</div>
+   <ul>
+    <li>PDF = 上一帧 octahedral irradiance map</li>
+    <li>无历史 → 回退八叉树 octmap</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">方向选取 (64 线程组)</div>
+   <ul>
+    <li>每线程: luminance × N·L</li>
+    <li>InclusivePrefixSum → CDF</li>
+    <li>随机数 → 二分查找定位方向</li>
+   </ul>
+  </div>
+  <div class="node out">
+   <div class="t">输出: 64 ray directions / probe</div>
+   <div class="d">偏向上一帧亮度高的区域</div>
+  </div>
+ </div>
+
+ <div class="connector h">▶▶▶</div>
+
+ <!-- Step 3 -->
+ <div class="stage s-rtgi" style="flex:1">
+  <h2><span class="num">3</span> Cast Rays <span class="tag gpu">GPU</span><span class="tag hot">~2M rays</span></h2>
+  <div class="node proc">
+   <div class="t">光线投射</div>
+   <ul>
+    <li>每 probe 64 根光线</li>
+    <li>最大距离 4m</li>
+    <li>animated 表面增大 min hit distance</li>
+    <li>最坏 ~2,000,000 rays/frame</li>
+   </ul>
+  </div>
+  <div class="node fb">
+   <div class="t">超出 4m → Fallback</div>
+   <div class="d">回退世界空间 probe SH (不做远距离 RT)</div>
+  </div>
+  <div class="node proc">
+   <div class="t">Shadow Ray 入队 (8 MB)</div>
+   <div class="d">击中点超出阴影级联 → 入队 shadow ray</div>
+  </div>
+  <div class="node buf">
+   <div class="t">Ray Hits Buffer (32 MB)</div>
+   <div class="struct">
+    <span class="k">存储</span><span class="v">hit pos + normal + instance ID</span>
+    <span class="k">Miss 标记</span><span class="v">特殊值表示未命中</span>
+   </div>
+  </div>
+ </div>
+
+ <div class="connector h">▶▶▶</div>
+
+ <!-- Step 4 -->
+ <div class="stage s-rtgi" style="flex:1">
+  <h2><span class="num">4</span> Light Rays <span class="tag gpu">GPU</span></h2>
+  <div class="node proc">
+   <div class="t">Hit 路径: 着色命中点</div>
+   <ul>
+    <li>Swatch Atlas → 漫反射材质</li>
+    <li>八叉树 probe irradiance → 间接光</li>
+    <li>≈ 2 次反弹 GI</li>
+    <li>方向光 + 阴影贡献</li>
+   </ul>
+  </div>
+  <div class="node fb">
+   <div class="t">Miss 路径</div>
+   <ul>
+    <li>回退八叉树 / 网格 irradiance</li>
+    <li>采样位置 = probe 原点 (非射线终点)</li>
+    <li>防止漏光</li>
+   </ul>
+  </div>
+  <div class="node buf">
+   <div class="t">中间光照缓冲 (32 MB)</div>
+   <div class="struct">
+    <span class="k">存储</span><span class="v">per-ray radiance (RGB)</span>
+    <span class="k">用途</span><span class="v">供后续滤波累积</span>
+   </div>
+  </div>
+ </div>
+</div><div class="arrow-down"></div>
+<div class="section-title">═══ PHASE 4 (cont.): RTGI PIPELINE (Steps 5–7) ═══</div>
+
+<div class="row">
+ <!-- Step 5 -->
+ <div class="stage s-rtgi" style="flex:1">
+  <h2><span class="num">5</span> Spatial Filter <span class="tag gpu">GPU</span></h2>
+  <div class="node proc">
+   <div class="t">空间滤波 (邻域去噪)</div>
+   <ul>
+    <li>每 probe 搜索 7×7 tile 邻域</li>
+    <li>49 线程, 每线程一 tile 寻找相似 probe</li>
+    <li>相似性: 位置 + 法线 + 深度</li>
+    <li>用 hit distance 重投影命中点位置</li>
+    <li>Atomic 写回任意 texel → 保留细节</li>
+   </ul>
+  </div>
+  <div class="node out">
+   <div class="t">输出: 去噪后的 per-probe octahedral radiance</div>
+  </div>
+ </div>
+
+ <div class="connector h">▶▶▶</div>
+
+ <!-- Step 6 -->
+ <div class="stage s-rtgi" style="flex:1">
+  <h2><span class="num">6</span> History Filter (Probe 级) <span class="tag gpu">GPU</span></h2>
+  <div class="node proc">
+   <div class="t">时间滤波 (帧间稳定)</div>
+   <div class="d">AMD GI-1.0 [Boissé 2022] 思路:</div>
+   <div style="margin:.4rem 0;text-align:center;font-size:.8rem">$$w = \frac{|L_\text{cur} - L_\text{hist}|}{\max(L_\text{cur}, L_\text{hist})}$$</div>
+   <ul>
+    <li>Lane intrinsics: probe 内所有 texel 取平均 history weight</li>
+    <li>避免单 texel 噪声破坏整体历史</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">转换为 SH</div>
+   <div class="d">滤波完成后累积 octahedral radiance → SH 系数</div>
+  </div>
+  <div class="node buf">
+   <div class="t">SH 结果 (1.75 MB)</div>
+   <div class="struct">
+    <span class="k">格式</span><span class="v">L2 SH per probe</span>
+    <span class="k">用途</span><span class="v">最终像素插值</span>
+   </div>
+  </div>
+ </div>
+
+ <div class="connector h">▶▶▶</div>
+
+ <!-- Step 7 -->
+ <div class="stage s-output" style="flex:1">
+  <h2><span class="num">7</span> Final Per-Pixel Evaluation <span class="tag gpu">GPU</span></h2>
+  <div class="node proc">
+   <div class="t">像素分配</div>
+   <ul>
+    <li>屏幕分 8×8 tile</li>
+    <li>预算 min/max 深度</li>
+    <li>预判八叉树影响 + 是否需 RTGI</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">距离混合</div>
+   <ul>
+    <li>80m 内: 使用 RTGI probe SH</li>
+    <li>80m 外: 混入八叉树 octmap SH</li>
+   </ul>
+  </div>
+  <div class="node proc">
+   <div class="t">像素级时间滤波</div>
+   <ul>
+    <li>Luminance-delta 历史滤波</li>
+    <li>剩余噪声 → FSR3 / PSSR</li>
+   </ul>
+  </div>
+  <div class="node out">
+   <div class="t">输出: Final Ambient Diffuse Irradiance</div>
+   <div class="d">写入光照缓冲，参与最终合成</div>
+  </div>
+ </div>
+</div><div class="arrow-down"></div>
+<div class="section-title">═══ PHASE 5: EDGE CASES & SPECIAL HANDLING ═══</div>
+
+<div class="row">
+ <!-- Fallback Hierarchy -->
+ <div class="stage s-rtgi" style="flex:1;max-width:900px;border-style:dashed">
+  <h2><span class="num">H</span> 多级回退 (Fallback Hierarchy) <span class="tag hot">Fallback</span></h2>
+  <div class="node fb">
+   <div class="t">Level 1: 像素无强相关 probe</div>
+   <div class="d">→ 用线程组内任一 probe (均匀但不精确)</div>
+  </div>
+  <div class="node fb">
+   <div class="t">Level 2: 完全无 probe</div>
+   <div class="d">→ 上一帧结果 (temporal history)</div>
+  </div>
+  <div class="node fb">
+   <div class="t">Level 3: 无历史 (disocclusion)</div>
+   <div class="d">→ lane intrinsics 取线程组内其他像素均值</div>
+  </div>
+  <div class="node fb">
+   <div class="t">Level 4: 全 group 无效</div>
+   <div class="d">→ 输出黑色 (极罕见)</div>
+  </div>
+  <div class="callout"><strong>设计原则:</strong> 永远不崩溃, 优雅降级直到最坏输出黑色</div>
+ </div>
+
+ <!-- 透明 / 头发 -->
+ <div class="stage s-rtgi" style="flex:1;max-width:900px;border-style:dashed">
+  <h2><span class="num">I</span> 透明物 / 头发特例 <span class="tag hot">Special</span></h2>
+  <div class="subtitle">透明物回退</div>
+  <div class="node fb">
+   <div class="t">粒子 / 体积雾 / 头发</div>
+   <div class="d">无表面让屏幕空间 probe 落脚 → 回退到八叉树/网格 irradiance</div>
+  </div>
+  <div class="subtitle">头发暗化修复</div>
+  <div class="node proc">
+   <div class="t">问题: 帽檐暗化但头发未暗 → 头发相对偏亮显灰</div>
+  </div>
+  <div class="node proc">
+   <div class="t">解决: 短射线遮蔽 SH</div>
+   <ul>
+    <li>从角色头部内部向各方向发射 0.5m 短射线</li>
+    <li>忽略背面命中</li>
+    <li>命中累积成 SH 遮蔽函数</li>
+    <li>与头发 ambient SH 相乘 → 匹配整体暗化</li>
+   </ul>
+  </div>
+ </div>
+</div><div class="arrow-down"></div>
+<div class="section-title">═══ PHASE 6: MEMORY BUDGET & DATA FLOW MAP ═══</div>
+
+<div class="row">
+ <!-- 内存布局 -->
+ <div class="stage s-buffer" style="flex:1;max-width:900px">
+  <h2><span class="num">M</span> RT 内存布局 (PS5, ~380 MB Total)</h2>
+  <div class="d" style="margin-bottom:.5rem;color:var(--muted);font-size:.75rem">最大渲染分辨率从 4K 降到 1728p，从渲染目标空隙中挤出空间</div>
+  <table class="perf-table">
+   <tr><th>资源</th><th>大小</th><th>数据流向</th></tr>
+   <tr><td>BLAS 池</td><td>235 MB</td><td>Step 3 (TraceRay)</td></tr>
+   <tr><td>中间光照缓冲</td><td>32 MB</td><td>Step 4 → Step 5/6</td></tr>
+   <tr><td>Ray Hits 缓冲</td><td>32 MB</td><td>Step 3 → Step 4</td></tr>
+   <tr><td>Material Swatch Atlas</td><td>25 MB</td><td>Step 4 (hit shading)</td></tr>
+   <tr><td>各类暂存</td><td>20 MB</td><td>临时中间数据</td></tr>
+   <tr><td>TLAS</td><td>16 MB</td><td>Step 3 (TraceRay)</td></tr>
+   <tr><td>Shadow Rays</td><td>8 MB</td><td>Step 3 → Shadow Pass</td></tr>
+   <tr><td>Instance Buffer</td><td>7.5 MB</td><td>Step 3/4 (查材质)</td></tr>
+   <tr><td>Screen Space Probes</td><td>3.5 MB</td><td>Step 1 → Step 7</td></tr>
+   <tr><td>SH 结果</td><td>1.75 MB</td><td>Step 6 → Step 7</td></tr>
+   <tr class="total"><td>合计</td><td>~380 MB</td><td></td></tr>
+  </table>
+ </div>
+
+ <!-- 数据流向总览 -->
+ <div class="stage s-buffer" style="flex:1.3;max-width:1200px">
+  <h2><span class="num">D</span> 数据流转路径总览 (Data Flow Map)</h2>
+  <div class="node buf">
+   <div class="t">离线产物 → 运行时</div>
+   <ul>
+    <li><strong>Octree 结构</strong> → 运行时查询 (D)、RTGI Miss fallback (Step 4)</li>
+    <li><strong>Probe G-Buffer (BC7)</strong> → Octmap Relighting (E)</li>
+    <li><strong>立体角 LUT</strong> → SH 累积 (E, Step 6)</li>
+   </ul>
+  </div>
+  <div class="node buf">
+   <div class="t">RT 资源 → RTGI Pipeline</div>
+   <ul>
+    <li><strong>TLAS + BLAS 池</strong> → Step 3 (TraceRay)</li>
+    <li><strong>Instance Buffer</strong> → Step 3 (获取 hit instance) → Step 4 (查 swatch index)</li>
+    <li><strong>Swatch Atlas</strong> → Step 4 (hit 着色取漫反射)</li>
+   </ul>
+  </div>
+  <div class="node buf">
+   <div class="t">RTGI 内部传递</div>
+   <ul>
+    <li><strong>Screen Probes</strong> → Step 2 (确定方向) → Step 3 (发射) → Step 5 (邻域)</li>
+    <li><strong>Ray Hits</strong> → Step 3 输出 → Step 4 输入</li>
+    <li><strong>中间光照</strong> → Step 4 输出 → Step 5 滤波 → Step 6 时间融合</li>
+    <li><strong>Shadow Rays</strong> → Step 3 入队 → 阴影 Pass 执行 → Step 4 使用结果</li>
+    <li><strong>SH 结果</strong> → Step 6 输出 → Step 7 像素插值</li>
+   </ul>
+  </div>
+  <div class="node buf">
+   <div class="t">跨系统回退路径</div>
+   <ul>
+    <li><strong>Octmap SH</strong> → Step 7 远距离混合 (>80m)</li>
+    <li><strong>Octmap SH</strong> → Step 4 ray-miss 回退</li>
+    <li><strong>Octmap SH</strong> → 透明物/头发/粒子 回退</li>
+    <li><strong>上帧 Irradiance</strong> → Step 2 (ray-guide PDF)</li>
+    <li><strong>上帧 Irradiance</strong> → Step 6 (history blend)</li>
+    <li><strong>上帧 Pixel Result</strong> → Fallback Level 2</li>
+    <li><strong>Interior Mask</strong> → 选择 interior/exterior SH 组</li>
+   </ul>
+  </div>
+ </div>
+</div><div class="arrow-down"></div>
+<div class="section-title">═══ PERFORMANCE & MODE COMPARISON ═══</div>
+
+<div class="row">
+ <!-- 性能 -->
+ <div class="stage s-output" style="flex:1;max-width:1000px">
+  <h2><span class="num">P</span> 性能数据 (1440p PS5)</h2>
+  <table class="perf-table">
+   <tr><th>步骤</th><th>耗时</th><th>备注</th></tr>
+   <tr><td>Step 1: Spawn Probes</td><td>0.15 ms</td><td>compute shader</td></tr>
+   <tr><td>Step 2: Ray-Guide</td><td>0.12 ms</td><td>prefix sum + binary search</td></tr>
+   <tr><td>Step 3: Cast Rays</td><td>3.5–5.0 ms</td><td>~2M rays, 主要瓶颈</td></tr>
+   <tr><td>Step 4: Light Rays</td><td>1.0–1.5 ms</td><td>含 swatch lookup + probe sample</td></tr>
+   <tr><td>Step 5: Spatial Filter</td><td>0.8 ms</td><td>7×7 neighborhood</td></tr>
+   <tr><td>Step 6: History Filter</td><td>0.4 ms</td><td>含 SH 转换</td></tr>
+   <tr><td>Step 7: Per-Pixel Eval</td><td>0.5 ms</td><td>含 distance blend</td></tr>
+   <tr><td>Octmap Relighting (~1200)</td><td>0.6–0.8 ms</td><td>非 RT 模式也运行</td></tr>
+   <tr class="total"><td>RTGI 总计</td><td>~7–9 ms</td><td>30Hz RT 模式预算内</td></tr>
+  </table>
+ </div>
+
+ <!-- 模式对比 -->
+ <div class="stage s-output" style="flex:1;max-width:900px">
+  <h2><span class="num">Q</span> 渲染模式对比</h2>
+  <table class="perf-table">
+   <tr><th>模式</th><th>帧率</th><th>环境光照方案</th></tr>
+   <tr><td>Performance (非RT)</td><td>60 Hz</td><td>Octree + Octmap Relighting only</td></tr>
+   <tr><td>Quality (RT)</td><td>30 Hz</td><td>Octree + Octmap + RTGI 7-step</td></tr>
+  </table>
+  <div class="callout">
+   <strong>设计目标:</strong> 两模式视觉必须接近。因为 Octmap Relighting 已经响应动态光源，
+   RT 模式仅增加短距离 (4m) 屏幕空间 GI 细节，二者基底一致。
+  </div>
+  <div class="subtitle">RT 为何选 GI 而非反射/阴影</div>
+  <div class="node proc">
+   <div class="t">选型权衡</div>
+   <ul>
+    <li>RT 反射: 古日本场景反射面少, 性价比低</li>
+    <li>RT 阴影: 顶点动画 + cutout 难匹配</li>
+    <li>RTAO: 影响相对小</li>
+    <li><strong>RTGI: 对 BVH/栅格化失配最容忍 → 最终选定</strong></li>
+   </ul>
+  </div>
+ </div>
+</div>
+
+<div style="text-align:center;padding:2rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--border);margin-top:2rem">
+ <div style="font-size:1.2rem;color:#fbbf24;margin-bottom:.5rem">═══ END OF PIPELINE ═══</div>
+ Ghost of Yotei Ambient Diffuse Lighting System — Complete Pipeline Flowchart<br>
+ Source: Eric Wohllaib, GDC 演讲, 147 slides
+</div>
+</div>
+</body>
+</html>
