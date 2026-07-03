@@ -113,6 +113,10 @@
         }
         return;
       }
+      if (v.indexOf('search ') === 0) {
+        location.href = '/search/?q=' + encodeURIComponent(v.slice(7).trim());
+        return;
+      }
       if (v.indexOf('play') === 0) {
         var pm = v.slice(4).trim();
         var alias = {

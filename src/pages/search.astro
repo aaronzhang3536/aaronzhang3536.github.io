@@ -1,0 +1,96 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('posts')).sort((a, b) => +b.data.date - +a.data.date);
+const CAT_SW: Record<string, string> = {
+  '渲染管线': '--c-render', '引擎定制': '--c-engine', '角色技术': '--c-char',
+  '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+};
+const idx = posts.map((p) => {
+  const body = p.body || '';
+  const heads = [...body.matchAll(/^#{1,4}\s+(.+)$/gm)].map((m) => m[1]).join(' ');
+  const plain = body
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[#>*`[\]()|_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 400);
+  return {
+    t: p.data.title,
+    u: `/posts/${p.id}/`,
+    c: p.data.cat,
+    sw: CAT_SW[p.data.cat],
+    g: p.data.tags.join(' '),
+    d: p.data.date.toISOString().slice(0, 10),
+    m: p.data.mins,
+    h: heads,
+    x: plain,
+  };
+});
+---
+<Base title="搜索" desc="站内全文搜索">
+<main class="wrap reader">
+  <a class="back mono" href="/">← 返回首页</a>
+  <h1 class="rd-title">搜索</h1>
+  <div style="max-width:800px;">
+    <input id="sq" type="search" class="mono" spellcheck="false" autocomplete="off"
+      placeholder="搜标题、标签、正文…（如 MegaLights / 蒙特卡洛 / LOD）"
+      style="width:100%; box-sizing:border-box; background:var(--surface); border:1px solid var(--line); color:var(--ink); padding:12px 16px; font-size:15px; outline:none;" />
+    <div id="s-stat" class="mono" style="font-size:12px; color:var(--ink2); margin:12px 0 4px; min-height:1.4em;"></div>
+    <div id="s-res" class="posts" style="border-top:1px solid var(--line);"></div>
+  </div>
+</main>
+</Base>
+
+<script define:vars={{ idx }} is:inline>
+(function () {
+  var input = document.getElementById('sq');
+  var resEl = document.getElementById('s-res');
+  var statEl = document.getElementById('s-stat');
+  var deb = null;
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function run() {
+    var q = input.value.trim().toLowerCase();
+    if (!q) { resEl.innerHTML = ''; statEl.textContent = ''; return; }
+    var tokens = q.split(/\s+/).filter(Boolean);
+    var scored = [];
+    idx.forEach(function (p) {
+      var t = p.t.toLowerCase(), g = p.g.toLowerCase(), h = p.h.toLowerCase(),
+          x = p.x.toLowerCase(), c = p.c.toLowerCase();
+      var score = 0, all = true;
+      tokens.forEach(function (tk) {
+        var s = 0;
+        if (t.indexOf(tk) >= 0) s += 10;
+        if (g.indexOf(tk) >= 0) s += 6;
+        if (c.indexOf(tk) >= 0) s += 5;
+        if (h.indexOf(tk) >= 0) s += 4;
+        if (x.indexOf(tk) >= 0) s += 1;
+        if (!s) all = false;
+        score += s;
+      });
+      if (all && score) scored.push([score, p]);
+    });
+    scored.sort(function (a, b) { return b[0] - a[0]; });
+    statEl.textContent = scored.length ? '命中 ' + scored.length + ' 篇' : '没有找到相关文章';
+    resEl.innerHTML = scored.slice(0, 20).map(function (r) {
+      var p = r[1];
+      return '<a class="post" href="' + p.u + '">' +
+        '<span class="sw" style="background:var(' + p.sw + ');"></span>' +
+        '<span class="t">' + esc(p.t) + '</span>' +
+        '<span class="cat mono">' + esc(p.c) + '</span>' +
+        '<span class="d mono">' + p.d + ' · ' + p.m + ' min</span></a>';
+    }).join('');
+  }
+  input.addEventListener('input', function () {
+    clearTimeout(deb);
+    deb = setTimeout(run, 150);
+  });
+  try {
+    var q0 = new URLSearchParams(location.search).get('q');
+    if (q0) { input.value = q0; run(); }
+  } catch (e) {}
+  input.focus();
+})();
+</script>
