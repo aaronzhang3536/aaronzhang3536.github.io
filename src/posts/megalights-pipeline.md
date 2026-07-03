@@ -3,6 +3,7 @@ title: "MegaLights 渲染管线技术详解"
 cat: 渲染管线
 date: 2026-05-27
 mins: 16
+tags: [MegaLights, 渲染管线]
 ---
 
 > 纯技术向文档，聚焦 MegaLights 的算法原理、数据流、GPU Pass 调度和 Shader 实现细节。

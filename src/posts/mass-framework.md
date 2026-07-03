@@ -3,6 +3,7 @@ title: "UE Mass 框架"
 cat: 引擎定制
 date: 2026-03-24
 mins: 18
+tags: [Mass, ECS]
 ---
 
 > UE 内置的 ECS（Entity-Component-System）框架，专为大规模实体模拟设计（万级 NPC/Crowd），以数据驱动、缓存友好的方式批量处理实体。

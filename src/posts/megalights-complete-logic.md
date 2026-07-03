@@ -3,6 +3,7 @@ title: "MegaLights 完整逻辑"
 cat: 渲染管线
 date: 2026-06-10
 mins: 20
+tags: [MegaLights, 光照]
 ---
 
 > MegaLights 是 UE5 的随机采样直接光照系统。核心思想是把"对每盏灯独立计算"的传统模型，转换为"每像素从所有灯中随机抽几盏来追踪"，让 GPU 开销与灯光数量解耦。

@@ -32,6 +32,9 @@ const CAT_SW: Record<string, string> = {
     <span class="sw" style={`background:var(${CAT_SW[post.data.cat]});`}></span>
     <a href={`/cat/${post.data.cat}/`}>{post.data.cat}</a>
     <span>{fmt(post.data.date)} · {post.data.mins} min</span>
+    {post.data.tags.map((t) => (
+      <a href={`/tags/${t}/`} style="color:var(--ink2);">#{t}</a>
+    ))}
   </div>
   {toc.length >= 3 && (
     <nav class="toc" aria-label="文章目录">

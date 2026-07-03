@@ -3,6 +3,7 @@ title: "UE Groom 渲染流程"
 cat: 渲染管线
 date: 2026-01-10
 mins: 17
+tags: [Groom, 毛发渲染]
 ---
 
 ## 一、系统概述

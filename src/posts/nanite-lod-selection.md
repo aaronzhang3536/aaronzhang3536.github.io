@@ -3,6 +3,7 @@ title: "Nanite LOD 选择逻辑"
 cat: 渲染管线
 date: 2026-05-27
 mins: 22
+tags: [Nanite, LOD]
 ---
 
 > Nanite 的 LOD（Level of Detail）选择是完全 GPU 驱动的，通过 BVH 层次遍历动态决定每个 Cluster 的可见性和细节层级。

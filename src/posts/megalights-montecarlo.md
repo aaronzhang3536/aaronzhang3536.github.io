@@ -3,6 +3,7 @@ title: "MegaLights 蒙特卡洛估计"
 cat: 渲染管线
 date: 2026-05-27
 mins: 12
+tags: [MegaLights, 蒙特卡洛]
 ---
 
 > 在大量光源场景中，通过 Reservoir Importance Sampling (RIS) 以极低开销选取少量光源，结合时域引导和光追验证，得到无偏的直接光照估计。

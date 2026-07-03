@@ -1,0 +1,36 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('posts');
+  const tags = [...new Set(posts.flatMap((p) => p.data.tags))];
+  return tags.map((tag) => ({ params: { tag } }));
+}
+
+const { tag } = Astro.params;
+const posts = (await getCollection('posts', (p) => p.data.tags.includes(tag!)))
+  .sort((a, b) => +b.data.date - +a.data.date);
+const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const CAT_SW: Record<string, string> = {
+  '渲染管线': '--c-render', '引擎定制': '--c-engine', '角色技术': '--c-char',
+  '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+};
+---
+<Base title={`标签：${tag}`} desc={`标签「${tag}」下的 ${posts.length} 篇文章`}>
+<main class="wrap reader">
+  <a class="back mono" href="/">← 返回首页</a>
+  <h1 class="rd-title"><span class="mono" style="color:var(--accent);">#</span> {tag}</h1>
+  <div class="meta mono"><span>标签</span><span>{posts.length} 篇</span></div>
+  <div class="posts" style="border-top:1px solid var(--line); max-width:800px;">
+    {posts.map((p) => (
+      <a class="post" href={`/posts/${p.id}/`}>
+        <span class="sw" style={`background:var(${CAT_SW[p.data.cat]});`}></span>
+        <span class="t">{p.data.title}</span>
+        <span class="cat mono">{p.data.cat}</span>
+        <span class="d mono">{fmt(p.data.date)} · {p.data.mins} min</span>
+      </a>
+    ))}
+  </div>
+</main>
+</Base>
