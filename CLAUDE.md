@@ -10,9 +10,9 @@ As of 2026-07, `index.html` is a **hand-maintained, self-contained static page**
 
 The page implements a "UE editor viewport" visual concept: dual-theme + wireframe view mode, canvas weather system (rain/storm/wind/snow/sandstorm with lightning), random background images from public sources (picsum / bing mirrors), a fake `stat unit` HUD, an interactive console (footer), and a PIE entertainment area (game arcade with jigsaw/2048/typing/N-back etc., tea-break pomodoro, fake shader-compile idle screen, stretch routine, zen mode).
 
-## Legacy Hexo artifacts
+## History
 
-`2023/`, `archives/`, `css/`, `js/`, `fancybox/` are leftovers from the original Hexo 6.3.0 hello-world deploy (2023). They are unused by the current `index.html` and can be deleted whenever.
+This repo originally held the output of a stock Hexo 6.3.0 hello-world deploy (2023); those artifacts were removed in 2026-07 and the site is now the single hand-written `index.html`.
 
 **Warning:** if `hexo deploy` is ever run again from the old Hexo source project, it will overwrite the entire branch including the hand-written `index.html`. Don't do that; this repo is now maintained by hand.
 
