@@ -1,0 +1,91 @@
+---
+import '../styles/site.css';
+import 'katex/dist/katex.min.css';
+const { title } = Astro.props;
+const pageTitle = title ? `${title} · 一帧之内` : '一帧之内 · Within One Frame';
+---
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="generator" content={Astro.generator} />
+<link rel="alternate" type="application/rss+xml" title="一帧之内" href="/rss.xml" />
+<title>{pageTitle}</title>
+</head>
+<body>
+<header class="site">
+  <div class="wrap site-bar">
+    <a class="logo" href="#">
+      <span class="logo-mark" aria-hidden="true"></span>
+      <span class="logo-name">一帧之内</span>
+    </a>
+    <nav class="main mono" aria-label="主导航">
+      <a class="on" href="/">首页</a>
+      <a href="/#series">专栏</a>
+      <a href="/archive/">归档</a>
+      <a href="/#about">关于</a>
+    </nav>
+    <div class="ctrls">
+      <div class="viewmode">
+        <button type="button" id="btn-theme" title="切换主题"></button>
+      </div>
+      <div class="viewmode">
+        <button type="button" id="btn-wx" title="切换天气"></button>
+      </div>
+      <div class="viewmode">
+        <button type="button" id="btn-pie" title="娱乐区" aria-haspopup="menu" aria-expanded="false">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.5v11l9.5-5.5z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="pie-menu" class="mono" role="menu" aria-label="娱乐区">
+      <div class="gm-head">娱乐区</div>
+      <div class="gm" role="menuitem" data-gm="arcade"><span class="zh">游戏厅 · 小游戏合集</span></div>
+      <div class="gm" role="menuitem" data-gm="tea"><span class="zh">茶歇 · 烘焙光照</span></div>
+      <div class="gm" role="menuitem" data-gm="workout"><span class="zh">工间拉伸</span></div>
+      <div class="gm" role="menuitem" data-gm="idle"><span class="zh">摸鱼 · Compiling Shaders</span></div>
+      <div class="gm" role="menuitem" data-gm="zen"><span class="zh">禅 · 放空一会儿</span></div>
+    </div>
+  </div>
+</header>
+
+<div id="pie" class="pie-layer" role="dialog" aria-modal="true" aria-label="PIE 娱乐区">
+  <div class="pie-banner mono">
+    <span id="pie-title">PIE</span>
+    <button type="button" id="pie-exit">■ 停止 (ESC)</button>
+  </div>
+  <div class="pie-stage" id="pie-stage"></div>
+</div>
+
+<div class="stat-hud mono" aria-hidden="true">
+  <div><span class="lbl">Frame:</span><span class="val" id="ms-frame">16.61 ms</span></div>
+  <div><span class="lbl">Game:</span><span class="val" id="ms-game">4.23 ms</span></div>
+  <div><span class="lbl">Draw:</span><span class="val" id="ms-draw">2.97 ms</span></div>
+  <div><span class="lbl">GPU:</span><span class="val" id="ms-gpu">8.86 ms</span></div>
+</div>
+
+<svg class="gizmo" width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
+  <g stroke-width="2" stroke-linecap="round" font-family="Consolas, monospace" font-size="10">
+    <line x1="18" y1="54" x2="58" y2="54" stroke="#d96a60"/><text x="63" y="58" fill="#d96a60">X</text>
+    <line x1="18" y1="54" x2="18" y2="14" stroke="#58aa72"/><text x="14" y="9" fill="#58aa72">Z</text>
+    <line x1="18" y1="54" x2="42" y2="32" stroke="#6b99d8"/><text x="45" y="28" fill="#6b99d8">Y</text>
+  </g>
+</svg>
+
+<slot />
+
+<div class="wrap">
+  <div class="console mono">
+    <div class="console-line">
+      <span class="prompt">&gt;</span>
+      <input id="cmd" type="text" spellcheck="false" autocomplete="off" aria-label="控制台命令输入" placeholder="输入命令，回车执行…">
+    </div>
+    <div class="echo" id="echo"></div>
+    <div class="hint">可用命令：<b>help</b> · <b>dark</b> · <b>light</b> · <b>wireframe</b> · <b>weather rain|storm|…</b> · <b>bg on|off|next|&lt;秒&gt;</b> · <b>play arcade|tea|workout|idle|zen</b> · <b>stat fps</b> · <b>quit</b> &nbsp;—— © 2026 一帧之内 · aaronzhang3536.github.io</div>
+  </div>
+</div>
+
+<script src="/js/site.js" defer is:inline></script>
+</body>
+</html>
