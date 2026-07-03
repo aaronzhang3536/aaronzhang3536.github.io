@@ -1,0 +1,34 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('posts')).sort((a, b) => +b.data.date - +a.data.date);
+const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const CAT_SW: Record<string, string> = {
+  '渲染管线': '--c-render', '引擎定制': '--c-engine', '角色技术': '--c-char',
+  '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+};
+const years = [...new Set(posts.map((p) => p.data.date.getFullYear()))];
+---
+<Base title="归档">
+<main class="wrap reader">
+  <a class="back mono" href="/">← 返回首页</a>
+  <h1 class="rd-title">归档</h1>
+  <div class="meta mono"><span>共 {posts.length} 篇</span></div>
+  {years.map((y) => (
+    <section style="max-width:800px;">
+      <h2 class="mono" style="font-size:15px; letter-spacing:0.2em; color:var(--ink2); margin:34px 0 8px;">{y}</h2>
+      <div class="posts" style="border-top:1px solid var(--line);">
+        {posts.filter((p) => p.data.date.getFullYear() === y).map((p) => (
+          <a class="post" href={`/posts/${p.id}/`}>
+            <span class="sw" style={`background:var(${CAT_SW[p.data.cat]});`}></span>
+            <span class="t">{p.data.title}</span>
+            <span class="cat mono">{p.data.cat}</span>
+            <span class="d mono">{fmt(p.data.date)} · {p.data.mins} min</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  ))}
+</main>
+</Base>

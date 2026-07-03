@@ -1,0 +1,34 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('posts');
+  return posts.map((post) => ({ params: { id: post.id }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const CAT_SW: Record<string, string> = {
+  '渲染管线': '--c-render', '引擎定制': '--c-engine', '角色技术': '--c-char',
+  '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+};
+---
+<Base title={post.data.title}>
+<main class="wrap reader">
+  <a class="back mono" href="/">← 返回首页</a>
+  <h1 class="rd-title">{post.data.title}</h1>
+  <div class="meta mono">
+    <span class="sw" style={`background:var(${CAT_SW[post.data.cat]});`}></span>
+    <a href={`/cat/${post.data.cat}/`}>{post.data.cat}</a>
+    <span>{fmt(post.data.date)} · {post.data.mins} min</span>
+  </div>
+  <article class="md-body">
+    <Content />
+  </article>
+  {post.data.iframe && (
+    <iframe class="rd-frame" src={post.data.iframe} title={post.data.title}></iframe>
+  )}
+</main>
+</Base>
