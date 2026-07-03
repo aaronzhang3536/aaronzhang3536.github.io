@@ -16,6 +16,18 @@ This repo originally held the output of a stock Hexo 6.3.0 hello-world deploy (2
 
 **Warning:** if `hexo deploy` is ever run again from the old Hexo source project, it will overwrite the entire branch including the hand-written `index.html`. Don't do that; this repo is now maintained by hand.
 
+## Architecture
+
+`index.html` is a single shell with hash routing: `#/` is the homepage, `#/post/<slug>` opens an article inside the shell (site header/weather/console never disappear). Articles live in `posts/`:
+
+- `.md` files are rendered client-side with marked (CDN) — publish markdown verbatim
+- standalone `.html` pages (e.g. the Yotei writeups, which carry their own styles/KaTeX) are embedded via iframe
+
+The post manifest is the `POSTS_DB` array in `index.html` (slug/title/cat/color/date/mins/type/src). **To add a post:** drop the file into `posts/` and add one `POSTS_DB` entry.
+
+Note: `fetch()` of local .md fails under `file://` — preview the draft's article view via a local HTTP server (`python -m http.server`), or just check on the live site.
+
 ## Workflow
 
 - Edit `d:\WorkSpace\ZBlog\blog-design.html` (draft), verify locally in a browser, copy to `index.html` here, commit and push to `master` — GitHub Pages serves it directly. Nothing to build or test beyond a browser check and `node --check` on the extracted inline script.
+- Never publish company-internal ProjectTK documents (plugin docs, code reviews, design docs) without the owner's explicit per-file approval.

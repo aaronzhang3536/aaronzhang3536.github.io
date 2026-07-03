@@ -333,6 +333,42 @@
   }
   .about .who { font-weight: 800; }
 
+  /* ---------- 文章阅读视图（壳内路由） ---------- */
+  #reader { padding-top: 34px; }
+  #reader .back { font-size: 13px; color: var(--ink2); letter-spacing: 0.08em; }
+  #reader .back:hover { color: var(--accent); }
+  #reader .rd-title { font-size: clamp(26px, 4.5vw, 36px); line-height: 1.3; margin: 14px 0 10px; font-weight: 800; }
+  #reader .meta { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--ink2); margin-bottom: 40px; }
+  #reader .meta .sw { width: 9px; height: 9px; }
+  .md-body { max-width: 800px; padding-bottom: 60px; }
+  .md-body h1 { font-size: 24px; margin-top: 2em; }
+  .md-body h2 { font-size: 21px; margin-top: 2em; padding-top: 0.8em; border-top: 1px solid var(--line); }
+  .md-body h3 { font-size: 17px; margin-top: 1.6em; }
+  .md-body a { color: var(--accent); }
+  .md-body a:hover { text-decoration: underline; }
+  .md-body code {
+    background: var(--surface2); border: 1px solid var(--line);
+    padding: 1px 6px; font-size: 0.86em;
+    font-family: "JetBrains Mono", Consolas, "SF Mono", ui-monospace, monospace;
+  }
+  .md-body pre {
+    background: var(--surface); border: 1px solid var(--line);
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.7;
+  }
+  .md-body pre code { background: none; border: 0; padding: 0; }
+  .md-body blockquote {
+    margin: 1.2em 0; padding: 2px 20px; color: var(--ink2);
+    border-left: 3px solid var(--accent); background: var(--surface);
+  }
+  .md-body table { border-collapse: collapse; font-size: 14px; display: block; overflow-x: auto; }
+  .md-body th, .md-body td { border: 1px solid var(--line); padding: 7px 12px; text-align: left; }
+  .md-body th { background: var(--surface2); }
+  .md-body hr { border: 0; border-top: 1px solid var(--line); margin: 2.2em 0; }
+  #rd-frame {
+    width: 100%; height: calc(100vh - 170px);
+    border: 1px solid var(--line); background: #fff;
+  }
+
   /* ---------- console ---------- */
   .console {
     margin-top: 72px;
@@ -585,7 +621,7 @@
       <span class="logo-name">一帧之内</span>
     </a>
     <nav class="main mono" aria-label="主导航">
-      <a class="on" href="#">首页</a>
+      <a class="on" href="#/">首页</a>
       <a href="#">专栏</a>
       <a href="#">归档</a>
       <a href="#">关于</a>
@@ -637,7 +673,7 @@
   </g>
 </svg>
 
-<main class="wrap">
+<main class="wrap" id="home">
 
   <div class="hero">
     <div class="select-box">
@@ -726,38 +762,7 @@
       <span class="rule"></span>
       <a class="more mono" href="#">归档 →</a>
     </div>
-    <div class="posts">
-      <a class="post" href="posts/motionwarping-rotation-race.html">
-        <span class="sw" style="background:var(--c-char);"></span>
-        <span class="t">Motion Warping 旋转间歇失效 —— 一次竞态的确认</span>
-        <span class="cat mono">角色技术</span>
-        <span class="d mono">2026-06-10 · 8 min</span>
-      </a>
-      <a class="post" href="posts/yotei-pipeline-flowchart.html">
-        <span class="sw" style="background:var(--c-tool);"></span>
-        <span class="t">Yotei 渲染管线全流程图（可交互长图）</span>
-        <span class="cat mono">读渲染</span>
-        <span class="d mono">2026-06-09 · 6 min</span>
-      </a>
-      <a class="post" href="posts/yotei-ambient-lighting.html">
-        <span class="sw" style="background:var(--c-tool);"></span>
-        <span class="t">读 Yotei：Ambient Diffuse Lighting 技术总结</span>
-        <span class="cat mono">读渲染</span>
-        <span class="d mono">2026-06-08 · 12 min</span>
-      </a>
-      <a class="post" href="posts/blendstack-syncgroup.html">
-        <span class="sw" style="background:var(--c-char);"></span>
-        <span class="t">Blend Stack 与 Sync Group / Sync Marker 兼容性分析</span>
-        <span class="cat mono">角色技术</span>
-        <span class="d mono">2026-04-13 · 15 min</span>
-      </a>
-      <a class="post" href="posts/fjsonobjectconverter.html">
-        <span class="sw" style="background:var(--c-engine);"></span>
-        <span class="t">FJsonObjectConverter 深度技术分析</span>
-        <span class="cat mono">引擎定制</span>
-        <span class="d mono">2026-04-02 · 18 min</span>
-      </a>
-    </div>
+    <div class="posts" id="post-list"></div>
   </section>
 
   <section>
@@ -800,6 +805,21 @@
 
 </main>
 
+<main class="wrap" id="reader" hidden>
+  <a class="back mono" href="#/">← 返回首页</a>
+  <h1 class="rd-title" id="rd-title"></h1>
+  <div class="meta mono">
+    <span class="sw" id="rd-sw"></span>
+    <span id="rd-cat"></span>
+    <span id="rd-date"></span>
+  </div>
+  <article class="md-body" id="rd-md"></article>
+  <div id="rd-frame-wrap" hidden>
+    <iframe id="rd-frame" title="文章内容"></iframe>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/lib/marked.umd.min.js"></script>
 <script>
   (function () {
     var body = document.body;
@@ -2587,6 +2607,98 @@
         return function cleanup() { body.classList.remove('zen-hide'); };
       }
     };
+
+    /* ---------- 文章库与壳内路由 ----------
+       .md 运行时渲染（marked），独立 .html 用 iframe 引入；顶栏/天气/主题全程不消失 */
+    var POSTS_DB = [
+      { slug: 'motionwarping-rotation-race', title: 'Motion Warping 旋转间歇失效 —— 一次竞态的确认',
+        cat: '角色技术', sw: '--c-char', date: '2026-06-10', mins: 8, type: 'md', src: 'posts/motionwarping-rotation-race.md' },
+      { slug: 'yotei-pipeline-flowchart', title: 'Yotei 渲染管线全流程图（可交互长图）',
+        cat: '读渲染', sw: '--c-tool', date: '2026-06-09', mins: 6, type: 'html', src: 'posts/yotei-pipeline-flowchart.html' },
+      { slug: 'yotei-ambient-lighting', title: '读 Yotei：Ambient Diffuse Lighting 技术总结',
+        cat: '读渲染', sw: '--c-tool', date: '2026-06-08', mins: 12, type: 'html', src: 'posts/yotei-ambient-lighting.html' },
+      { slug: 'blendstack-syncgroup', title: 'Blend Stack 与 Sync Group / Sync Marker 兼容性分析',
+        cat: '角色技术', sw: '--c-char', date: '2026-04-13', mins: 15, type: 'md', src: 'posts/blendstack-syncgroup.md' },
+      { slug: 'fjsonobjectconverter', title: 'FJsonObjectConverter 深度技术分析',
+        cat: '引擎定制', sw: '--c-engine', date: '2026-04-02', mins: 18, type: 'md', src: 'posts/fjsonobjectconverter.md' }
+    ];
+    var homeEl = document.getElementById('home');
+    var readerEl = document.getElementById('reader');
+    var rdMd = document.getElementById('rd-md');
+    var rdFrameWrap = document.getElementById('rd-frame-wrap');
+    var rdFrame = document.getElementById('rd-frame');
+    var SITE_TITLE = '一帧之内 · Within One Frame';
+
+    (function renderHomePosts() {
+      var list = document.getElementById('post-list');
+      var h = '';
+      POSTS_DB.forEach(function (p) {
+        h += '<a class="post" href="#/post/' + p.slug + '">' +
+          '<span class="sw" style="background:var(' + p.sw + ');"></span>' +
+          '<span class="t">' + p.title + '</span>' +
+          '<span class="cat mono">' + p.cat + '</span>' +
+          '<span class="d mono">' + p.date + ' · ' + p.mins + ' min</span></a>';
+      });
+      list.innerHTML = h;
+    })();
+
+    function showHome() {
+      readerEl.hidden = true;
+      homeEl.hidden = false;
+      rdFrame.src = 'about:blank';
+      document.title = SITE_TITLE;
+    }
+    function openPost(slug) {
+      var p = null;
+      POSTS_DB.forEach(function (x) { if (x.slug === slug) p = x; });
+      if (!p) { showHome(); return; }
+      homeEl.hidden = true;
+      readerEl.hidden = false;
+      window.scrollTo(0, 0);
+      document.title = p.title + ' · 一帧之内';
+      document.getElementById('rd-title').textContent = p.title;
+      document.getElementById('rd-cat').textContent = p.cat;
+      document.getElementById('rd-date').textContent = p.date + ' · ' + p.mins + ' min';
+      document.getElementById('rd-sw').style.background = 'var(' + p.sw + ')';
+      if (p.type === 'md') {
+        rdFrameWrap.hidden = true;
+        rdMd.hidden = false;
+        rdMd.innerHTML = '<p class="mono" style="color:var(--ink2);">加载中…</p>';
+        fetch(p.src).then(function (r) {
+          if (!r.ok) throw new Error(r.status);
+          return r.text();
+        }).then(function (t) {
+          t = t.replace(/^#\s+.*\n/, '');   /* 首行 H1 与页头标题重复，去掉 */
+          if (window.marked) {
+            rdMd.innerHTML = marked.parse(t);
+            /* 给标题补 id，让文内锚点可用 */
+            rdMd.querySelectorAll('h1,h2,h3,h4').forEach(function (hd) {
+              if (!hd.id) hd.id = hd.textContent.trim();
+            });
+          } else {
+            var pre = document.createElement('pre');
+            pre.textContent = t;
+            rdMd.innerHTML = '';
+            rdMd.appendChild(pre);
+          }
+        }).catch(function () {
+          rdMd.innerHTML = '<p class="mono" style="color:var(--ink2);">文章加载失败，请稍后重试。</p>';
+        });
+      } else {
+        rdMd.hidden = true;
+        rdFrameWrap.hidden = false;
+        rdFrame.src = p.src;
+        rdFrame.title = p.title;
+      }
+    }
+    function route() {
+      var h = location.hash;
+      if (h.indexOf('#/post/') === 0) openPost(h.slice(7));
+      else if (h === '' || h === '#' || h === '#/') showHome();
+      /* 其余 hash 视为文内锚点，不路由 */
+    }
+    window.addEventListener('hashchange', route);
+    route();
 
     /* ---------- 鼠标交互（仅精确指针设备） ---------- */
     var fine = window.matchMedia('(pointer: fine)').matches;
