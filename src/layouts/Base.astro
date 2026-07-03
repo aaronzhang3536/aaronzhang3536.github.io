@@ -25,6 +25,12 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
 </head>
 <body>
 <script is:inline>
+/* 旧版 SPA hash 链接重定向 */
+(function () {
+  var h = location.hash;
+  if (h.indexOf('#/post/') === 0) location.replace('/posts/' + decodeURIComponent(h.slice(7)) + '/');
+  else if (h.indexOf('#/cat/') === 0) location.replace('/cat/' + decodeURIComponent(h.slice(6)) + '/');
+})();
 /* 首屏前应用已保存的主题，避免闪烁 */
 (function () {
   try {
