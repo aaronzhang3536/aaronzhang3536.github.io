@@ -15,7 +15,7 @@ const CAT_SW: Record<string, string> = {
   '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
 ---
-<Base title={post.data.title}>
+<Base title={post.data.title} desc={`「${post.data.cat}」专栏 · 约 ${post.data.mins} 分钟读完 · 一帧之内的引擎技术笔记`}>
 <main class="wrap reader">
   <a class="back mono" href="/">← 返回首页</a>
   <h1 class="rd-title">{post.data.title}</h1>

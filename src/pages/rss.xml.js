@@ -12,6 +12,7 @@ export async function GET(context) {
       pubDate: p.data.date,
       link: `/posts/${p.id}/`,
       categories: [p.data.cat],
+      description: `「${p.data.cat}」专栏 · 约 ${p.data.mins} 分钟读完`,
     })),
   });
 }

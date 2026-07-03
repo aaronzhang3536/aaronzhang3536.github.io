@@ -1,8 +1,10 @@
 ---
 import '../styles/site.css';
 import 'katex/dist/katex.min.css';
-const { title } = Astro.props;
+const { title, desc } = Astro.props;
 const pageTitle = title ? `${title} · 一帧之内` : '一帧之内 · Within One Frame';
+const pageDesc = desc || 'UE5 引擎定制、实时渲染与角色技术笔记；也写深度学习、脑机接口，和管弦乐。';
+const canonical = new URL(Astro.url.pathname, Astro.site);
 ---
 <!doctype html>
 <html lang="zh-CN">
@@ -11,6 +13,14 @@ const pageTitle = title ? `${title} · 一帧之内` : '一帧之内 · Within O
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="generator" content={Astro.generator} />
 <link rel="alternate" type="application/rss+xml" title="一帧之内" href="/rss.xml" />
+<link rel="canonical" href={canonical} />
+<meta name="description" content={pageDesc} />
+<meta property="og:type" content={title ? 'article' : 'website'} />
+<meta property="og:title" content={pageTitle} />
+<meta property="og:description" content={pageDesc} />
+<meta property="og:url" content={canonical} />
+<meta property="og:site_name" content="一帧之内 Within One Frame" />
+<meta name="twitter:card" content="summary" />
 <title>{pageTitle}</title>
 </head>
 <body>
