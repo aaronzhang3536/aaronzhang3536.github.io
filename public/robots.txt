@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://aaronzhang3536.github.io/sitemap-index.xml
