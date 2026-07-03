@@ -17,7 +17,9 @@ const years = [...new Set(posts.map((p) => p.data.date.getFullYear()))];
   <div class="meta mono"><span>共 {posts.length} 篇</span></div>
   {years.map((y) => (
     <section style="max-width:800px;">
-      <h2 class="mono" style="font-size:15px; letter-spacing:0.2em; color:var(--ink2); margin:34px 0 8px;">{y}</h2>
+      <h2 class="mono" style="font-size:15px; letter-spacing:0.2em; color:var(--ink2); margin:34px 0 8px;">
+        {y} <span style="font-size:12px;">· {posts.filter((p) => p.data.date.getFullYear() === y).length} 篇</span>
+      </h2>
       <div class="posts" style="border-top:1px solid var(--line);">
         {posts.filter((p) => p.data.date.getFullYear() === y).map((p) => (
           <a class="post" href={`/posts/${p.id}/`}>

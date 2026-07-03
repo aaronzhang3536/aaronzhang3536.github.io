@@ -3566,6 +3566,16 @@
       var rpBar = document.createElement('div');
       rpBar.id = 'read-progress';
       document.body.appendChild(rpBar);
+      var btt = document.createElement('button');
+      btt.id = 'back-top';
+      btt.className = 'mono';
+      btt.type = 'button';
+      btt.textContent = '↑ TOP';
+      btt.setAttribute('aria-label', '返回顶部');
+      btt.addEventListener('click', function () {
+        window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+      });
+      document.body.appendChild(btt);
       var rpTick = false;
       window.addEventListener('scroll', function () {
         if (rpTick) return;
@@ -3573,6 +3583,7 @@
         requestAnimationFrame(function () {
           var max = document.documentElement.scrollHeight - window.innerHeight;
           rpBar.style.width = (max > 0 ? (window.scrollY / max * 100) : 0) + '%';
+          btt.classList.toggle('show', window.scrollY > 600);
           rpTick = false;
         });
       }, { passive: true });
