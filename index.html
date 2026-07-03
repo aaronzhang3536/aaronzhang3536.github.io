@@ -721,19 +721,19 @@
         <div class="col-tag mono"><span class="sw" style="background:var(--c-render);"></span>渲染管线</div>
         <h3>MegaLights 实战</h3>
         <p>从距离驱动的 ShadowMethod 切换，到 Shadow LOD Subsystem 的设计与排错 —— 在主机预算内点亮上千盏灯。</p>
-        <div class="n mono">筹备中</div>
+        <div class="n mono">11 篇</div>
       </a>
       <a class="col-card" href="#/cat/角色技术">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-char);"></span>角色技术</div>
         <h3>断肢系统 Devlog</h3>
         <p>SkeletalMesh 运行时切割：切面几何、凸包生成、UV 稳定性、PhysicsAsset 复用与预生成资产的过期策略。</p>
-        <div class="n mono">筹备中</div>
+        <div class="n mono">3 篇</div>
       </a>
       <a class="col-card" href="#/cat/引擎定制">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-engine);"></span>引擎定制</div>
         <h3>引擎分支维护手记</h3>
         <p>维护一条自己的 UE 分支意味着什么：5.7 → 5.8 的升级合并、编辑器扩展、Outliner 改造与规范落地。</p>
-        <div class="n mono">5 篇</div>
+        <div class="n mono">6 篇</div>
       </a>
       <a class="col-card" href="#/cat/读渲染">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-tool);"></span>读渲染</div>
@@ -819,6 +819,9 @@
   </div>
 </main>
 
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/lib/marked.umd.min.js"></script>
 <script>
   (function () {
@@ -2611,10 +2614,24 @@
     /* ---------- 文章库与壳内路由 ----------
        .md 运行时渲染（marked），独立 .html 用 iframe 引入；顶栏/天气/主题全程不消失 */
     var POSTS_DB = [
+      { slug: 'megalights-complete-logic', title: 'MegaLights 完整逻辑',
+        cat: '渲染管线', sw: '--c-render', date: '2026-06-10', mins: 20, type: 'md', src: 'posts/megalights-complete-logic.md' },
       { slug: 'yotei-pipeline-flowchart', title: 'Yotei 渲染管线全流程图（可交互长图）',
         cat: '读渲染', sw: '--c-tool', date: '2026-06-09', mins: 6, type: 'html', src: 'posts/yotei-pipeline-flowchart.html' },
       { slug: 'yotei-ambient-lighting', title: '读 Yotei：Ambient Diffuse Lighting 技术总结',
         cat: '读渲染', sw: '--c-tool', date: '2026-06-08', mins: 12, type: 'html', src: 'posts/yotei-ambient-lighting.html' },
+      { slug: 'megalights-pipeline', title: 'MegaLights 渲染管线技术详解',
+        cat: '渲染管线', sw: '--c-render', date: '2026-05-27', mins: 16, type: 'md', src: 'posts/megalights-pipeline.md' },
+      { slug: 'megalights-performance', title: 'MegaLights 性能分析与优化',
+        cat: '渲染管线', sw: '--c-render', date: '2026-05-27', mins: 9, type: 'md', src: 'posts/megalights-performance.md' },
+      { slug: 'megalights-montecarlo', title: 'MegaLights 蒙特卡洛估计',
+        cat: '渲染管线', sw: '--c-render', date: '2026-05-27', mins: 12, type: 'md', src: 'posts/megalights-montecarlo.md' },
+      { slug: 'nanite-lod-selection', title: 'Nanite LOD 选择逻辑',
+        cat: '渲染管线', sw: '--c-render', date: '2026-05-27', mins: 22, type: 'md', src: 'posts/nanite-lod-selection.md' },
+      { slug: 'montecarlo-importance-sampling', title: '蒙特卡洛与重要性采样基础',
+        cat: '渲染管线', sw: '--c-render', date: '2026-05-27', mins: 7, type: 'md', src: 'posts/montecarlo-importance-sampling.md' },
+      { slug: 'probability-basics', title: '概率论基础',
+        cat: '渲染管线', sw: '--c-render', date: '2026-05-27', mins: 5, type: 'md', src: 'posts/probability-basics.md' },
       { slug: 'planecut-analysis', title: 'UE MeshModelingToolset — PlaneCut 平面切割分析',
         cat: '引擎定制', sw: '--c-engine', date: '2026-05-20', mins: 12, type: 'md', src: 'posts/planecut-analysis.md' },
       { slug: 'cutthrough-analysis', title: 'UE MeshModelingToolset — CutThrough 网格穿透切割分析',
@@ -2624,7 +2641,23 @@
       { slug: 'planecut-callstack-keepbothhalves', title: 'PlaneCut 调用堆栈：Keep Both Halves 配置',
         cat: '引擎定制', sw: '--c-engine', date: '2026-05-20', mins: 10, type: 'md', src: 'posts/planecut-callstack-keepbothhalves.md' },
       { slug: 'fjsonobjectconverter', title: 'FJsonObjectConverter 深度技术分析',
-        cat: '引擎定制', sw: '--c-engine', date: '2026-04-02', mins: 18, type: 'md', src: 'posts/fjsonobjectconverter.md' }
+        cat: '引擎定制', sw: '--c-engine', date: '2026-04-02', mins: 18, type: 'md', src: 'posts/fjsonobjectconverter.md' },
+      { slug: 'mass-framework', title: 'UE Mass 框架',
+        cat: '引擎定制', sw: '--c-engine', date: '2026-03-24', mins: 18, type: 'md', src: 'posts/mass-framework.md' },
+      { slug: 'hairstrands-voxelization', title: 'HairStrands 体素化',
+        cat: '渲染管线', sw: '--c-render', date: '2026-01-26', mins: 14, type: 'md', src: 'posts/hairstrands-voxelization.md' },
+      { slug: 'nanite-complete-logic', title: 'Nanite 完整逻辑',
+        cat: '渲染管线', sw: '--c-render', date: '2026-01-20', mins: 26, type: 'md', src: 'posts/nanite-complete-logic.md' },
+      { slug: 'nanite-material-cache', title: 'Nanite 材质缓存',
+        cat: '渲染管线', sw: '--c-render', date: '2026-01-20', mins: 17, type: 'md', src: 'posts/nanite-material-cache.md' },
+      { slug: 'groom-dev-guide', title: 'UE Groom 毛发系统开发指南',
+        cat: '角色技术', sw: '--c-char', date: '2026-01-19', mins: 20, type: 'md', src: 'posts/groom-dev-guide.md' },
+      { slug: 'skincache-recompute-tangents', title: 'GPU Skin Cache：Recompute Tangents',
+        cat: '角色技术', sw: '--c-char', date: '2026-01-19', mins: 11, type: 'md', src: 'posts/skincache-recompute-tangents.md' },
+      { slug: 'skincache-overview', title: 'GPU Skin Cache 概述',
+        cat: '角色技术', sw: '--c-char', date: '2026-01-19', mins: 4, type: 'md', src: 'posts/skincache-overview.md' },
+      { slug: 'groom-render-pipeline', title: 'UE Groom 渲染流程',
+        cat: '渲染管线', sw: '--c-render', date: '2026-01-10', mins: 17, type: 'md', src: 'posts/groom-render-pipeline.md' }
     ];
     var homeEl = document.getElementById('home');
     var readerEl = document.getElementById('reader');
@@ -2674,11 +2707,31 @@
         }).then(function (t) {
           t = t.replace(/^#\s+.*\n/, '');   /* 首行 H1 与页头标题重复，去掉 */
           if (window.marked) {
-            rdMd.innerHTML = marked.parse(t);
+            /* 先把公式抠出来，防止 marked 把下划线等吃掉 */
+            var mathSlots = [];
+            t = t.replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, function (mm) {
+              mathSlots.push(mm);
+              return '@@MATH' + (mathSlots.length - 1) + '@@';
+            });
+            var htmlOut = marked.parse(t);
+            htmlOut = htmlOut.replace(/@@MATH(\d+)@@/g, function (_, i) {
+              return mathSlots[+i]
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            });
+            rdMd.innerHTML = htmlOut;
             /* 给标题补 id，让文内锚点可用 */
             rdMd.querySelectorAll('h1,h2,h3,h4').forEach(function (hd) {
               if (!hd.id) hd.id = hd.textContent.trim();
             });
+            if (window.renderMathInElement) {
+              renderMathInElement(rdMd, {
+                delimiters: [
+                  { left: '$$', right: '$$', display: true },
+                  { left: '$', right: '$', display: false }
+                ],
+                throwOnError: false
+              });
+            }
           } else {
             var pre = document.createElement('pre');
             pre.textContent = t;
