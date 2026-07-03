@@ -6,6 +6,9 @@ const latest = posts.slice(0, 5);
 const counts: Record<string, number> = {};
 for (const p of posts) counts[p.data.cat] = (counts[p.data.cat] || 0) + 1;
 const cnt = (c: string, empty = '筹备中') => (counts[c] ? `${counts[c]} 篇` : empty);
+const tagCounts: Record<string, number> = {};
+for (const p of posts) for (const t of p.data.tags) tagCounts[t] = (tagCounts[t] || 0) + 1;
+const tagList = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
   '渲染管线': '--c-render', '引擎定制': '--c-engine', '角色技术': '--c-char',
@@ -121,22 +124,9 @@ const CAT_SW: Record<string, string> = {
       <span class="rule"></span>
     </div>
     <div class="cvars mono">
-      <a class="cvar" href="#">MegaLights</a>
-      <a class="cvar" href="#">VirtualShadowMap</a>
-      <a class="cvar" href="#">Nanite</a>
-      <a class="cvar" href="#">RayTracing</a>
-      <a class="cvar" href="#">Dismemberment</a>
-      <a class="cvar" href="#">ChaosCloth</a>
-      <a class="cvar" href="#">MLDeformer</a>
-      <a class="cvar" href="#">MetaHuman</a>
-      <a class="cvar" href="#">Scalability</a>
-      <a class="cvar" href="#">EditorTools</a>
-      <a class="cvar" href="#">EngineMerge</a>
-      <a class="cvar" href="#">SubstancePainter</a>
-      <a class="cvar" href="#">DeepLearning</a>
-      <a class="cvar" href="#">EEG</a>
-      <a class="cvar" href="#">Diffusion</a>
-      <a class="cvar" href="#">管弦乐</a>
+      {tagList.map(([tag, n]) => (
+        <a class="cvar" href={`/tags/${tag}/`}>{tag} <b>{n}</b></a>
+      ))}
     </div>
 
     <div class="about" id="about">

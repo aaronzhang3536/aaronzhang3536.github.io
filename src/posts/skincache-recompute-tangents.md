@@ -3,6 +3,7 @@ title: "GPU Skin Cache：Recompute Tangents"
 cat: 角色技术
 date: 2026-01-19
 mins: 11
+tags: [SkinCache, 切线]
 ---
 
 > GPU 蒙皮缓存的切线重算机制

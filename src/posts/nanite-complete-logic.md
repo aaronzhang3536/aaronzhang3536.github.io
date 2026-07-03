@@ -3,6 +3,7 @@ title: "Nanite 完整逻辑"
 cat: 渲染管线
 date: 2026-01-20
 mins: 26
+tags: [Nanite, 几何管线]
 ---
 
 > Nanite 是 UE5 的虚拟几何体系统，通过 GPU 驱动的细节层级选择和软件光栅化实现数十亿多边形的实时渲染。

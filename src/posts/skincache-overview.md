@@ -3,6 +3,7 @@ title: "GPU Skin Cache 概述"
 cat: 角色技术
 date: 2026-01-19
 mins: 4
+tags: [SkinCache, 蒙皮]
 ---
 
 > GPU 蒙皮缓存系统

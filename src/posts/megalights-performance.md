@@ -3,6 +3,7 @@ title: "MegaLights 性能分析与优化"
 cat: 渲染管线
 date: 2026-05-27
 mins: 9
+tags: [MegaLights, 性能优化]
 ---
 
 > 基于 MegaLights 完整逻辑、渲染管线技术详解、蒙特卡洛估计三份文档的综合性能分析。聚焦性能瓶颈定位、实用调参建议和优化方案。

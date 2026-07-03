@@ -3,6 +3,7 @@ title: "HairStrands 体素化"
 cat: 渲染管线
 date: 2026-01-26
 mins: 14
+tags: [Groom, HairStrands]
 ---
 
 > 毛发体素化系统：将毛发几何体转换为 3D 体素密度体积，用于计算毛发的阴影、透射、AO 和环境光照。

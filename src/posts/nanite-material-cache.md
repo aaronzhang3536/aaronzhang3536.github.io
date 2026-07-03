@@ -3,6 +3,7 @@ title: "Nanite 材质缓存"
 cat: 渲染管线
 date: 2026-01-20
 mins: 17
+tags: [Nanite, 材质]
 ---
 
 > Nanite Material Cache 是 UE5 中用于缓存着色器编译结果和材质属性数据的多层次优化系统，避免重复编译着色器并加速材质处理。
