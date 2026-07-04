@@ -3,7 +3,7 @@ import '../styles/site.css';
 import 'katex/dist/katex.min.css';
 const { title, desc } = Astro.props;
 const pageTitle = title ? `${title} · 一帧之内` : '一帧之内 · Within One Frame';
-const pageDesc = desc || 'UE5 引擎定制、实时渲染与角色技术笔记；也写深度学习、脑机接口，和管弦乐。';
+const pageDesc = desc || 'UE5 引擎剖析、实时渲染与角色技术笔记；也写深度学习、脑机接口，和管弦乐。';
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const path = Astro.url.pathname;
 ---

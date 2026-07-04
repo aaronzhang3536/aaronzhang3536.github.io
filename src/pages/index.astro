@@ -10,7 +10,7 @@ const tagCounts: Record<string, number> = {};
 for (const p of posts) for (const t of p.data.tags) tagCounts[t] = (tagCounts[t] || 0) + 1;
 const tagList = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
 /* 时间线按真实文章分布计算：技术四类占满一帧 16.67ms，异步轨按 AI/生活占比 */
-const TECH = ['渲染管线', '引擎定制', '角色技术', '读渲染'];
+const TECH = ['渲染管线', '引擎剖析', '角色技术', '读渲染'];
 const techTotal = TECH.reduce((s, c) => s + (counts[c] || 0), 0) || 1;
 const pct = (c: string) => (((counts[c] || 0) / techTotal) * 100).toFixed(1);
 const ms = (c: string) => (((counts[c] || 0) / techTotal) * 16.67).toFixed(1);
@@ -19,7 +19,7 @@ const lifeN = counts['音乐与生活'] || 0;
 const aiPct = aiN + lifeN ? ((aiN / (aiN + lifeN)) * 100).toFixed(1) : '50';
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  '渲染管线': '--c-render', '引擎定制': '--c-engine', '角色技术': '--c-char',
+  '渲染管线': '--c-render', '引擎剖析': '--c-engine', '角色技术': '--c-char',
   '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
 ---
@@ -34,7 +34,7 @@ const CAT_SW: Record<string, string> = {
       <h1>一<span class="f">帧</span>之内<span class="en mono">WITHIN ONE FRAME · 16.67 MS</span></h1>
     </div>
     <p class="lead"><strong>16.67 毫秒的预算，够渲染一整个世界。</strong><br>
-    主线程跑 UE5 引擎定制、实时渲染与角色技术；异步线程跑深度学习、脑机接口，和管弦乐 ——
+    主线程跑 UE5 引擎剖析、实时渲染与角色技术；异步线程跑深度学习、脑机接口，和管弦乐 ——
     记录踩过的坑、读过的 paper，和帧预算之外的生活。</p>
 
     <div class="frame" role="img" aria-label="以 GPU 帧时间线呈现的四个内容专栏">
@@ -43,7 +43,7 @@ const CAT_SW: Record<string, string> = {
       </div>
       <div class="track">
         <div class="seg" style={`width:${pct('渲染管线')}%; background:var(--c-render);`}></div>
-        <div class="seg" style={`width:${pct('引擎定制')}%; background:var(--c-engine);`}></div>
+        <div class="seg" style={`width:${pct('引擎剖析')}%; background:var(--c-engine);`}></div>
         <div class="seg" style={`width:${pct('角色技术')}%; background:var(--c-char);`}></div>
         <div class="seg" style={`width:${pct('读渲染')}%; background:var(--c-tool);`}></div>
       </div>
@@ -53,7 +53,7 @@ const CAT_SW: Record<string, string> = {
       </div>
       <div class="legend mono">
         <div class="row"><span class="sw" style="background:var(--c-render);"></span><b>渲染管线</b><span class="ms">{ms('渲染管线')} ms · {counts['渲染管线'] || 0} 篇</span></div>
-        <div class="row"><span class="sw" style="background:var(--c-engine);"></span><b>引擎定制</b><span class="ms">{ms('引擎定制')} ms · {counts['引擎定制'] || 0} 篇</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-engine);"></span><b>引擎剖析</b><span class="ms">{ms('引擎剖析')} ms · {counts['引擎剖析'] || 0} 篇</span></div>
         <div class="row"><span class="sw" style="background:var(--c-char);"></span><b>角色技术</b><span class="ms">{ms('角色技术')} ms · {counts['角色技术'] || 0} 篇</span></div>
         <div class="row"><span class="sw" style="background:var(--c-tool);"></span><b>读渲染</b><span class="ms">{ms('读渲染')} ms · {counts['读渲染'] || 0} 篇</span></div>
         <div class="row"><span class="sw" style="background:var(--c-ai);"></span><b>AI 与认知</b><span class="ms">async · {aiN} 篇</span></div>
@@ -75,11 +75,11 @@ const CAT_SW: Record<string, string> = {
         <p>MegaLights、Nanite、毛发渲染 —— 实时渲染管线的机制拆解，与主机帧预算内的实战。</p>
         <div class="n mono">{cnt("渲染管线")}</div>
       </a>
-      <a class="col-card" href="/cat/引擎定制/">
+      <a class="col-card" href="/cat/引擎剖析/">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-engine);"></span>ENGINE</div>
-        <h3>引擎定制</h3>
+        <h3>引擎剖析</h3>
         <p>引擎源码级分析与定制分支手记：几何切割算法、Mass 框架、序列化机制、升级合并踩坑。</p>
-        <div class="n mono">{cnt("引擎定制")}</div>
+        <div class="n mono">{cnt("引擎剖析")}</div>
       </a>
       <a class="col-card" href="/cat/角色技术/">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-char);"></span>CHARACTER</div>
