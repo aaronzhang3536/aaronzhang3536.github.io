@@ -1,0 +1,49 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="小六壬速断" desc="小六壬起课：时间起课与报数起课，六宫吉凶速断">
+<main class="wrap reader">
+  <a class="back mono" href="/shu/">← 术数</a>
+  <h1 class="rd-title">小六壬速断</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-tool);"></span>
+    <span>大安 · 留连 · 速喜 · 赤口 · 小吉 · 空亡</span>
+  </div>
+
+  <div class="shu-tabs mono">
+    <button type="button" class="xlr-tab pie-btn on" data-m="time">时间起课</button>
+    <button type="button" class="xlr-tab pie-btn" data-m="num">报数起课</button>
+  </div>
+
+  <div id="xlr-time-panel" class="shu-panel">
+    <label class="mono">公历时间 <input id="xlr-dt" type="datetime-local" /></label>
+    <button type="button" class="pie-btn primary" id="xlr-go-time">起课</button>
+    <p class="mono hint2">自动换算农历月、日与时辰（子=1 … 亥=12）依次落宫。</p>
+  </div>
+
+  <div id="xlr-num-panel" class="shu-panel" hidden>
+    <label class="mono">三数
+      <input id="xlr-n1" type="number" min="1" max="99" value="3" />
+      <input id="xlr-n2" type="number" min="1" max="99" value="7" />
+      <input id="xlr-n3" type="number" min="1" max="99" value="9" />
+    </label>
+    <button type="button" class="pie-btn" id="xlr-shake">摇数</button>
+    <button type="button" class="pie-btn primary" id="xlr-go-num">起课</button>
+    <p class="mono hint2">心中默念所问之事，随口报三个数，或点「摇数」。</p>
+  </div>
+
+  <div id="xlr-out" hidden>
+    <div id="xlr-wheel" class="xlr-wheel"></div>
+    <div id="xlr-path" class="xlr-pathbar"></div>
+    <div id="xlr-result" class="shu-card"></div>
+  </div>
+
+  <p class="mono" style="max-width:800px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
+    六宫五行与六神配属各流派略有出入，本页取常见一种；结论仅供文化研究与娱乐。
+  </p>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/shu/xiaoliuren.js';
+</script>

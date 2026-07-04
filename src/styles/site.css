@@ -362,6 +362,88 @@
     border: 1px solid var(--line); background: #fff;
   }
 
+  /* ---------- 术数 ---------- */
+  .shu-tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+  .shu-tabs .pie-btn.on { border-color: var(--accent); color: var(--accent); }
+  .shu-panel {
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+    max-width: 800px; padding: 16px 18px;
+    border: 1px solid var(--line); background: var(--surface);
+    font-size: 13px;
+  }
+  .shu-panel label { display: flex; align-items: center; gap: 8px; color: var(--ink2); }
+  .shu-panel input[type="datetime-local"], .shu-panel input[type="date"],
+  .shu-panel input[type="time"], .shu-panel input[type="number"] {
+    background: var(--surface2); color: var(--ink);
+    border: 1px solid var(--line); padding: 6px 9px;
+    font: 13px "JetBrains Mono", Consolas, ui-monospace, monospace;
+  }
+  .shu-panel input[type="number"] { width: 62px; }
+  .hint2 { color: var(--ink2); font-size: 11.5px; width: 100%; margin: 2px 0 0; }
+  .shu-card {
+    max-width: 800px; border: 1px solid var(--line);
+    background: var(--surface); padding: 18px 22px; margin-top: 14px;
+  }
+  .shu-h { font-size: 13px; letter-spacing: 0.25em; color: var(--ink2); margin: 30px 0 8px; }
+  /* 小六壬 */
+  .xlr-wheel {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; max-width: 560px; margin-top: 22px;
+  }
+  .xlr-cell {
+    border: 1px solid var(--line); background: var(--surface);
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .xlr-cell b { font-size: 19px; }
+  .xlr-cell span { font-size: 11px; color: var(--ink2); }
+  .xlr-cell i { font-style: normal; font-size: 10.5px; color: var(--accent); }
+  .xlr-cell.final { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .xlr-pathbar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    margin-top: 14px; font-size: 14px;
+  }
+  .xlr-pathbar em { font-style: normal; font-size: 11px; color: var(--ink2); margin-right: 5px; }
+  .xlr-pathbar b { font-size: 17px; }
+  .xlr-pathbar .arr { color: var(--ink2); }
+  .xlr-head { display: flex; align-items: baseline; gap: 14px; }
+  .xlr-head b { font-size: 26px; }
+  .xlr-head span { color: var(--ink2); font-size: 12px; }
+  .shu-card .verse { color: var(--ink); font-size: 15.5px; }
+  .shu-card .gb span { color: var(--play); font-weight: 700; }
+  .shu-card .gb .b { color: var(--c-render); }
+  .shu-card .src { color: var(--ink2); font-size: 11.5px; }
+  /* 八字 */
+  .bz-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 10px; max-width: 620px; margin-top: 16px;
+  }
+  .bz-pillar {
+    border: 1px solid var(--line); background: var(--surface);
+    padding: 12px 10px; text-align: center;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .bz-lab { font-size: 10.5px; letter-spacing: 0.2em; color: var(--ink2); }
+  .bz-ss { font-size: 11px; color: var(--accent); }
+  .bz-gz { font-size: 30px; font-weight: 700; line-height: 1.25; display: flex; flex-direction: column; }
+  .bz-cang { font-size: 11px; color: var(--ink2); display: flex; flex-direction: column; gap: 1px; }
+  .bz-cang i { font-style: normal; color: var(--ink2); margin-left: 4px; font-size: 10px; }
+  .bz-ny { font-size: 10.5px; color: var(--ink2); border-top: 1px solid var(--line); padding-top: 6px; }
+  .bz-wx-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 3px 0; }
+  .bz-wx-row .bar { flex: 1; height: 10px; background: var(--surface2); }
+  .bz-wx-row .bar i { display: block; height: 100%; }
+  .bz-wx-row .miss, .shu-card .miss { color: var(--c-render); font-size: 12px; }
+  .bz-dy-strip { display: flex; gap: 8px; flex-wrap: wrap; max-width: 800px; }
+  .bz-dy {
+    border: 1px solid var(--line); background: var(--surface);
+    padding: 9px 12px; font-size: 11px; color: var(--ink2);
+    display: flex; flex-direction: column; gap: 2px; text-align: center;
+  }
+  .bz-dy b { font-size: 16px; }
+  @media (max-width: 560px) {
+    .bz-grid { grid-template-columns: repeat(2, 1fr); }
+    .xlr-wheel { grid-template-columns: repeat(2, 1fr); }
+  }
+
   /* ---------- 实验室 ---------- */
   .lab-stage { position: relative; max-width: 920px; }
   .lab-stage canvas { display: block; border: 1px solid var(--line); background: #010204; max-width: 100%; }
