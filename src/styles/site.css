@@ -583,12 +583,7 @@
     font-size: 11px; letter-spacing: 0.25em; color: var(--ink2);
     border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 14px;
   }
-  .cmt-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
-  .cmt-ava { flex: none; border: 1px solid var(--line); }
-  .cmt-meta { display: flex; gap: 12px; font-size: 12px; color: var(--ink2); margin-bottom: 3px; }
-  .cmt-meta a { color: var(--ink); font-weight: 600; }
-  .cmt-meta a:hover { color: var(--accent); }
-  .cmt-body { font-size: 14.5px; white-space: pre-wrap; word-break: break-word; }
+  #cmt-box { min-height: 40px; }
   .cmt-empty { color: var(--ink2); font-size: 12.5px; }
   .cmt-foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
   .cmt-foot .pie-btn { text-decoration: none; }
