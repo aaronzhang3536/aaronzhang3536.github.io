@@ -33,7 +33,15 @@ fn cs(@builtin(global_invocation_id) id: vec3u) {
   if (x - 1 >= 0 && y - 1 >= 0) { n += cross(pos[id.x - 1u].xyz - p, pos[id.x - N].xyz - p); }
   if (x + 1 < R && y - 1 >= 0) { n += cross(pos[id.x - N].xyz - p, pos[id.x + 1u].xyz - p); }
   let l = length(n);
-  nrm[id.x] = vec4f(select(vec3f(0.0, 0.0, 1.0), n / l, l > 1e-9), 0.0);
+  /* 应变：四方向结构约束的平均伸长率（cu.e.w = 静息间距） */
+  var strain = 0.0;
+  var cnt = 0.0;
+  let s0 = cu.e.w;
+  if (x + 1 < R) { strain += length(pos[id.x + 1u].xyz - p) / s0 - 1.0; cnt += 1.0; }
+  if (x - 1 >= 0) { strain += length(pos[id.x - 1u].xyz - p) / s0 - 1.0; cnt += 1.0; }
+  if (y + 1 < R) { strain += length(pos[id.x + N].xyz - p) / s0 - 1.0; cnt += 1.0; }
+  if (y - 1 >= 0) { strain += length(pos[id.x - N].xyz - p) / s0 - 1.0; cnt += 1.0; }
+  nrm[id.x] = vec4f(select(vec3f(0.0, 0.0, 1.0), n / l, l > 1e-9), strain / max(cnt, 1.0));
 }`;
 
 const INTEGRATE_WGSL = CU_DECL + /* wgsl */ `
@@ -218,6 +226,7 @@ struct VSOut {
   @location(0) n: vec3f,
   @location(1) wp: vec3f,
   @location(2) uv: vec2f,
+  @location(3) strain: f32,
 };
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
@@ -226,6 +235,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
   o.wp = pos[vi].xyz;
   o.pos = ru.vp * vec4f(o.wp, 1.0);
   o.n = nrm[vi].xyz;
+  o.strain = nrm[vi].w;
   o.uv = vec2f(f32(vi % N), f32(vi / N)) / f32(N - 1u);
   return o;
 }
@@ -236,10 +246,19 @@ fn fs(in: VSOut, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
   let L1 = normalize(vec3f(0.5, 0.8, 0.4));
   let L2 = normalize(vec3f(-0.6, 0.2, -0.5));
   let dif = max(dot(n, L1), 0.0) * 0.85 + max(dot(n, L2), 0.0) * 0.3 + 0.14;
-  /* 正反面异色 + 细条纹显形变 */
-  var base = select(vec3f(0.82, 0.36, 0.16), vec3f(0.16, 0.52, 0.58), ff);
-  let stripe = step(0.5, fract(in.uv.y * 12.0)) * 0.12 + step(0.5, fract(in.uv.x * 12.0)) * 0.07;
-  base *= 1.0 - stripe;
+  var base: vec3f;
+  if (ru.misc.y > 0.5) {
+    /* 应力热图：拉伸→红，压缩→蓝，静息→灰 */
+    let t = clamp(in.strain * 14.0, -1.0, 1.0);
+    base = vec3f(0.32, 0.34, 0.38);
+    if (t > 0.0) { base = mix(base, vec3f(0.98, 0.15, 0.08), t); }
+    else { base = mix(base, vec3f(0.12, 0.4, 0.98), -t); }
+  } else {
+    /* 正反面异色 + 细条纹显形变 */
+    base = select(vec3f(0.82, 0.36, 0.16), vec3f(0.16, 0.52, 0.58), ff);
+    let stripe = step(0.5, fract(in.uv.y * 12.0)) * 0.12 + step(0.5, fract(in.uv.x * 12.0)) * 0.07;
+    base *= 1.0 - stripe;
+  }
   let v = normalize(ru.eye.xyz - in.wp);
   let rim = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.25;
   var c = base * dif + vec3f(rim);
@@ -401,7 +420,7 @@ async function main() {
   const ui = {
     algo: $('cl-algo'), scene: $('cl-scene'), res: $('cl-res'), iter: $('cl-iter'),
     stretch: $('cl-stretch'), bend: $('cl-bend'), damp: $('cl-damp'), wind: $('cl-wind'),
-    reset: $('cl-reset'), iterV: $('cl-iter-v'),
+    reset: $('cl-reset'), iterV: $('cl-iter-v'), view: $('cl-view'),
   };
   let N = 0, PN = 0, CN = 0, groups = [], scene = null;
   let posBuf, prevBuf, velBuf, nrmBuf, cIdxBuf, cRestBuf, lamBuf, adjIdxBuf, adjRestBuf;
@@ -681,13 +700,13 @@ async function main() {
     cuArr[4] = wd[0]; cuArr[5] = wd[1]; cuArr[6] = wd[2]; cuArr[7] = t;
     cuArr[8] = mode3; cuArr[9] = iters; cuArr[10] = cz; cuArr[11] = cw;
     cuArr[12] = 0; cuArr[13] = scene.sphere ? -0.25 : 0; cuArr[14] = 0; cuArr[15] = scene.sphere;
-    cuArr[16] = scene.floor; cuArr[17] = grabId; cuArr[18] = N; cuArr[19] = 0;
+    cuArr[16] = scene.floor; cuArr[17] = grabId; cuArr[18] = N; cuArr[19] = 1.3 / (N - 1);
     cuArr[20] = grabTarget[0]; cuArr[21] = grabTarget[1]; cuArr[22] = grabTarget[2]; cuArr[23] = 0;
     device.queue.writeBuffer(cuBuf, 0, cuArr);
 
     ruArr.set(vp, 0);
     ruArr[16] = eye[0]; ruArr[17] = eye[1]; ruArr[18] = eye[2]; ruArr[19] = 0;
-    ruArr[20] = N; ruArr[21] = 0; ruArr[22] = 0; ruArr[23] = 0;
+    ruArr[20] = N; ruArr[21] = parseInt((ui.view && ui.view.value) || '0', 10); ruArr[22] = 0; ruArr[23] = 0;
     device.queue.writeBuffer(ruBuf, 0, ruArr);
     if (scene.sphere) {
       device.queue.writeBuffer(spBuf, 0, new Float32Array([0, -0.25, 0, scene.sphere * 0.97]));

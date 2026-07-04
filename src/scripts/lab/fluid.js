@@ -167,8 +167,13 @@ fn cs(@builtin(global_invocation_id) id: vec3u) {
 }`;
 
 const SHOW_WGSL = /* wgsl */ `
-@group(0) @binding(0) var dye: texture_2d<f32>;
-@group(0) @binding(1) var samp: sampler;
+struct VU { m: vec4f };   /* x 视图：0 染料 1 速度 2 压力 3 涡量 */
+@group(0) @binding(0) var<uniform> vu: VU;
+@group(0) @binding(1) var dye: texture_2d<f32>;
+@group(0) @binding(2) var samp: sampler;
+@group(0) @binding(3) var vel: texture_2d<f32>;
+@group(0) @binding(4) var prT: texture_2d<f32>;
+@group(0) @binding(5) var curlT: texture_2d<f32>;
 struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
@@ -178,11 +183,37 @@ fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
   o.uv = p[vi] * vec2f(0.5, -0.5) + 0.5;
   return o;
 }
+fn hue(h: f32) -> vec3f {
+  return clamp(vec3f(abs(h * 6.0 - 3.0) - 1.0, 2.0 - abs(h * 6.0 - 2.0), 2.0 - abs(h * 6.0 - 4.0)), vec3f(0.0), vec3f(1.0));
+}
+/* 发散色标：负蓝正红，零为暗灰 */
+fn diverge(t: f32) -> vec3f {
+  let a = clamp(t, -1.0, 1.0);
+  if (a < 0.0) { return mix(vec3f(0.05, 0.06, 0.09), vec3f(0.15, 0.45, 0.95), -a); }
+  return mix(vec3f(0.05, 0.06, 0.09), vec3f(0.95, 0.30, 0.12), a);
+}
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f {
-  var c = textureSample(dye, samp, in.uv).rgb;
-  c = c / (1.0 + c) * 1.35;                      // 软色调映射
-  c += vec3f(0.010, 0.012, 0.02);                // 底色
+  let m = u32(vu.m.x);
+  var c: vec3f;
+  if (m == 1u) {
+    /* 速度场：方向→色相，速率→亮度 */
+    let v = textureSampleLevel(vel, samp, in.uv, 0.0).xy;
+    let sp = length(v);
+    c = hue(fract(atan2(v.y, v.x) / 6.2831853 + 0.5)) * clamp(sp * 1.6, 0.02, 1.0);
+  } else if (m == 2u) {
+    let dim = vec2f(textureDimensions(prT));
+    let p = textureLoad(prT, vec2i(in.uv * dim), 0).x;
+    c = diverge(p * 4.0);
+  } else if (m == 3u) {
+    let dim = vec2f(textureDimensions(curlT));
+    let w = textureLoad(curlT, vec2i(in.uv * dim), 0).x;
+    c = diverge(w * 3.0);
+  } else {
+    c = textureSample(dye, samp, in.uv).rgb;
+    c = c / (1.0 + c) * 1.35;
+    c += vec3f(0.010, 0.012, 0.02);
+  }
   c = pow(clamp(c, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2));
   return vec4f(c, 1.0);
 }`;
@@ -279,7 +310,8 @@ async function main() {
   const jacBG = [bg(jacP, [pV[0], divV, pV[1]]), bg(jacP, [pV[1], divV, pV[0]])];
   const subBG = bg(subP, [vV[1], pV[0], vV[0]]);
   const advDyeBG = bg(advDyeP, [fuR, dV[1], vV[0], samp, dV[0]]);
-  const showBG = bg(showP, [dV[0], samp]);
+  const vuBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const showBG = bg(showP, [{ buffer: vuBuf }, dV[0], samp, vV[0], pV[0], curlV]);
 
   /* GPU 计时 */
   let qs = null, qBuf = null, readPool = [], gpuMs = 0;
@@ -296,7 +328,7 @@ async function main() {
 
   /* 交互：指针搅动；闲置时自动泼溅 */
   const $ = (id) => document.getElementById(id);
-  const ui = { vort: $('fl-vort'), keep: $('fl-keep'), rad: $('fl-rad') };
+  const ui = { vort: $('fl-vort'), keep: $('fl-keep'), rad: $('fl-rad'), view: $('fl-view') };
   let pointer = null, lastMove = -10, hue = Math.random();
   function uvOf(e) {
     const r = cvs.getBoundingClientRect();
@@ -364,6 +396,7 @@ async function main() {
     fuArr[8] = sCol[0]; fuArr[9] = sCol[1]; fuArr[10] = sCol[2];
     fuArr[11] = sUV ? rad : 0;
     device.queue.writeBuffer(fuBuf, 0, fuArr);
+    device.queue.writeBuffer(vuBuf, 0, new Float32Array([parseInt((ui.view && ui.view.value) || '0', 10), 0, 0, 0]));
 
     const gx = Math.ceil(SIM_W / 8), gy = Math.ceil(SIM_H / 8);
     const enc = device.createCommandEncoder();

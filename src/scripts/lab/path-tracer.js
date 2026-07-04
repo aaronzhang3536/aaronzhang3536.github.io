@@ -122,6 +122,20 @@ fn cs(@builtin(global_invocation_id) id: vec3u) {
   var ro = u.eye.xyz;
   var rd = normalize(u.fwd.xyz + u.right.xyz * px + u.up.xyz * py);
 
+  /* AOV 剖析视图：只打主射线 */
+  let view = u32(u.params.w);
+  if (view != 0u) {
+    let h = closest(ro, rd);
+    var c = vec3f(0.0);
+    if (h.t < 9.0e8) {
+      if (view == 1u) { c = h.n * 0.5 + 0.5; }
+      else if (view == 2u) { c = vec3f(clamp(1.0 - (h.t - 1.8) / 4.2, 0.0, 1.0)); }
+      else { c = select(h.alb, vec3f(1.0), h.m == 3u); }
+    }
+    accum[idx] += vec4f(c, 1.0);
+    return;
+  }
+
   var through = vec3f(1.0);
   var col = vec3f(0.0);
   let maxB = u32(u.params.x);
@@ -186,8 +200,10 @@ fn aces(x: vec3f) -> vec3f {
 fn fs(@builtin(position) fp: vec4f) -> @location(0) vec4f {
   let idx = u32(fp.y) * u32(p.w) + u32(fp.x);
   let a = accum[idx];
-  var c = a.rgb / max(a.w, 1.0) * p.exposure;
-  c = aces(c);
+  var c = a.rgb / max(a.w, 1.0);
+  if (p.pad < 0.5) {         /* 最终画面才做曝光 + ACES；AOV 直出 */
+    c = aces(c * p.exposure);
+  }
   c = pow(c, vec3f(1.0 / 2.2));
   return vec4f(c, 1.0);
 }`;
@@ -275,7 +291,7 @@ async function main() {
 
   /* 交互：拖拽环绕 + 滚轮推拉，任何改动重置累积 */
   const $ = (id) => document.getElementById(id);
-  const ui = { bounce: $('pt-bounce'), light: $('pt-light'), expo: $('pt-expo'), res: $('pt-res') };
+  const ui = { bounce: $('pt-bounce'), light: $('pt-light'), expo: $('pt-expo'), res: $('pt-res'), view: $('pt-view') };
   let yaw = 0, pitch = 0.06, radius = 3.3;
   let dragging = false, px0 = 0, py0 = 0;
   cvs.addEventListener('pointerdown', (e) => {
@@ -300,6 +316,7 @@ async function main() {
   ['bounce', 'light'].forEach((k) => {
     if (ui[k]) ui[k].addEventListener('input', () => { resetFlag = true; });
   });
+  if (ui.view) ui.view.addEventListener('change', () => { resetFlag = true; });
   if (ui.res) ui.res.addEventListener('change', () => rebuildRes(parseFloat(ui.res.value)));
 
   rebuildRes(parseFloat((ui.res && ui.res.value) || '0.75'));
@@ -345,9 +362,10 @@ async function main() {
     uArr[4] = right[0]; uArr[5] = right[1]; uArr[6] = right[2]; uArr[7] = W / H;
     uArr[8] = up[0]; uArr[9] = up[1]; uArr[10] = up[2]; uArr[11] = frame;
     uArr[12] = fwd[0]; uArr[13] = fwd[1]; uArr[14] = fwd[2]; uArr[15] = light;
-    uArr[16] = bounce; uArr[17] = W; uArr[18] = H; uArr[19] = 0;
+    const view = parseInt((ui.view && ui.view.value) || '0', 10);
+    uArr[16] = bounce; uArr[17] = W; uArr[18] = H; uArr[19] = view;
     device.queue.writeBuffer(uBuf, 0, uArr);
-    pArr[0] = W; pArr[1] = H; pArr[2] = expo; pArr[3] = 0;
+    pArr[0] = W; pArr[1] = H; pArr[2] = expo; pArr[3] = view;
     device.queue.writeBuffer(pBuf, 0, pArr);
 
     const cp = enc.beginComputePass(canTime ? {

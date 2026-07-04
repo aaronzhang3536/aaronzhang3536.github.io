@@ -28,6 +28,14 @@ import Base from '../../layouts/Base.astro';
         <option value="1">100%</option>
       </select>
     </label>
+    <label>视图
+      <select id="pt-view">
+        <option value="0" selected>最终画面</option>
+        <option value="1">法线</option>
+        <option value="2">深度</option>
+        <option value="3">反照率</option>
+      </select>
+    </label>
   </div>
   <p style="max-width:800px; color:var(--ink2); font-size:14px;">
     拖拽环绕、滚轮推拉——移动相机会清空累积重新收敛。每帧对每个像素追一条

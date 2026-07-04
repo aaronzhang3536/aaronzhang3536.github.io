@@ -1,0 +1,50 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="八位流水线 CPU" desc="周期精确的五级流水线模拟：前递、停顿、分支冲刷，加法展开到全加器级">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">八位流水线 CPU</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-ai);"></span>
+    <span>体系结构 · IF/ID/EX/MEM/WB</span>
+    <span>周期精确模拟</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud"></div>
+  </div>
+
+  <div class="lab-ctl mono">
+    <label>程序
+      <select id="cp-prog">
+        <option value="add" selected>一条加法（5+7）</option>
+        <option value="chain">数据冒险连锁</option>
+        <option value="loaduse">Load-Use 冒险</option>
+        <option value="branch">分支冲刷</option>
+        <option value="loop">循环 1+2+…+5</option>
+      </select>
+    </label>
+    <label><input id="cp-fwd" type="checkbox" checked /> 前递</label>
+    <button type="button" class="pie-btn" id="cp-step">单步 ⏭</button>
+    <button type="button" class="pie-btn primary" id="cp-run">▶ 运行</button>
+    <label>速度 <input id="cp-speed" type="range" min="0.4" max="4" step="0.1" value="1" /></label>
+    <button type="button" class="pie-btn" id="cp-reset">重置</button>
+  </div>
+  <p class="mono" id="cp-note" style="max-width:800px; color:var(--accent); font-size:12.5px;"></p>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    这是一台真实语义的八位五级流水线处理器：16 深指令存储、8 个寄存器、
+    16 字节数据内存，每个周期五条指令同时在不同阶段推进。EX 阶段做加法时，
+    下方的 ALU 会展开成 8 个一位全加器——看进位从 bit0 一路涟漪到 bit7，
+    这就是「+」在硬件里真实的样子。中间的时空图记录每条指令的一生：
+    F 取指、D 译码、E 执行、M 访存、W 写回，○ 是冒险停顿塞进的气泡，
+    ✕ 是分支预测失败被冲刷的指令。<b>把「前递」关掉再跑一遍同一个程序</b>，
+    对比周期数——这就是为什么现代 CPU 都长了前递网络。
+  </p>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/cpu8.js';
+</script>
