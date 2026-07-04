@@ -1,0 +1,50 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="3D 流体（烟雾）" desc="裸 WebGPU：三维欧拉网格烟雾模拟 + 体积光线步进渲染，全 GPU 计算">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">3D 流体（烟雾）</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-engine);"></span>
+    <span>WebGPU · 3D Eulerian + Volume Raymarch</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>浮力 <input id="f3-buoy" type="range" min="0.4" max="4" step="0.1" value="1.8" /></label>
+    <label>涡量 <input id="f3-vort" type="range" min="0" max="30" step="1" value="12" /></label>
+    <label>烟量 <input id="f3-inj" type="range" min="0.4" max="3" step="0.1" value="1.5" /></label>
+    <label>网格
+      <select id="f3-grid">
+        <option value="64">64×96×64</option>
+        <option value="96" selected>96×128×96</option>
+        <option value="128">128×160×128</option>
+      </select>
+    </label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    拖拽环绕、滚轮推拉。两股彩色烟从盒底绕圈上升，在浮力与涡量约束的作用下
+    交缠成湍流。这是 2D 流体实验的完整三维版：速度、密度、压力全部存在
+    3D 纹理里，每帧半拉格朗日平流 + 浮力注入 + 三维涡量约束 + 16 次
+    Jacobi 迭代解泊松方程投影散度；渲染没有几何体——片元着色器对密度场
+    做光线步进，逐步累积吸收，并朝光源做第二段短步进算出烟的自阴影。
+    HUD 里 sim 是模拟这串 kernel 的 GPU 耗时，march 是体积渲染的耗时。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码（核心 kernel）</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/fluid3d.js';
+</script>
