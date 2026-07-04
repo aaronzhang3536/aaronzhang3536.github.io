@@ -216,6 +216,31 @@
     var wxCvs = null, wxCtx = null, wxFlashEl = null;
     var wxW = 0, wxH = 0, wxWind = 0, wxT = 0, wxColors = {}, wxColorTick = 0;
     var bolts = null, boltAge = 0, nextBolt = 0;
+    /* 底部积累：雪堆 / 沙丘用高度场，雨用积水系数 + 涟漪 */
+    var ACC_W = 6, wxAccum = null, wxAccumN = 0, wxWet = 0, wxRipples = [];
+    function accIdx(x) { return Math.max(0, Math.min(wxAccumN - 1, Math.round(x / ACC_W))); }
+    function accAt(x) { return wxAccum ? wxAccum[accIdx(x)] : 0; }
+    function accAdd(x, amt, cap) {
+      if (!wxAccum) return;
+      var i = accIdx(x);
+      wxAccum[i] = Math.min(cap, wxAccum[i] + amt);
+    }
+    function drawAccum(color, alpha) {
+      if (!wxAccum) return;
+      var top = 0;
+      for (var i = 0; i < wxAccumN; i++) if (wxAccum[i] > top) top = wxAccum[i];
+      if (top < 0.8) return;
+      var g = wxCtx;
+      g.beginPath();
+      g.moveTo(0, wxH + 2);
+      for (var j = 0; j < wxAccumN; j++) g.lineTo(j * ACC_W, wxH - wxAccum[j]);
+      g.lineTo(wxW, wxH + 2);
+      g.closePath();
+      g.globalAlpha = alpha;
+      g.fillStyle = color;
+      g.fill();
+      g.globalAlpha = 1;
+    }
     var btnWx = document.getElementById('btn-wx');
 
     function wxRefreshColors() {
@@ -233,6 +258,11 @@
     }
     function wxBuild() {
       wxParts = []; wxLeaves = [];
+      wxAccumN = Math.ceil(wxW / ACC_W) + 1;
+      wxAccum = [];
+      for (var ai = 0; ai < wxAccumN; ai++) wxAccum.push(0);
+      wxWet = 0;
+      wxRipples = [];
       var area = wxW * wxH, i, n;
       if (wxMode === 'rain' || wxMode === 'storm') {
         n = Math.min(Math.round(area / 9000) * (wxMode === 'storm' ? 2 : 1), 480);
@@ -565,13 +595,41 @@
           for (i = 0; i < wxParts.length; i++) {
             p = wxParts[i];
             p.x += wxWind * 1.2 * dt; p.y += p.spd * dt;
-            if (p.y > wxH + 24) { p.y = -24; p.x = Math.random() * wxW; }
+            var floorY = wxH - 3 - wxWet * 14;
+            if (p.y > floorY) {
+              wxWet = Math.min(1, wxWet + (wxMode === 'storm' ? 0.0012 : 0.0005));
+              if (wxRipples.length < 28 && Math.random() < 0.25) {
+                wxRipples.push({ x: p.x, y: floorY, r: 1.5, a: 0.5 });
+              }
+              p.y = -24; p.x = Math.random() * wxW;
+            }
             if (p.x > wxW + 30) p.x = -30;
             var slope = wxWind * 1.2 / p.spd;
             ctx.moveTo(p.x, p.y);
             ctx.lineTo(p.x - slope * p.len, p.y - p.len);
           }
           ctx.stroke();
+
+          /* 底部积水与涟漪 */
+          if (wxWet > 0.02) {
+            var band = 2 + wxWet * 15;
+            ctx.globalAlpha = 0.22 + wxWet * 0.3;
+            ctx.fillStyle = wxColors.rain;
+            ctx.fillRect(0, wxH - band, wxW, band);
+            ctx.globalAlpha = 1;
+          }
+          for (var ri = wxRipples.length - 1; ri >= 0; ri--) {
+            var rp = wxRipples[ri];
+            rp.r += 34 * dt;
+            rp.a -= dt * 0.85;
+            if (rp.a <= 0) { wxRipples.splice(ri, 1); continue; }
+            ctx.globalAlpha = rp.a;
+            ctx.strokeStyle = wxColors.rain;
+            ctx.beginPath();
+            ctx.ellipse(rp.x, rp.y, rp.r, rp.r * 0.3, 0, 0, 6.2832);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
 
           /* 闪电（仅雷暴）：每次雷击 1~5 条 */
           if (wxMode === 'storm') {
@@ -643,13 +701,20 @@
             p = wxParts[i];
             p.y += p.spd * dt;
             p.x += (wxWind * 0.4 + Math.sin(wxT * 0.9 + p.ph) * p.amp) * dt;
-            if (p.y > wxH + 6) { p.y = -6; p.x = Math.random() * wxW; }
+            if (p.y > wxH - 2 - accAt(p.x)) {
+              accAdd(p.x, 0.45 + p.size * 0.22, 72);
+              p.y = -6; p.x = Math.random() * wxW;
+            }
             if (p.x > wxW + 6) p.x = -6;
             if (p.x < -6) p.x = wxW + 6;
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.size, 0, 6.2832);
             ctx.fill();
           }
+          for (var si = 1; si < wxAccumN - 1; si++) {
+            wxAccum[si] += ((wxAccum[si - 1] + wxAccum[si + 1]) / 2 - wxAccum[si]) * 0.03;
+          }
+          drawAccum(wxColors.snow, 0.9);
         } else if (wxMode === 'sand') {
           ctx.fillStyle = wxColors.haze;
           ctx.fillRect(0, 0, wxW, wxH);
@@ -658,11 +723,21 @@
             p.x += (p.spd + wxWind * 0.5) * dt;
             p.y += Math.sin(wxT * 3 + p.ph) * 26 * dt + 8 * dt;
             if (p.x > wxW + 8) { p.x = -8; p.y = Math.random() * wxH; }
-            if (p.y > wxH + 8) p.y = -8;
+            if (p.y > wxH - 4 - accAt(p.x)) {
+              if (Math.random() < 0.5) accAdd(p.x, 0.3, 48);
+              p.y = Math.random() * wxH * 0.5;
+              p.x = -8;
+            }
             ctx.globalAlpha = p.a;
             ctx.fillStyle = wxColors.sand;
             ctx.fillRect(p.x, p.y, p.size * 2.2, p.size);
           }
+          for (var di = wxAccumN - 2; di >= 0; di--) {
+            var mv = wxAccum[di] * 0.006;
+            wxAccum[di] -= mv;
+            wxAccum[di + 1] = Math.min(48, wxAccum[di + 1] + mv);
+          }
+          drawAccum(wxColors.sand, 0.85);
           ctx.globalAlpha = 1;
         }
       })(0);
