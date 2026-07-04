@@ -1,0 +1,42 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="2D 流体模拟" desc="裸 WebGPU：Stable Fluids 半拉格朗日平流 + Jacobi 压力投影 + 涡量约束">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">2D 流体模拟</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-char);"></span>
+    <span>WebGPU · Stable Fluids</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>涡量 <input id="fl-vort" type="range" min="0" max="40" step="1" value="18" /></label>
+    <label>染料保留 <input id="fl-keep" type="range" min="0.9" max="0.999" step="0.001" value="0.985" /></label>
+    <label>笔刷半径 <input id="fl-rad" type="range" min="0.005" max="0.045" step="0.001" value="0.014" /></label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    在画布上划动搅动流体（颜色随速度流转），闲置几秒后它会自己泼墨。
+    这是 Jos Stam 的 Stable Fluids：每帧半拉格朗日平流回溯速度场与染料场，
+    涡量约束把数值耗散掉的小旋涡补回来，再用 26 次 Jacobi 迭代解压力泊松
+    方程并投影掉散度——全部 8 个 kernel 在同一个 compute pass 里完成，
+    左上角是这串 kernel 的真实 GPU 耗时。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码（核心 kernel）</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/fluid.js';
+</script>

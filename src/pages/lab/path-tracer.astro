@@ -1,0 +1,49 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="路径追踪 Cornell Box" desc="裸 WebGPU：compute shader 逐像素路径追踪，逐帧累积渐进收敛">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">路径追踪 Cornell Box</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-tool);"></span>
+    <span>WebGPU · Path Tracing</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>弹射次数 <input id="pt-bounce" type="range" min="2" max="10" step="1" value="6" /></label>
+    <label>光源强度 <input id="pt-light" type="range" min="4" max="34" step="1" value="14" /></label>
+    <label>曝光 <input id="pt-expo" type="range" min="0.4" max="2.4" step="0.05" value="1.1" /></label>
+    <label>分辨率
+      <select id="pt-res">
+        <option value="0.5">50%</option>
+        <option value="0.75" selected>75%</option>
+        <option value="1">100%</option>
+      </select>
+    </label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    拖拽环绕、滚轮推拉——移动相机会清空累积重新收敛。每帧对每个像素追一条
+    完整路径（余弦加权半球采样 + 三次弹射后俄罗斯轮盘截断），样本累加在
+    storage buffer 里，显示时除以样本数再做 ACES 色调映射。画面从噪点逐渐
+    收敛成干净的软阴影、颜色渗透（红绿墙映到白墙上）和玻璃球的焦散，这就是
+    离线渲染器的工作方式——只是跑在你的 GPU 上，每秒几十个样本。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/path-tracer.js';
+</script>

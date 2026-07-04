@@ -279,8 +279,17 @@ async function main() {
 
   /* 参数与交互 */
   const $ = (id) => document.getElementById(id);
-  const ui = { count: $('lab-count'), grav: $('lab-grav'), turb: $('lab-turb'), trail: $('lab-trail') };
-  if (ui.count) ui.count.addEventListener('change', () => rebuild(parseInt(ui.count.value, 10)));
+  const ui = { count: $('lab-count'), countV: $('lab-count-v'), grav: $('lab-grav'), turb: $('lab-turb'), trail: $('lab-trail') };
+  /* 对数滑块：2^12 (4K) ~ 2^22 (4M)。拖动时即时显示，松手/停顿 250ms 后再重建缓冲 */
+  const countOf = () => 1 << parseInt(ui.count.value, 10);
+  let rebuildTo = 0;
+  if (ui.count) {
+    ui.count.addEventListener('input', () => {
+      if (ui.countV) ui.countV.textContent = countOf().toLocaleString();
+      clearTimeout(rebuildTo);
+      rebuildTo = setTimeout(() => { if (countOf() !== COUNT) rebuild(countOf()); }, 250);
+    });
+  }
   let mouse = null;
   cvs.addEventListener('mousemove', (e) => {
     const r = cvs.getBoundingClientRect();
@@ -288,7 +297,7 @@ async function main() {
   });
   cvs.addEventListener('mouseleave', () => { mouse = null; });
 
-  rebuild(parseInt((ui.count && ui.count.value) || '262144', 10));
+  rebuild(ui.count ? countOf() : 262144);
 
   const aspect = W / H;
   const proj = mat4.perspective(0.9, aspect, 0.1, 50);
