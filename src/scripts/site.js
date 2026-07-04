@@ -984,7 +984,7 @@
       stage.innerHTML =
         '<div style="text-align:center;">' +
           '<canvas id="f4d" style="border:1px solid var(--line); max-width:94vw;"></canvas>' +
-          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">WebGPU 渲染 · 点水里撒饲料 · 点到鱼就是字面意义的摸鱼 · 模型 Barramundi Fish (CC0)</div>' +
+          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">左键拖拽环绕 · 滚轮缩放 · 右键拖拽平移 · 双击复位 · 点按撒食 / 摸鱼 · 模型 Barramundi Fish (CC0)</div>' +
           '<div class="mono" id="f4d-n" style="font-size:12.5px; margin-top:6px; color:var(--ink);"></div>' +
         '</div>';
       var cvs = stage.querySelector('#f4d');
@@ -1505,8 +1505,19 @@
           });
         }
         var foods = [], bubbles = [];
-        var camYaw = 0, camPitch = 0, tYaw = 0, tPitch = 0;
-        var camDist = 8.6, camY = 0.35, FOV = 0.8;
+        var camYaw = 0, camPitch = 0.10, camDist = 8.6, FOV = 0.8;
+        var target = [0, 0.35, 0];
+        var lastEye = [0, 0.35, 8.6];
+        function resetCam() { camYaw = 0; camPitch = 0.10; camDist = 8.6; target = [0, 0.35, 0]; }
+        function vSub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+        function vDot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+        function vCross(a, b) {
+          return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        }
+        function vNorm(a) {
+          var l = Math.hypot(a[0], a[1], a[2]) || 1;
+          return [a[0] / l, a[1] / l, a[2] / l];
+        }
         var projM = mPerspG(FOV, asp, 0.5, 40);
         var viewM = null, vpM = null;
         var wire = false, wireCol = [0.32, 0.78, 0.9];
@@ -1528,12 +1539,7 @@
           return a + d * Math.min(1, k);
         }
 
-        /* ---- 交互 ---- */
-        function onMove(e) {
-          var r = cvs.getBoundingClientRect();
-          tYaw = ((e.clientX - r.left) / r.width - 0.5) * 0.22;
-          tPitch = ((e.clientY - r.top) / r.height - 0.5) * 0.14;
-        }
+        /* ---- 交互：自由视口 + 点按撒食/摸鱼 ---- */
         function touch(i) {
           touched++;
           try { localStorage.setItem('yzzn-fish', String(touched)); } catch (err) {}
@@ -1545,10 +1551,10 @@
             bubbles.push({ p: [f.p[0], f.p[1], f.p[2]], v: 0.7 + Math.random() * 0.7, s: 0.03 + Math.random() * 0.04, ph: Math.random() * 6 });
           }
         }
-        function onClick(e) {
-          var r = cvs.getBoundingClientRect();
-          var nx = ((e.clientX - r.left) / r.width) * 2 - 1;
-          var ny = -(((e.clientY - r.top) / r.height) * 2 - 1);
+        function tapAt(e) {
+          var r0 = cvs.getBoundingClientRect();
+          var nx = ((e.clientX - r0.left) / r0.width) * 2 - 1;
+          var ny = -(((e.clientY - r0.top) / r0.height) * 2 - 1);
           if (vpM) {
             var best = -1, bd = 1e9;
             for (var i = 0; i < fishes.length; i++) {
@@ -1564,16 +1570,66 @@
             }
             if (best >= 0) { touch(best); return; }
           }
+          /* 相机射线与过 target 的视垂面求交 → 任意视角撒食都落点准确 */
+          var fwd = vNorm(vSub(target, lastEye));
+          var rgt = vNorm(vCross(fwd, [0, 1, 0]));
+          var up2 = vCross(rgt, fwd);
           var th = Math.tan(FOV / 2);
-          var wx = nx * th * asp * camDist;
-          var wy = ny * th * camDist + camY;
-          wx = Math.max(-TANK.x * 0.9, Math.min(TANK.x * 0.9, wx));
-          wy = Math.min(TANK.y - 0.15, Math.max(-TANK.y * 0.5, wy));
-          foods.push({ p: [wx, wy, (Math.random() * 2 - 1) * TANK.z * 0.4], vy: -0.55, life: 25 });
+          var dir = vNorm([
+            fwd[0] + nx * th * asp * rgt[0] + ny * th * up2[0],
+            fwd[1] + nx * th * asp * rgt[1] + ny * th * up2[1],
+            fwd[2] + nx * th * asp * rgt[2] + ny * th * up2[2]
+          ]);
+          var tt = vDot(vSub(target, lastEye), fwd) / Math.max(vDot(dir, fwd), 0.05);
+          var pt = [lastEye[0] + dir[0] * tt, lastEye[1] + dir[1] * tt, lastEye[2] + dir[2] * tt];
+          pt[0] = Math.max(-TANK.x * 0.9, Math.min(TANK.x * 0.9, pt[0]));
+          pt[1] = Math.max(-TANK.y * 0.6, Math.min(TANK.y - 0.15, pt[1]));
+          pt[2] = Math.max(-TANK.z * 0.9, Math.min(TANK.z * 0.9, pt[2]));
+          foods.push({ p: pt, vy: -0.55, life: 25 });
           if (foods.length > 14) foods.shift();
         }
-        cvs.addEventListener('mousemove', onMove);
-        cvs.addEventListener('click', onClick);
+        var drag = null, movedPx = 0;
+        function onDown(e) {
+          if (e.button > 2) return;
+          drag = e.button;
+          movedPx = 0;
+          if (cvs.setPointerCapture) { try { cvs.setPointerCapture(e.pointerId); } catch (err) {} }
+        }
+        function onPMove(e) {
+          if (drag === null) return;
+          var dx = e.movementX || 0, dy = e.movementY || 0;
+          movedPx += Math.abs(dx) + Math.abs(dy);
+          if (drag === 0) {
+            camYaw -= dx * 0.005;
+            camPitch = Math.max(-1.2, Math.min(1.35, camPitch + dy * 0.005));
+          } else {
+            var fwd = vNorm(vSub(target, lastEye));
+            var rgt = vNorm(vCross(fwd, [0, 1, 0]));
+            var up2 = vCross(rgt, fwd);
+            var k = camDist * 0.0016;
+            target = [
+              Math.max(-TANK.x, Math.min(TANK.x, target[0] - rgt[0] * dx * k + up2[0] * dy * k)),
+              Math.max(-TANK.y, Math.min(TANK.y + 1, target[1] - rgt[1] * dx * k + up2[1] * dy * k)),
+              Math.max(-TANK.z, Math.min(TANK.z, target[2] - rgt[2] * dx * k + up2[2] * dy * k))
+            ];
+          }
+        }
+        function onUp(e) {
+          if (drag === 0 && movedPx < 6) tapAt(e);
+          drag = null;
+        }
+        function onWheel(e) {
+          e.preventDefault();
+          camDist = Math.max(3.2, Math.min(18, camDist * Math.exp(e.deltaY * 0.0012)));
+        }
+        function onDbl() { resetCam(); }
+        function onCtx(e) { e.preventDefault(); }
+        cvs.addEventListener('pointerdown', onDown);
+        cvs.addEventListener('pointermove', onPMove);
+        cvs.addEventListener('pointerup', onUp);
+        cvs.addEventListener('wheel', onWheel, { passive: false });
+        cvs.addEventListener('dblclick', onDbl);
+        cvs.addEventListener('contextmenu', onCtx);
 
         /* ---- 帧循环 ---- */
         function slot(i, model, color, matType, amp, ph, proc, trop, patC, patF) {
@@ -1602,14 +1658,14 @@
           var t = ts / 1000;
           if (++frame % 90 === 0) refreshTheme();
 
-          camYaw += (tYaw - camYaw) * 2.5 * dt;
-          camPitch += (tPitch - camPitch) * 2.5 * dt;
+          var cp0 = Math.cos(camPitch), sp0 = Math.sin(camPitch);
           var eye = [
-            Math.sin(camYaw) * Math.cos(camPitch) * camDist,
-            camY + Math.sin(camPitch) * camDist,
-            Math.cos(camYaw) * Math.cos(camPitch) * camDist
+            target[0] + Math.sin(camYaw) * cp0 * camDist,
+            target[1] + sp0 * camDist,
+            target[2] + Math.cos(camYaw) * cp0 * camDist
           ];
-          viewM = mLookG(eye, [0, 0, 0]);
+          lastEye = eye;
+          viewM = mLookG(eye, target);
           vpM = mMulG(projM, viewM);
 
           for (var i = 0; i < fishes.length; i++) {
@@ -1766,8 +1822,12 @@
 
         innerCleanup = function () {
           if (raf) cancelAnimationFrame(raf);
-          cvs.removeEventListener('mousemove', onMove);
-          cvs.removeEventListener('click', onClick);
+          cvs.removeEventListener('pointerdown', onDown);
+          cvs.removeEventListener('pointermove', onPMove);
+          cvs.removeEventListener('pointerup', onUp);
+          cvs.removeEventListener('wheel', onWheel);
+          cvs.removeEventListener('dblclick', onDbl);
+          cvs.removeEventListener('contextmenu', onCtx);
           try { depthTex.destroy(); } catch (err) {}
         };
         } catch (err) { fallback(); }
