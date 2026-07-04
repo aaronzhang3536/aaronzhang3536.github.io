@@ -414,27 +414,66 @@
       sndMode = mode;
       if (sndOn && AC) sndBuild(mode);
     }
-    /* 雷声：跟随闪电触发，条数越多越响，延迟模拟距离 */
+    /* 雷声：随机远近的多层合成 —— 炸裂声 + 主体轰鸣 + 次声滚雷 + 回滚，近雷震屏 */
     function thunder(strikes) {
       if (!sndOn || !AC) return;
-      var ctx = AC;
+      var dist = Math.random();                     /* 0 = 头顶炸雷，1 = 天边闷雷 */
+      var delay = 150 + dist * 1400;                /* 光先到，声后到 */
       setTimeout(function () {
-        var src = ctx.createBufferSource();
-        src.buffer = sndNoise;
-        var f = ctx.createBiquadFilter();
-        f.type = 'lowpass'; f.Q.value = 0.6;
-        var g = ctx.createGain();
-        src.connect(f); f.connect(g); g.connect(ctx.destination);
+        var ctx = AC;
+        if (ctx.state !== 'running') return;
         var t = ctx.currentTime;
-        var peak = Math.min(0.16 + strikes * 0.05, 0.4);
-        f.frequency.setValueAtTime(420, t);
-        f.frequency.exponentialRampToValueAtTime(70, t + 2.4);
-        g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(peak, t + 0.06);
-        g.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
-        src.start(t);
-        src.stop(t + 2.8);
-      }, 250 + Math.random() * 1200);
+        var close = 1 - dist;
+        var power = Math.min(0.5 + strikes * 0.08 + close * 0.5, 1.3);
+
+        /* 压限器兜底，允许更高的响度而不破音 */
+        var comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -20;
+        comp.ratio.value = 8;
+        comp.attack.value = 0.003;
+        comp.release.value = 0.3;
+        var tail = comp;
+        if (ctx.createStereoPanner) {
+          var pan = ctx.createStereoPanner();
+          pan.pan.setValueAtTime((Math.random() * 2 - 1) * 0.7, t);
+          pan.pan.linearRampToValueAtTime((Math.random() * 2 - 1) * 0.7, t + 4.5);
+          comp.connect(pan);
+          tail = pan;
+        }
+        tail.connect(ctx.destination);
+
+        function burst(at, dur, f0, f1, type, peak, q) {
+          if (peak <= 0.005) return;
+          var src = ctx.createBufferSource();
+          src.buffer = sndNoise;
+          src.loop = true;
+          var f = ctx.createBiquadFilter();
+          f.type = type;
+          f.Q.value = q || 0.7;
+          f.frequency.setValueAtTime(f0, t + at);
+          if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + at + dur);
+          var g = ctx.createGain();
+          g.gain.setValueAtTime(0, t + at);
+          g.gain.linearRampToValueAtTime(peak, t + at + 0.04);
+          g.gain.exponentialRampToValueAtTime(0.001, t + at + dur);
+          src.connect(f); f.connect(g); g.connect(comp);
+          src.start(t + at);
+          src.stop(t + at + dur + 0.1);
+        }
+        burst(0, 0.3, 3200, 900, 'bandpass', 0.5 * power * close, 1.2);   /* 炸裂（近雷才尖）*/
+        burst(0.02, 2.2, 520, 85, 'lowpass', 0.85 * power);               /* 主体轰鸣 */
+        burst(0.1, 4.5 + strikes * 0.5, 80, 45, 'lowpass', 0.7 * power);  /* 次声滚雷 */
+        burst(1.0, 2.2, 260, 70, 'lowpass', 0.4 * power);                 /* 第一次回滚 */
+        burst(2.1, 2.6, 180, 55, 'lowpass', 0.22 * power);                /* 天边折返 */
+
+        /* 头顶的雷把屏幕也震一下 */
+        if (close > 0.55 && !reduced) {
+          document.body.classList.add('thunder-shake');
+          setTimeout(function () {
+            document.body.classList.remove('thunder-shake');
+          }, 500);
+        }
+      }, delay);
     }
     function sndRefreshBtn() {
       if (!btnSnd) return;
