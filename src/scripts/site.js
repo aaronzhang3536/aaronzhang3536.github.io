@@ -329,6 +329,7 @@
       if (!AC) {
         var A = window.AudioContext || window.webkitAudioContext;
         AC = new A();
+        AC.onstatechange = function () { sndRefreshBtn(); };
         var len = AC.sampleRate * 2;
         sndNoise = AC.createBuffer(1, len, AC.sampleRate);
         var d = sndNoise.getChannelData(0);
@@ -339,6 +340,13 @@
     }
     function sndStop() {
       if (sndStopFn) { try { sndStopFn(); } catch (err) {} sndStopFn = null; }
+      sndRefreshBtn();
+    }
+    /* 真实发声状态：开关为开、当前天气有音可放、且确实在响 */
+    function sndActive() {
+      if (!sndOn) return false;
+      if (sndMode === 'clear') return true;   /* 晴天本来就静音，视为正常 */
+      return !!(AC && AC.state === 'running' && sndStopFn);
     }
     /* 每种天气一套合成配方：噪声源 + 滤波 + 缓慢 LFO */
     function sndBuild(mode) {
@@ -400,6 +408,7 @@
           });
         }, 600);
       };
+      sndRefreshBtn();
     }
     function sndSet(mode) {
       sndMode = mode;
@@ -429,12 +438,23 @@
     }
     function sndRefreshBtn() {
       if (!btnSnd) return;
+      var pending = sndOn && !sndActive();
       btnSnd.innerHTML = icons[sndOn ? 'snd' : 'sndoff'];
-      var st = '环境音：' + (sndOn ? '开' : '关') + '（点击切换）';
+      btnSnd.style.opacity = pending ? '0.4' : '';
+      var st = pending
+        ? '环境音：待激活（点击恢复播放）'
+        : '环境音：' + (sndOn ? '开' : '关') + '（点击切换）';
       btnSnd.title = st;
       btnSnd.setAttribute('aria-label', st);
     }
     function sndToggle() {
+      /* 开关显示"开"但实际没在响：先让声音恢复，而不是把开关关掉 */
+      if (sndOn && !sndActive()) {
+        sndCtx();
+        sndBuild(sndMode);
+        sndRefreshBtn();
+        return;
+      }
       sndOn = !sndOn;
       try { localStorage.setItem('yzzn-snd', sndOn ? '1' : '0'); } catch (err) {}
       if (sndOn) { sndCtx(); sndBuild(sndMode); }
@@ -443,13 +463,16 @@
     }
     if (btnSnd) btnSnd.addEventListener('click', sndToggle);
     sndRefreshBtn();
-    /* 上次开着音：等第一次交互手势后恢复（浏览器自动播放策略） */
+    /* 上次开着音：等第一次交互手势后恢复（浏览器自动播放策略）。
+       手势若落在声音按钮上则交给按钮自己处理，避免两个逻辑打架 */
     if (sndOn) {
-      var sndArm = function () {
+      var sndArm = function (e) {
+        if (e && e.target && e.target.closest && e.target.closest('#btn-snd')) return;
         document.removeEventListener('pointerdown', sndArm);
         document.removeEventListener('keydown', sndArm);
         sndCtx();
         sndBuild(sndMode);
+        sndRefreshBtn();
       };
       document.addEventListener('pointerdown', sndArm);
       document.addEventListener('keydown', sndArm);
