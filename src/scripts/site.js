@@ -974,7 +974,7 @@
       }
     };
 
-    /* ---------- 摸鱼 · WebGPU 写实鱼缸 ---------- */
+    /* ---------- 摸鱼 · WebGPU 写实鱼缸（glTF 模型 + PBR-lite + 假 GI） ---------- */
     function fishTankGPU(stage) {
       var dead = false, innerCleanup = null, raf = null;
       var W = Math.min(840, window.innerWidth - 60);
@@ -984,7 +984,7 @@
       stage.innerHTML =
         '<div style="text-align:center;">' +
           '<canvas id="f4d" style="border:1px solid var(--line); max-width:94vw;"></canvas>' +
-          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">WebGPU 渲染 · 点水里撒饲料 · 点到鱼就是字面意义的摸鱼 · 移动鼠标环视</div>' +
+          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">WebGPU 渲染 · 点水里撒饲料 · 点到鱼就是字面意义的摸鱼 · 模型 Barramundi Fish (CC0)</div>' +
           '<div class="mono" id="f4d-n" style="font-size:12.5px; margin-top:6px; color:var(--ink);"></div>' +
         '</div>';
       var cvs = stage.querySelector('#f4d');
@@ -1004,7 +1004,6 @@
           '</div>';
       }
 
-      /* ---- 小工具（闭包内独立） ---- */
       function cssRGB(name, fb) {
         var v = getComputedStyle(document.body).getPropertyValue(name).trim();
         if (!v || v === 'transparent') v = fb;
@@ -1017,6 +1016,7 @@
         if (m) return [+m[1] / 255, +m[2] / 255, +m[3] / 255];
         return [1, 0.55, 0.2];
       }
+      function lin3(c) { return [Math.pow(c[0], 2.2), Math.pow(c[1], 2.2), Math.pow(c[2], 2.2)]; }
       function mMulG(a, b) {
         var o = new Float32Array(16);
         for (var c = 0; c < 4; c++) for (var r = 0; r < 4; r++) {
@@ -1032,7 +1032,7 @@
       function mLookG(eye, at) {
         var zx = eye[0] - at[0], zy = eye[1] - at[1], zz = eye[2] - at[2];
         var zl = Math.hypot(zx, zy, zz); zx /= zl; zy /= zl; zz /= zl;
-        var xx = zz, xz = -zx;                       /* right = cross(up, z)，up=(0,1,0) 简化 */
+        var xx = zz, xz = -zx;
         var xl = Math.hypot(xx, xz) || 1; xx /= xl; xz /= xl;
         var yx = zy * xz, yy = zz * xx - zx * xz, yz = -zy * xx;
         return new Float32Array([
@@ -1048,8 +1048,10 @@
       (async function init() {
         var adapter = null, device = null;
         try {
-          adapter = await navigator.gpu.requestAdapter();
-          if (adapter) device = await adapter.requestDevice();
+          if (navigator.gpu) {
+            adapter = await navigator.gpu.requestAdapter();
+            if (adapter) device = await adapter.requestDevice();
+          }
         } catch (err) { device = null; }
         if (!device || dead) { fallback(); return; }
         try {
@@ -1064,18 +1066,25 @@
         var depthView = depthTex.createView();
 
         /* ---- WGSL ---- */
+        var ACES = ''
+          + 'fn aces(x: vec3f) -> vec3f {\n'
+          + '  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3f(0.0), vec3f(1.0));\n'
+          + '}\n';
         var MESH = ''
           + 'struct G { vp: mat4x4f, eye: vec4f, fog: vec4f };\n'
           + 'struct M { m: mat4x4f, color: vec4f, anim: vec4f };\n'
           + '@group(0) @binding(0) var<uniform> g: G;\n'
           + '@group(1) @binding(0) var<uniform> mdl: M;\n'
-          + 'struct VSI { @location(0) p: vec3f, @location(1) n: vec3f, @location(2) u: f32 };\n'
+          + '@group(2) @binding(0) var samp2: sampler;\n'
+          + '@group(2) @binding(1) var albedoTex: texture_2d<f32>;\n'
+          + 'struct VSI { @location(0) p: vec3f, @location(1) n: vec3f, @location(2) u: f32, @location(3) uv: vec2f };\n'
           + 'struct VSO { @builtin(position) cp: vec4f, @location(0) n: vec3f, @location(1) w: vec3f,\n'
-          + '  @location(2) ly: f32, @location(3) u: f32, @location(4) fog: f32 };\n'
+          + '  @location(2) ly: f32, @location(3) u: f32, @location(4) fog: f32, @location(5) uv: vec2f };\n'
           + '@vertex fn vs(in: VSI) -> VSO {\n'
           + '  var p = in.p;\n'
           + '  let t = g.eye.w;\n'
-          + '  p.z += sin(t * 5.0 + mdl.anim.y - in.u * 5.0) * mdl.anim.x * (0.12 + in.u * in.u * 0.9);\n'
+          + '  let bend = sin(t * 5.0 + mdl.anim.y - in.u * 5.0) * mdl.anim.x * (0.12 + in.u * in.u * 0.9);\n'
+          + '  p.z += bend;\n'
           + '  let w = mdl.m * vec4f(p, 1.0);\n'
           + '  var o: VSO;\n'
           + '  o.cp = g.vp * w;\n'
@@ -1083,6 +1092,7 @@
           + '  o.w = w.xyz;\n'
           + '  o.ly = in.p.y;\n'
           + '  o.u = in.u;\n'
+          + '  o.uv = in.uv;\n'
           + '  o.fog = clamp((distance(g.eye.xyz, w.xyz) - 5.0) / 11.0, 0.0, 1.0);\n'
           + '  return o;\n'
           + '}\n'
@@ -1091,25 +1101,46 @@
           + '  c += 0.5 + 0.5 * sin(p.x * 4.7 - t * 1.9) * sin(p.y * 3.9 + t * 1.4);\n'
           + '  return pow(c * 0.5, 4.0) * 1.7;\n'
           + '}\n'
+          + ACES
           + '@fragment fn fs(in: VSO) -> @location(0) vec4f {\n'
+          + '  let texC = textureSample(albedoTex, samp2, in.uv).rgb;\n'
           + '  if (g.fog.w > 0.5) { return vec4f(mdl.color.rgb, 1.0); }\n'
           + '  let t = g.eye.w;\n'
           + '  let n = normalize(in.n);\n'
           + '  let v = normalize(g.eye.xyz - in.w);\n'
-          + '  let l = normalize(vec3f(0.3, 0.9, 0.25));\n'
-          + '  let diff = max(dot(n, l), 0.0);\n'
-          + '  let h = normalize(l + v);\n'
-          + '  var spec = pow(max(dot(n, h), 0.0), 80.0) * 0.6;\n'
-          + '  let fres = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.32;\n'
-          + '  var albedo = mdl.color.rgb;\n'
-          + '  if (mdl.color.w < 0.5) {\n'
-          + '    albedo = mix(albedo, vec3f(0.93, 0.95, 0.9), clamp(-in.ly * 3.5, 0.0, 1.0) * 0.4);\n'
+          + '  var albedo = texC * mdl.color.rgb;\n'
+          + '  if (mdl.anim.z > 0.5) {\n'
+          + '    albedo = mix(albedo, vec3f(0.85, 0.88, 0.82), clamp(-in.ly * 3.5, 0.0, 1.0) * 0.4);\n'
           + '    albedo *= 0.9 + 0.1 * sin(in.u * 30.0);\n'
-          + '  } else { spec *= 0.2; }\n'
-          + '  let ca = caust(in.w.xz * 1.3 - in.w.y * 0.35, t) * max(n.y, 0.12);\n'
-          + '  var c = albedo * (0.28 + 0.75 * diff) + vec3f(spec) + fres * (g.fog.rgb + 0.25);\n'
-          + '  c += ca * vec3f(0.35, 0.52, 0.58) * 0.6;\n'
-          + '  c = mix(c, g.fog.rgb, in.fog * 0.8);\n'
+          + '  }\n'
+          + '  /* 水体吸收：越深红光越少 */\n'
+          + '  let depth01 = clamp((2.2 - in.w.y) / 4.4, 0.0, 1.0);\n'
+          + '  let absorb = exp(-vec3f(0.9, 0.35, 0.18) * depth01 * 1.1);\n'
+          + '  let keyC = vec3f(1.0, 0.97, 0.9) * absorb * 2.4;\n'
+          + '  let l = normalize(vec3f(0.25, 0.9, 0.2));\n'
+          + '  let h = normalize(l + v);\n'
+          + '  let ndl = max(dot(n, l), 0.0);\n'
+          + '  let ndh = max(dot(n, h), 0.0);\n'
+          + '  /* GGX-lite 高光 */\n'
+          + '  let rough = select(0.62, 0.34, mdl.color.w < 0.5);\n'
+          + '  let a2 = rough * rough * rough * rough;\n'
+          + '  let dgg = a2 / (3.1416 * pow(ndh * ndh * (a2 - 1.0) + 1.0, 2.0));\n'
+          + '  let fh = 0.04 + 0.96 * pow(1.0 - max(dot(h, v), 0.0), 5.0);\n'
+          + '  let spec = min(dgg * fh, 4.0) * 0.55;\n'
+          + '  /* 半球环境辐照（假 GI）+ 沙地反弹 */\n'
+          + '  let tup = n.y * 0.5 + 0.5;\n'
+          + '  var irr = mix(vec3f(0.045, 0.085, 0.11), vec3f(0.34, 0.52, 0.60), tup * tup) * (1.1 - depth01 * 0.55);\n'
+          + '  irr += clamp(-n.y, 0.0, 1.0) * vec3f(0.30, 0.26, 0.18) * (1.0 - depth01 * 0.4) * 0.55;\n'
+          + '  /* 菲涅尔加权环境反射 */\n'
+          + '  let r = reflect(-v, n);\n'
+          + '  let renv = mix(vec3f(0.03, 0.07, 0.10), vec3f(0.45, 0.70, 0.78), clamp(r.y * 0.5 + 0.5, 0.0, 1.0)) * absorb;\n'
+          + '  let fresV = pow(1.0 - max(dot(n, v), 0.0), 4.0);\n'
+          + '  var c = albedo * (irr + keyC * ndl * 0.85) + keyC * spec * ndl + renv * fresV * 0.6;\n'
+          + '  let ca = caust(in.w.xz * 1.3 - in.w.y * 0.35, t) * max(n.y, 0.1);\n'
+          + '  c += ca * vec3f(0.4, 0.6, 0.65) * absorb * 0.8;\n'
+          + '  c = mix(c, g.fog.rgb, in.fog * 0.85);\n'
+          + '  c = aces(c);\n'
+          + '  c = pow(c, vec3f(1.0 / 2.2));\n'
           + '  return vec4f(c, 1.0);\n'
           + '}\n';
         var BG = ''
@@ -1123,24 +1154,27 @@
           + '  o.uv = q[vi] * vec2f(0.5, -0.5) + 0.5;\n'
           + '  return o;\n'
           + '}\n'
+          + ACES
           + '@fragment fn fs(in: O) -> @location(0) vec4f {\n'
           + '  let t = b.ta.w;\n'
           + '  let y = 1.0 - in.uv.y;\n'
-          + '  var c = mix(b.tb.rgb, b.ta.rgb, pow(y, 1.15));\n'
+          + '  var c = mix(b.tb.rgb, b.ta.rgb, pow(y, 1.2));\n'
           + '  if (b.tb.w < 0.5) {\n'
           + '    let ca = sin(in.uv.x * 18.0 + t * 0.5) * sin(y * 13.0 - t * 0.7) * 0.5\n'
           + '           + sin(in.uv.x * 9.0 - t * 0.3) * 0.5;\n'
           + '    c += ca * 0.02 * y;\n'
           + '    let b1 = exp(-pow((in.uv.x - 0.32 + sin(t * 0.07) * 0.06) * 7.0, 2.0));\n'
           + '    let b2 = exp(-pow((in.uv.x - 0.66 + sin(t * 0.09 + 2.0) * 0.08) * 9.0, 2.0));\n'
-          + '    c += (b1 * 0.10 + b2 * 0.07) * vec3f(0.8, 0.95, 1.0) * pow(y, 1.6);\n'
+          + '    c += (b1 * 0.14 + b2 * 0.10) * vec3f(0.8, 0.95, 1.0) * pow(y, 1.6);\n'
           + '    let d = in.uv - 0.5;\n'
           + '    c *= 1.0 - dot(d, d) * 0.55;\n'
+          + '    c = aces(c);\n'
+          + '    c = pow(c, vec3f(1.0 / 2.2));\n'
           + '  }\n'
           + '  return vec4f(c, 1.0);\n'
           + '}\n';
         var SPR = ''
-          + 'struct S { vp: mat4x4f, color: vec4f, misc: vec4f };\n'   /* misc: x aspect, y sizeK */
+          + 'struct S { vp: mat4x4f, color: vec4f, misc: vec4f };\n'
           + '@group(0) @binding(0) var<uniform> s: S;\n'
           + '@group(0) @binding(1) var<storage, read> pts: array<vec4f>;\n'
           + 'struct O { @builtin(position) p: vec4f, @location(0) uv: vec2f };\n'
@@ -1173,18 +1207,25 @@
         var mBGL = device.createBindGroupLayout({
           entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 96 } }]
         });
-        var meshLayout = device.createPipelineLayout({ bindGroupLayouts: [gBGL, mBGL] });
+        var tBGL = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+            { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+          ]
+        });
+        var meshLayout = device.createPipelineLayout({ bindGroupLayouts: [gBGL, mBGL, tBGL] });
         function meshPipe(topology) {
           return device.createRenderPipeline({
             layout: meshLayout,
             vertex: {
               module: meshMod, entryPoint: 'vs',
               buffers: [{
-                arrayStride: 28,
+                arrayStride: 36,
                 attributes: [
                   { shaderLocation: 0, offset: 0, format: 'float32x3' },
                   { shaderLocation: 1, offset: 12, format: 'float32x3' },
                   { shaderLocation: 2, offset: 24, format: 'float32' },
+                  { shaderLocation: 3, offset: 28, format: 'float32x2' },
                 ],
               }],
             },
@@ -1219,13 +1260,43 @@
           depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
         });
 
+        /* ---- 纹理 ---- */
+        var sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+        var whiteTex = device.createTexture({
+          size: [1, 1], format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+        });
+        device.queue.writeTexture({ texture: whiteTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4 }, [1, 1]);
+        function texBG(tex) {
+          return device.createBindGroup({
+            layout: tBGL,
+            entries: [
+              { binding: 0, resource: sampler },
+              { binding: 1, resource: tex.createView() },
+            ]
+          });
+        }
+        var whiteBG = texBG(whiteTex);
+        var fishBG = whiteBG;
+        try {
+          var blob = await (await fetch('/models/fish-albedo.jpg')).blob();
+          var bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none' });
+          var aTex = device.createTexture({
+            size: [bmp.width, bmp.height], format: 'rgba8unorm-srgb',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+          });
+          device.queue.copyExternalImageToTexture({ source: bmp }, { texture: aTex }, [bmp.width, bmp.height]);
+          fishBG = texBG(aTex);
+        } catch (err) { fishBG = whiteBG; }
+
         /* ---- 几何 ---- */
-        function mesh(pos, nrm, us, idx) {
-          var n = us.length, inter = new Float32Array(n * 7);
+        function mesh(pos, nrm, us, uvs, idx) {
+          var n = us.length, inter = new Float32Array(n * 9);
           for (var i = 0; i < n; i++) {
-            inter[i * 7] = pos[i * 3]; inter[i * 7 + 1] = pos[i * 3 + 1]; inter[i * 7 + 2] = pos[i * 3 + 2];
-            inter[i * 7 + 3] = nrm[i * 3]; inter[i * 7 + 4] = nrm[i * 3 + 1]; inter[i * 7 + 5] = nrm[i * 3 + 2];
-            inter[i * 7 + 6] = us[i];
+            inter[i * 9] = pos[i * 3]; inter[i * 9 + 1] = pos[i * 3 + 1]; inter[i * 9 + 2] = pos[i * 3 + 2];
+            inter[i * 9 + 3] = nrm[i * 3]; inter[i * 9 + 4] = nrm[i * 3 + 1]; inter[i * 9 + 5] = nrm[i * 3 + 2];
+            inter[i * 9 + 6] = us[i];
+            inter[i * 9 + 7] = uvs ? uvs[i * 2] : 0; inter[i * 9 + 8] = uvs ? uvs[i * 2 + 1] : 0;
           }
           var edges = {}, lines = [];
           for (var e = 0; e < idx.length; e += 3) {
@@ -1236,33 +1307,32 @@
             }
           }
           function ib(arr) {
-            /* 索引数为奇数时补 0：writeBuffer 要求字节数是 4 的倍数 */
-            var padded = arr.length % 2 ? arr.concat([0]) : arr;
+            var padded = arr.length % 2 ? Array.prototype.slice.call(arr).concat([0]) : arr;
             var b = device.createBuffer({ size: padded.length * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
             device.queue.writeBuffer(b, 0, new Uint16Array(padded));
             return b;
           }
           var vb = device.createBuffer({ size: inter.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
           device.queue.writeBuffer(vb, 0, inter);
-          return { vb: vb, ti: ib(idx), li: ib(lines), nT: idx.length, nL: lines.length };
+          return { vb: vb, ti: ib(idx), li: ib(lines), nT: idx.length, nL: lines.length, bg2: whiteBG };
         }
         function norm3(x, y, z) { var l = Math.sqrt(x * x + y * y + z * z) || 1; return [x / l, y / l, z / l]; }
-        function buildFish() {
+        function buildFishProc() {
           var SEG = 12, RING = 10, pos = [], nrm = [], us = [], idx = [];
           for (var i = 0; i <= SEG; i++) {
             var u = i / SEG, x = 0.55 - u * 1.1;
             var r = Math.sin(Math.min(u * 1.25, 1) * Math.PI);
             var ry = 0.02 + 0.20 * r, rz = 0.02 + 0.085 * r;
-            for (var j = 0; j < RING; j++) {
-              var a = j / RING * Math.PI * 2, cy = Math.cos(a), sz = Math.sin(a);
+            for (var j2 = 0; j2 < RING; j2++) {
+              var a = j2 / RING * Math.PI * 2, cy = Math.cos(a), sz = Math.sin(a);
               pos.push(x, cy * ry, sz * rz);
               var nn = norm3(0, cy / Math.max(ry, 0.02), sz / Math.max(rz, 0.02));
               nrm.push(nn[0], nn[1], nn[2]);
               us.push(u);
             }
           }
-          for (var i2 = 0; i2 < SEG; i2++) for (var j2 = 0; j2 < RING; j2++) {
-            var a0 = i2 * RING + j2, b0 = i2 * RING + (j2 + 1) % RING;
+          for (var i2 = 0; i2 < SEG; i2++) for (var j3 = 0; j3 < RING; j3++) {
+            var a0 = i2 * RING + j3, b0 = i2 * RING + (j3 + 1) % RING;
             idx.push(a0, a0 + RING, b0, b0, a0 + RING, b0 + RING);
           }
           var base = pos.length / 3;
@@ -1270,13 +1340,62 @@
             pos.push(t2[0], t2[1], t2[2]); nrm.push(0, 0, 1); us.push(t2[3]);
           });
           idx.push(base, base + 1, base + 3, base, base + 3, base + 2);
-          var b2 = pos.length / 3;
-          [[0.16, 0.15, 0, 0.35], [-0.08, 0.30, 0, 0.55], [-0.18, 0.15, 0, 0.6]].forEach(function (t2) {
-            pos.push(t2[0], t2[1], t2[2]); nrm.push(0, 0, 1); us.push(t2[3]);
-          });
-          idx.push(b2, b2 + 1, b2 + 2);
-          return mesh(pos, nrm, us, idx);
+          return mesh(pos, nrm, us, null, idx);
         }
+        async function loadFishGLB() {
+          var buf = await (await fetch('/models/fish.glb')).arrayBuffer();
+          var dv = new DataView(buf);
+          if (dv.getUint32(0, true) !== 0x46546C67) throw new Error('bad glb');
+          var total = dv.getUint32(8, true), off = 12, json = null, bin = null;
+          while (off < total) {
+            var clen = dv.getUint32(off, true), ctype = dv.getUint32(off + 4, true);
+            var chunk = buf.slice(off + 8, off + 8 + clen);
+            if (ctype === 0x4E4F534A) json = JSON.parse(new TextDecoder().decode(chunk));
+            else if (ctype === 0x004E4942) bin = chunk;
+            off += 8 + clen;
+          }
+          function acc(ai) {
+            var a = json.accessors[ai], bv = json.bufferViews[a.bufferView];
+            var comp = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[a.type];
+            var Ctor = { 5126: Float32Array, 5123: Uint16Array, 5125: Uint32Array }[a.componentType];
+            return new Ctor(bin, (bv.byteOffset || 0) + (a.byteOffset || 0), a.count * comp);
+          }
+          var prim = json.meshes[0].primitives[0];
+          var p0 = acc(prim.attributes.POSITION);
+          var n0 = acc(prim.attributes.NORMAL);
+          var uv0 = acc(prim.attributes.TEXCOORD_0);
+          var idx0 = acc(prim.indices);
+          /* 重定向：体长轴(z)→x，居中，统一到长度 1.15 */
+          var nV = p0.length / 3;
+          var mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+          for (var i = 0; i < nV; i++) for (var k = 0; k < 3; k++) {
+            mn[k] = Math.min(mn[k], p0[i * 3 + k]);
+            mx[k] = Math.max(mx[k], p0[i * 3 + k]);
+          }
+          var HEAD = 1;
+          var cx = (mn[0] + mx[0]) / 2, cyc = (mn[1] + mx[1]) / 2, cz = (mn[2] + mx[2]) / 2;
+          var scale = 1.15 / Math.max(mx[2] - mn[2], 0.001);
+          var pos = new Float32Array(nV * 3), nrm = new Float32Array(nV * 3), us = new Float32Array(nV);
+          for (var i2 = 0; i2 < nV; i2++) {
+            var ox = p0[i2 * 3] - cx, oy = p0[i2 * 3 + 1] - cyc, oz = p0[i2 * 3 + 2] - cz;
+            pos[i2 * 3] = oz * scale * HEAD;
+            pos[i2 * 3 + 1] = oy * scale;
+            pos[i2 * 3 + 2] = ox * scale * HEAD;
+            nrm[i2 * 3] = n0[i2 * 3 + 2] * HEAD;
+            nrm[i2 * 3 + 1] = n0[i2 * 3 + 1];
+            nrm[i2 * 3 + 2] = n0[i2 * 3] * HEAD;
+            us[i2] = (0.575 - pos[i2 * 3]) / 1.15;
+          }
+          var m = mesh(pos, nrm, us, uv0, Array.prototype.slice.call(idx0));
+          m.bg2 = fishBG;
+          return m;
+        }
+        var fishMesh = null;
+        try { fishMesh = await loadFishGLB(); } catch (err) { fishMesh = null; }
+        var procFish = !fishMesh;
+        if (!fishMesh) fishMesh = buildFishProc();
+        if (dead) return;
+
         function buildRibbon() {
           var SEG = 9, w = 0.09, pos = [], nrm = [], us = [], idx = [];
           for (var i = 0; i <= SEG; i++) {
@@ -1289,7 +1408,7 @@
             var o = s2 * 2;
             idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
           }
-          return mesh(pos, nrm, us, idx);
+          return mesh(pos, nrm, us, null, idx);
         }
         var asp = W / H;
         var TANK = { x: Math.max(3.4, 2.6 * asp), y: 2.2, z: 2.1 };
@@ -1298,11 +1417,11 @@
           return mesh(
             [-tx, 0, -tz, tx, 0, -tz, tx, 0, tz, -tx, 0, tz],
             [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-            [0, 0, 0, 0], [0, 2, 1, 0, 3, 2]);
+            [0, 0, 0, 0], null, [0, 2, 1, 0, 3, 2]);
         }
-        var fishMesh = buildFish(), weedMesh = buildRibbon(), floorMesh = buildFloor();
+        var weedMesh = buildRibbon(), floorMesh = buildFloor();
 
-        /* ---- uniform / 场景数据 ---- */
+        /* ---- uniform / 场景 ---- */
         var gUB = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         var gBG = device.createBindGroup({ layout: gBGL, entries: [{ binding: 0, resource: { buffer: gUB } }] });
         var SLOTS = 1 + 9 + 8;
@@ -1336,13 +1455,18 @@
           cssRGB('--c-char', '#6b99d8'), cssRGB('--c-ai', '#9d86d9'),
           cssRGB('--c-life', '#cf7fa0'), cssRGB('--accent', '#ff8a1e')
         ];
+        function tint(i) {
+          if (procFish) return lin3(palette[i % palette.length]);
+          var p = palette[i % palette.length];
+          return lin3([1 - (1 - p[0]) * 0.22, 1 - (1 - p[1]) * 0.22, 1 - (1 - p[2]) * 0.22]);
+        }
         var fishes = [];
         for (var fi = 0; fi < 8; fi++) {
           fishes.push({
             p: [(Math.random() * 2 - 1) * TANK.x * 0.7, (Math.random() * 2 - 1) * TANK.y * 0.6, (Math.random() * 2 - 1) * TANK.z * 0.6],
             yaw: Math.random() * 6.28, pitch: 0,
             spd: 0.6 + Math.random() * 0.6, s: 0.55 + Math.random() * 0.55,
-            c: palette[fi % palette.length], ph: Math.random() * 6.28, burst: 0
+            c: tint(fi), ph: Math.random() * 6.28, burst: 0
           });
         }
         var weeds = [];
@@ -1373,8 +1497,10 @@
           var bgc = cssRGB('--bg', '#101418');
           var lum = bgc[0] * 0.3 + bgc[1] * 0.6 + bgc[2] * 0.1;
           water = lum < 0.5
-            ? { top: [0.07, 0.24, 0.33], bot: [0.008, 0.045, 0.09], fog: [0.03, 0.10, 0.16], floor: [0.30, 0.26, 0.19], weed: [0.13, 0.38, 0.22] }
-            : { top: [0.62, 0.84, 0.92], bot: [0.22, 0.47, 0.60], fog: [0.45, 0.66, 0.76], floor: [0.74, 0.67, 0.50], weed: [0.22, 0.52, 0.30] };
+            ? { top: lin3([0.16, 0.40, 0.50]), bot: lin3([0.02, 0.09, 0.14]), fog: lin3([0.05, 0.15, 0.22]),
+                floor: lin3([0.55, 0.47, 0.34]), weed: lin3([0.18, 0.45, 0.26]) }
+            : { top: lin3([0.60, 0.85, 0.94]), bot: lin3([0.22, 0.48, 0.62]), fog: lin3([0.40, 0.64, 0.75]),
+                floor: lin3([0.76, 0.68, 0.52]), weed: lin3([0.24, 0.55, 0.32]) };
         }
         refreshTheme();
         function blendAngle(a, b, k) {
@@ -1430,16 +1556,15 @@
         cvs.addEventListener('click', onClick);
 
         /* ---- 帧循环 ---- */
-        function slot(i, model, color, matType, amp, ph) {
+        function slot(i, model, color, matType, amp, ph, proc) {
           var o = i * 64;
           mData.set(model, o);
           mData[o + 16] = color[0]; mData[o + 17] = color[1]; mData[o + 18] = color[2]; mData[o + 19] = matType;
-          mData[o + 20] = amp; mData[o + 21] = ph;
+          mData[o + 20] = amp; mData[o + 21] = ph; mData[o + 22] = proc || 0;
         }
         function mModel(x, y, z, yaw, pitch, s) {
           var cyw = Math.cos(-yaw), syw = Math.sin(-yaw);
           var cp = Math.cos(pitch), sp = Math.sin(pitch);
-          /* T * RY(-yaw) * RZ(pitch) * S，列主序展开 */
           return new Float32Array([
             cyw * cp * s, sp * s, -syw * cp * s, 0,
             -cyw * sp * s, cp * s, syw * sp * s, 0,
@@ -1466,7 +1591,6 @@
           viewM = mLookG(eye, [0, 0, 0]);
           vpM = mMulG(projM, viewM);
 
-          /* 行为（与 WebGL 版一致） */
           for (var i = 0; i < fishes.length; i++) {
             var f = fishes[i];
             f.burst = Math.max(0, f.burst - dt);
@@ -1529,23 +1653,22 @@
             if (mt.p[1] > TANK.y) mt.p[1] = -TANK.y + 0.2;
           }
 
-          /* uniforms */
           var gArr = new Float32Array(24);
           gArr.set(vpM, 0);
           gArr[16] = eye[0]; gArr[17] = eye[1]; gArr[18] = eye[2]; gArr[19] = t;
           gArr[20] = water.fog[0]; gArr[21] = water.fog[1]; gArr[22] = water.fog[2]; gArr[23] = wire ? 1 : 0;
           device.queue.writeBuffer(gUB, 0, gArr);
 
-          slot(0, mModel(0, -TANK.y, 0, 0, 0, 1), wire ? wireCol : water.floor, 1, 0, 0);
+          slot(0, mModel(0, -TANK.y, 0, 0, 0, 1), wire ? wireCol : water.floor, 1, 0, 0, 0);
           for (var wv = 0; wv < weeds.length; wv++) {
             var wd = weeds[wv];
-            var wm = mModel(wd.x, -TANK.y, wd.z, -wd.ph, 0, wd.h);
-            slot(1 + wv, wm, wire ? wireCol : water.weed, 2, 0.35, wd.ph + t * 0.15);
+            slot(1 + wv, mModel(wd.x, -TANK.y, wd.z, -wd.ph, 0, wd.h),
+              wire ? wireCol : water.weed, 2, 0.35, wd.ph + t * 0.15, 0);
           }
           for (var df = 0; df < fishes.length; df++) {
             var ff = fishes[df];
             slot(10 + df, mModel(ff.p[0], ff.p[1], ff.p[2], ff.yaw, ff.pitch, ff.s),
-              wire ? wireCol : ff.c, 0, 0.10 + ff.burst * 0.10, ff.ph);
+              wire ? wireCol : ff.c, 0, 0.10 + ff.burst * 0.10, ff.ph, procFish ? 1 : 0);
           }
           device.queue.writeBuffer(mUB, 0, mData);
 
@@ -1582,7 +1705,6 @@
           var nFo = fillSpr(sprFood, foL, wire ? [wireCol[0], wireCol[1], wireCol[2], 0.9] : [0.92, 0.82, 0.55, 0.95]);
           var nBu = fillSpr(sprBub, buL, wire ? [wireCol[0], wireCol[1], wireCol[2], 0.5] : [0.85, 0.95, 1.0, 0.4]);
 
-          /* ---- encode ---- */
           var enc = device.createCommandEncoder();
           var rp = enc.beginRenderPass({
             colorAttachments: [{
@@ -1597,11 +1719,11 @@
           rp.setBindGroup(0, bgBG);
           rp.draw(3);
 
-          var mp = wire ? pipeLine : pipeTri;
-          rp.setPipeline(mp);
+          rp.setPipeline(wire ? pipeLine : pipeTri);
           rp.setBindGroup(0, gBG);
           function drawSlot(m2, i3) {
             rp.setBindGroup(1, mBG, [i3 * 256]);
+            rp.setBindGroup(2, m2.bg2);
             rp.setVertexBuffer(0, m2.vb);
             if (wire) { rp.setIndexBuffer(m2.li, 'uint16'); rp.drawIndexed(m2.nL); }
             else { rp.setIndexBuffer(m2.ti, 'uint16'); rp.drawIndexed(m2.nT); }
