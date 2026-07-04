@@ -2541,7 +2541,7 @@
       function mLookG(eye, at) {
         var zx = eye[0] - at[0], zy = eye[1] - at[1], zz = eye[2] - at[2];
         var zl = Math.hypot(zx, zy, zz); zx /= zl; zy /= zl; zz /= zl;
-        var xx = -zz, xz = zx;                       /* up=(0,1,0) 的叉积简化 */
+        var xx = zz, xz = -zx;                       /* right = cross(up, z)，up=(0,1,0) 简化 */
         var xl = Math.hypot(xx, xz) || 1; xx /= xl; xz /= xl;
         var yx = zy * xz, yy = zz * xx - zx * xz, yz = -zy * xx;
         return new Float32Array([
