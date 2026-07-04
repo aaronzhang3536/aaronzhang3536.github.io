@@ -1,6 +1,7 @@
 ---
 title: "Nanite 材质缓存"
 cat: UE 剖析
+sub: 渲染
 date: 2026-01-20
 mins: 17
 tags: [Nanite, 材质]

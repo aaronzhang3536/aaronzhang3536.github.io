@@ -1,6 +1,7 @@
 ---
 title: "UE Groom 渲染流程"
 cat: UE 剖析
+sub: 渲染
 date: 2026-01-10
 mins: 17
 tags: [Groom, 毛发渲染]

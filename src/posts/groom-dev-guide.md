@@ -1,6 +1,7 @@
 ---
 title: "UE Groom 毛发系统开发指南"
-cat: 角色技术
+cat: UE 剖析
+sub: 角色
 date: 2026-01-19
 mins: 20
 tags: [Groom, 工作流]

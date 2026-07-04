@@ -1,6 +1,7 @@
 ---
 title: "UE MeshModelingToolset — PlaneCut 平面切割分析"
 cat: UE 剖析
+sub: 几何
 date: 2026-05-20
 mins: 12
 tags: [几何处理, 网格切割]

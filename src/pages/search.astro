@@ -4,9 +4,12 @@ import { getCollection } from 'astro:content';
 
 const posts = (await getCollection('posts')).sort((a, b) => +b.data.date - +a.data.date);
 const CAT_SW: Record<string, string> = {
-  'UE 剖析': '--c-render', '角色技术': '--c-char',
-  '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
+const SUB_SW: Record<string, string> = {
+  '渲染': '--c-render', '角色': '--c-char', '几何': '--c-engine', '系统': '--c-tool',
+};
+const swOf = (p: any) => (p.data.sub ? SUB_SW[p.data.sub] : CAT_SW[p.data.cat] || '--accent');
 const idx = posts.map((p) => {
   const body = p.body || '';
   const heads = [...body.matchAll(/^#{1,4}\s+(.+)$/gm)].map((m) => m[1]).join(' ');
@@ -18,8 +21,8 @@ const idx = posts.map((p) => {
   return {
     t: p.data.title,
     u: `/posts/${p.id}/`,
-    c: p.data.cat,
-    sw: CAT_SW[p.data.cat],
+    c: p.data.sub ? `${p.data.cat} · ${p.data.sub}` : p.data.cat,
+    sw: swOf(p),
     g: p.data.tags.join(' '),
     d: p.data.date.toISOString().slice(0, 10),
     m: p.data.mins,

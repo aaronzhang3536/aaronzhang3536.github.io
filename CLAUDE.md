@@ -28,7 +28,8 @@ Drop one file at `src/posts/<slug>.md`:
 ```markdown
 ---
 title: "文章标题"
-cat: UE 剖析    # one of: UE 剖析 角色技术 读渲染 AI 与认知 音乐与生活
+cat: UE 剖析    # one of: UE 剖析 读渲染 AI 与认知 音乐与生活
+sub: 渲染       # 仅 UE 剖析需要，one of: 渲染 角色 几何 系统
 date: 2026-07-04
 mins: 12
 ---
