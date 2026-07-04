@@ -974,11 +974,8 @@
       }
     };
 
-    /* ---------- GameMode: 摸鱼 · 电子鱼缸 ---------- */
-    GM.idle = {
-      bp: 'Idle', zh: '摸鱼 · 电子鱼缸',
-      start: function (stage) {
-        hudSuspend = true;
+    /* ---------- 摸鱼 · 2D 鱼缸（WebGL 不可用时的回退） ---------- */
+    function fishTank2D(stage) {
         var W = Math.min(760, window.innerWidth - 60);
         var H = Math.min(430, window.innerHeight - 230);
         var touched = 0;
@@ -1149,8 +1146,8 @@
           if (raf) cancelAnimationFrame(raf);
           cvs.removeEventListener('click', onClick);
         };
-      }
-    };
+    }
+
 
     /* ---------- 游戏厅 · 游戏 1：帧预算保卫战 ---------- */
     function budgetGame(stage) {
@@ -1998,6 +1995,505 @@
       setup();
       return function cleanup() { stopTimers(); freeObj(); };
     }
+
+    /* ---------- 摸鱼 · WebGL 3D 鱼缸 ---------- */
+    function fishTank3D(stage) {
+      var W = Math.min(840, window.innerWidth - 60);
+      var H = Math.min(470, window.innerHeight - 230);
+      var touched = 0;
+      try { touched = parseInt(localStorage.getItem('yzzn-fish') || '0', 10); } catch (err) {}
+      stage.innerHTML =
+        '<div style="text-align:center;">' +
+          '<canvas id="f3d" style="border:1px solid var(--line); max-width:94vw;"></canvas>' +
+          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">点水里撒饲料 · 点到鱼身上就是字面意义的摸鱼 · 移动鼠标环视鱼缸</div>' +
+          '<div class="mono" id="f3d-n" style="font-size:12.5px; margin-top:6px; color:var(--ink);"></div>' +
+        '</div>';
+      var cvs = stage.querySelector('#f3d');
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      cvs.width = W * dpr; cvs.height = H * dpr;
+      cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+      var gl = cvs.getContext('webgl', { antialias: true });
+      if (!gl) return null;
+      var nEl = stage.querySelector('#f3d-n');
+      function hud() { nEl.textContent = '累计摸鱼 ' + touched + ' 次'; }
+      hud();
+
+      /* ---- 工具 ---- */
+      function cssRGB(name, fb) {
+        var v = getComputedStyle(document.body).getPropertyValue(name).trim();
+        if (!v || v === 'transparent') v = fb;
+        var m = v.match(/^#([0-9a-f]{6})$/i);
+        if (m) {
+          var n = parseInt(m[1], 16);
+          return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+        }
+        m = v.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+        if (m) return [+m[1] / 255, +m[2] / 255, +m[3] / 255];
+        return [1, 0.55, 0.2];
+      }
+      function norm3(x, y, z) {
+        var l = Math.sqrt(x * x + y * y + z * z) || 1;
+        return [x / l, y / l, z / l];
+      }
+      function mIdent() { return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); }
+      function mMul(a, b) {
+        var o = new Float32Array(16);
+        for (var c = 0; c < 4; c++) for (var r = 0; r < 4; r++) {
+          o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+        }
+        return o;
+      }
+      function mPersp(fovy, asp, n, f) {
+        var t = 1 / Math.tan(fovy / 2), o = new Float32Array(16);
+        o[0] = t / asp; o[5] = t; o[10] = (f + n) / (n - f); o[11] = -1; o[14] = 2 * f * n / (n - f);
+        return o;
+      }
+      function mT(x, y, z) { var o = mIdent(); o[12] = x; o[13] = y; o[14] = z; return o; }
+      function mRY(a) { var c = Math.cos(a), s = Math.sin(a), o = mIdent(); o[0] = c; o[2] = -s; o[8] = s; o[10] = c; return o; }
+      function mRX(a) { var c = Math.cos(a), s = Math.sin(a), o = mIdent(); o[5] = c; o[6] = s; o[9] = -s; o[10] = c; return o; }
+      function mRZ(a) { var c = Math.cos(a), s = Math.sin(a), o = mIdent(); o[0] = c; o[1] = s; o[4] = -s; o[5] = c; return o; }
+      function mS(k) { var o = mIdent(); o[0] = k; o[5] = k; o[10] = k; return o; }
+      function prog(vsrc, fsrc) {
+        function sh(t, s) {
+          var h = gl.createShader(t);
+          gl.shaderSource(h, s);
+          gl.compileShader(h);
+          return h;
+        }
+        var p = gl.createProgram();
+        gl.attachShader(p, sh(gl.VERTEX_SHADER, vsrc));
+        gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsrc));
+        gl.linkProgram(p);
+        return p;
+      }
+
+      /* ---- 着色器 ---- */
+      var meshP = prog(
+        'attribute vec3 aP; attribute vec3 aN; attribute float aU;' +
+        'uniform mat4 uP, uV, uM;' +
+        'uniform float uT, uPh, uAmp;' +
+        'varying vec3 vN; varying float vFog;' +
+        'void main() {' +
+        '  vec3 p = aP;' +
+        '  float sway = sin(uT * 5.0 + uPh - aU * 5.0) * uAmp * (0.12 + aU * aU * 0.9);' +
+        '  p.z += sway;' +
+        '  vec4 w = uM * vec4(p, 1.0);' +
+        '  vN = mat3(uM) * aN;' +
+        '  vec4 vp = uV * w;' +
+        '  vFog = clamp((-vp.z - 6.0) / 10.0, 0.0, 1.0);' +
+        '  gl_Position = uP * vp;' +
+        '}',
+        'precision mediump float;' +
+        'uniform vec3 uC; uniform vec3 uFogC; uniform float uWire;' +
+        'varying vec3 vN; varying float vFog;' +
+        'void main() {' +
+        '  if (uWire > 0.5) { gl_FragColor = vec4(uC, 1.0); return; }' +
+        '  vec3 n = normalize(vN);' +
+        '  float d = max(dot(n, normalize(vec3(0.35, 0.9, 0.3))), 0.0);' +
+        '  float rim = pow(1.0 - abs(n.z), 2.0) * 0.14;' +
+        '  vec3 c = uC * (0.34 + 0.78 * d) + rim;' +
+        '  gl_FragColor = vec4(mix(c, uFogC, vFog * 0.6), 1.0);' +
+        '}');
+      var bgP = prog(
+        'attribute vec2 aP; varying vec2 vUv;' +
+        'void main() { vUv = aP * 0.5 + 0.5; gl_Position = vec4(aP, 0.0, 1.0); }',
+        'precision mediump float; varying vec2 vUv;' +
+        'uniform vec3 uTop; uniform vec3 uBot; uniform float uT; uniform float uWire;' +
+        'void main() {' +
+        '  vec3 c = mix(uBot, uTop, vUv.y);' +
+        '  if (uWire < 0.5) {' +
+        '    float ca = sin(vUv.x * 16.0 + uT * 0.6) * sin(vUv.y * 12.0 - uT * 0.8)' +
+        '             + sin(vUv.x * 7.0 - uT * 0.4) * 0.5;' +
+        '    c += ca * 0.015;' +
+        '    c += pow(max(sin(vUv.x * 3.5 + uT * 0.15), 0.0), 6.0) * vUv.y * 0.05;' +
+        '  }' +
+        '  gl_FragColor = vec4(c, 1.0);' +
+        '}');
+      var ptP = prog(
+        'attribute vec3 aP; attribute float aS;' +
+        'uniform mat4 uP, uV; uniform float uPx;' +
+        'void main() {' +
+        '  vec4 vp = uV * vec4(aP, 1.0);' +
+        '  gl_Position = uP * vp;' +
+        '  gl_PointSize = aS * uPx / max(-vp.z, 0.5);' +
+        '}',
+        'precision mediump float; uniform vec4 uC;' +
+        'void main() {' +
+        '  vec2 d = gl_PointCoord - 0.5;' +
+        '  float r2 = dot(d, d);' +
+        '  if (r2 > 0.25) discard;' +
+        '  float a = 1.0 - smoothstep(0.12, 0.25, r2);' +
+        '  gl_FragColor = vec4(uC.rgb, uC.a * a);' +
+        '}');
+      function U(p, n) { return gl.getUniformLocation(p, n); }
+      function Aloc(p, n) { return gl.getAttribLocation(p, n); }
+      var mu = { P: U(meshP, 'uP'), V: U(meshP, 'uV'), M: U(meshP, 'uM'), T: U(meshP, 'uT'), Ph: U(meshP, 'uPh'), Amp: U(meshP, 'uAmp'), C: U(meshP, 'uC'), FogC: U(meshP, 'uFogC'), Wire: U(meshP, 'uWire'), aP: Aloc(meshP, 'aP'), aN: Aloc(meshP, 'aN'), aU: Aloc(meshP, 'aU') };
+      var bu = { Top: U(bgP, 'uTop'), Bot: U(bgP, 'uBot'), T: U(bgP, 'uT'), Wire: U(bgP, 'uWire'), aP: Aloc(bgP, 'aP') };
+      var pu = { P: U(ptP, 'uP'), V: U(ptP, 'uV'), Px: U(ptP, 'uPx'), C: U(ptP, 'uC'), aP: Aloc(ptP, 'aP'), aS: Aloc(ptP, 'aS') };
+
+      /* ---- 几何 ---- */
+      function mesh(pos, nrm, us, idx) {
+        var edges = {}, lines = [];
+        for (var i = 0; i < idx.length; i += 3) {
+          var tri = [[idx[i], idx[i + 1]], [idx[i + 1], idx[i + 2]], [idx[i + 2], idx[i]]];
+          for (var e = 0; e < 3; e++) {
+            var k = Math.min(tri[e][0], tri[e][1]) + '_' + Math.max(tri[e][0], tri[e][1]);
+            if (!edges[k]) { edges[k] = 1; lines.push(tri[e][0], tri[e][1]); }
+          }
+        }
+        function buf(arr, target) {
+          var b = gl.createBuffer();
+          gl.bindBuffer(target, b);
+          gl.bufferData(target, arr, gl.STATIC_DRAW);
+          return b;
+        }
+        return {
+          p: buf(new Float32Array(pos), gl.ARRAY_BUFFER),
+          n: buf(new Float32Array(nrm), gl.ARRAY_BUFFER),
+          u: buf(new Float32Array(us), gl.ARRAY_BUFFER),
+          t: buf(new Uint16Array(idx), gl.ELEMENT_ARRAY_BUFFER),
+          l: buf(new Uint16Array(lines), gl.ELEMENT_ARRAY_BUFFER),
+          nT: idx.length, nL: lines.length
+        };
+      }
+      function buildFish() {
+        var SEG = 12, RING = 10, pos = [], nrm = [], us = [], idx = [];
+        for (var i = 0; i <= SEG; i++) {
+          var u = i / SEG;
+          var x = 0.55 - u * 1.1;
+          var r = Math.sin(Math.min(u * 1.25, 1) * Math.PI);
+          var ry = 0.02 + 0.20 * r, rz = 0.02 + 0.085 * r;
+          for (var j = 0; j < RING; j++) {
+            var a = j / RING * Math.PI * 2;
+            var cy = Math.cos(a), sz = Math.sin(a);
+            pos.push(x, cy * ry, sz * rz);
+            var nn = norm3(0, cy / Math.max(ry, 0.02), sz / Math.max(rz, 0.02));
+            nrm.push(nn[0], nn[1], nn[2]);
+            us.push(u);
+          }
+        }
+        for (var i2 = 0; i2 < SEG; i2++) for (var j2 = 0; j2 < RING; j2++) {
+          var a0 = i2 * RING + j2, b0 = i2 * RING + (j2 + 1) % RING;
+          idx.push(a0, a0 + RING, b0, b0, a0 + RING, b0 + RING);
+        }
+        var base = pos.length / 3;
+        var tail = [[-0.55, 0, 0, 1.0], [-0.88, 0.24, 0, 1.35], [-0.88, -0.24, 0, 1.35], [-0.72, 0, 0, 1.15]];
+        tail.forEach(function (t) { pos.push(t[0], t[1], t[2]); nrm.push(0, 0, 1); us.push(t[3]); });
+        idx.push(base, base + 1, base + 3, base, base + 3, base + 2);
+        var b2 = pos.length / 3;
+        [[0.16, 0.15, 0, 0.35], [-0.08, 0.30, 0, 0.55], [-0.18, 0.15, 0, 0.6]].forEach(function (t) {
+          pos.push(t[0], t[1], t[2]); nrm.push(0, 0, 1); us.push(t[3]);
+        });
+        idx.push(b2, b2 + 1, b2 + 2);
+        return mesh(pos, nrm, us, idx);
+      }
+      function buildRibbon() {
+        var SEG = 9, w = 0.09, pos = [], nrm = [], us = [], idx = [];
+        for (var i = 0; i <= SEG; i++) {
+          var u = i / SEG;
+          pos.push(-w * (1 - u * 0.6), u * 1.0, 0, w * (1 - u * 0.6), u * 1.0, 0);
+          nrm.push(0, 0, 1, 0, 0, 1);
+          us.push(u, u);
+        }
+        for (var s = 0; s < SEG; s++) {
+          var o = s * 2;
+          idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
+        }
+        return mesh(pos, nrm, us, idx);
+      }
+      function buildFloor(tx, tz) {
+        return mesh(
+          [-tx, 0, -tz, tx, 0, -tz, tx, 0, tz, -tx, 0, tz],
+          [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+          [0, 0, 0, 0],
+          [0, 2, 1, 0, 3, 2]);
+      }
+      var quadB = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, quadB);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      var ptB = gl.createBuffer();
+
+      /* ---- 场景 ---- */
+      var asp = W / H;
+      var TANK = { x: Math.max(3.4, 2.6 * asp), y: 2.2, z: 2.1 };
+      var camDist = 8.6, camY = 0.35, FOV = 0.8;
+      var projM = mPersp(FOV, asp, 0.5, 40);
+      var fishMesh = buildFish();
+      var weedMesh = buildRibbon();
+      var floorMesh = buildFloor(TANK.x + 1.5, TANK.z + 1.2);
+      var palette = [
+        cssRGB('--c-render', '#d96a60'), cssRGB('--c-tool', '#cfa23a'),
+        cssRGB('--c-char', '#6b99d8'), cssRGB('--c-ai', '#9d86d9'),
+        cssRGB('--c-life', '#cf7fa0'), cssRGB('--accent', '#ff8a1e')
+      ];
+      var fishes = [];
+      for (var fi = 0; fi < 8; fi++) {
+        fishes.push({
+          p: [(Math.random() * 2 - 1) * TANK.x * 0.7, (Math.random() * 2 - 1) * TANK.y * 0.6, (Math.random() * 2 - 1) * TANK.z * 0.6],
+          yaw: Math.random() * 6.28, pitch: 0,
+          spd: 0.6 + Math.random() * 0.6, s: 0.55 + Math.random() * 0.55,
+          c: palette[fi % palette.length], ph: Math.random() * 6.28, burst: 0
+        });
+      }
+      var weeds = [];
+      for (var wi = 0; wi < 9; wi++) {
+        weeds.push({
+          x: (Math.random() * 2 - 1) * TANK.x * 0.9,
+          z: -TANK.z * 0.3 - Math.random() * TANK.z * 0.6,
+          h: 1.1 + Math.random() * 1.6, ph: Math.random() * 6.28
+        });
+      }
+      var foods = [], bubbles = [];
+      var camYaw = 0, camPitch = 0, tYaw = 0, tPitch = 0;
+      var wire = false, wireCol = [0.32, 0.78, 0.9];
+      var water = { top: [0.07, 0.22, 0.30], bot: [0.01, 0.05, 0.10], fog: [0.03, 0.10, 0.16], floor: [0.15, 0.13, 0.10], weed: [0.16, 0.42, 0.25] };
+      function refreshTheme() {
+        wire = document.body.classList.contains('vm-wire');
+        wireCol = cssRGB('--wire', '#52c8e6');
+        var bgc = cssRGB('--bg', '#101418');
+        var lum = bgc[0] * 0.3 + bgc[1] * 0.6 + bgc[2] * 0.1;
+        if (lum < 0.5) {
+          water = { top: [0.07, 0.22, 0.30], bot: [0.012, 0.05, 0.10], fog: [0.03, 0.10, 0.16], floor: [0.16, 0.14, 0.11], weed: [0.16, 0.42, 0.25] };
+        } else {
+          water = { top: [0.62, 0.83, 0.90], bot: [0.25, 0.50, 0.62], fog: [0.45, 0.66, 0.76], floor: [0.72, 0.65, 0.50], weed: [0.25, 0.55, 0.33] };
+        }
+      }
+      refreshTheme();
+
+      function blendAngle(a, b, k) {
+        var d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+        return a + d * Math.min(1, k);
+      }
+      var viewM = mIdent();
+
+      /* ---- 交互 ---- */
+      function onMove(e) {
+        var r = cvs.getBoundingClientRect();
+        tYaw = ((e.clientX - r.left) / r.width - 0.5) * 0.22;
+        tPitch = ((e.clientY - r.top) / r.height - 0.5) * 0.14;
+      }
+      function touch(i) {
+        touched++;
+        try { localStorage.setItem('yzzn-fish', String(touched)); } catch (err) {}
+        hud();
+        var f = fishes[i];
+        f.burst = 1.4;
+        f.yaw += Math.PI * (0.7 + Math.random() * 0.6);
+        for (var b = 0; b < 5; b++) {
+          bubbles.push({ p: [f.p[0], f.p[1], f.p[2]], v: 0.7 + Math.random() * 0.7, s: 6 + Math.random() * 8, ph: Math.random() * 6 });
+        }
+      }
+      function onClick(e) {
+        var r = cvs.getBoundingClientRect();
+        var nx = ((e.clientX - r.left) / r.width) * 2 - 1;
+        var ny = -(((e.clientY - r.top) / r.height) * 2 - 1);
+        var pv = mMul(projM, viewM);
+        var best = -1, bd = 1e9;
+        for (var i = 0; i < fishes.length; i++) {
+          var f = fishes[i];
+          var x = f.p[0], y = f.p[1], z = f.p[2];
+          var cw = pv[3] * x + pv[7] * y + pv[11] * z + pv[15];
+          if (cw <= 0.1) continue;
+          var cx = (pv[0] * x + pv[4] * y + pv[8] * z + pv[12]) / cw;
+          var cy = (pv[1] * x + pv[5] * y + pv[9] * z + pv[13]) / cw;
+          var dx = cx - nx, dy = cy - ny;
+          var rr = 1.1 * f.s / cw;
+          if (dx * dx + dy * dy < rr * rr && cw < bd) { bd = cw; best = i; }
+        }
+        if (best >= 0) { touch(best); return; }
+        var th = Math.tan(FOV / 2);
+        var wx = nx * th * asp * camDist;
+        var wy = ny * th * camDist + camY;
+        wx = Math.max(-TANK.x * 0.9, Math.min(TANK.x * 0.9, wx));
+        wy = Math.min(TANK.y - 0.15, Math.max(-TANK.y * 0.5, wy));
+        foods.push({ p: [wx, wy, (Math.random() * 2 - 1) * TANK.z * 0.4], vy: -0.55, life: 25 });
+        if (foods.length > 14) foods.shift();
+      }
+      cvs.addEventListener('mousemove', onMove);
+      cvs.addEventListener('click', onClick);
+
+      /* ---- 绘制 ---- */
+      gl.viewport(0, 0, W * dpr, H * dpr);
+      gl.enable(gl.DEPTH_TEST);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      function bindMesh(m) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, m.p);
+        gl.enableVertexAttribArray(mu.aP);
+        gl.vertexAttribPointer(mu.aP, 3, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, m.n);
+        gl.enableVertexAttribArray(mu.aN);
+        gl.vertexAttribPointer(mu.aN, 3, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, m.u);
+        gl.enableVertexAttribArray(mu.aU);
+        gl.vertexAttribPointer(mu.aU, 1, gl.FLOAT, false, 0, 0);
+      }
+      function drawMesh(m, model, color, amp, ph) {
+        gl.uniformMatrix4fv(mu.M, false, model);
+        gl.uniform3fv(mu.C, wire ? wireCol : color);
+        gl.uniform1f(mu.Amp, amp);
+        gl.uniform1f(mu.Ph, ph);
+        bindMesh(m);
+        if (wire) {
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.l);
+          gl.drawElements(gl.LINES, m.nL, gl.UNSIGNED_SHORT, 0);
+        } else {
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.t);
+          gl.drawElements(gl.TRIANGLES, m.nT, gl.UNSIGNED_SHORT, 0);
+        }
+      }
+      function drawPoints(arr, color) {
+        if (!arr.length) return;
+        gl.useProgram(ptP);
+        gl.uniformMatrix4fv(pu.P, false, projM);
+        gl.uniformMatrix4fv(pu.V, false, viewM);
+        gl.uniform1f(pu.Px, H * dpr * 0.06);
+        gl.uniform4fv(pu.C, color);
+        gl.bindBuffer(gl.ARRAY_BUFFER, ptB);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(pu.aP);
+        gl.vertexAttribPointer(pu.aP, 3, gl.FLOAT, false, 16, 0);
+        gl.enableVertexAttribArray(pu.aS);
+        gl.vertexAttribPointer(pu.aS, 1, gl.FLOAT, false, 16, 12);
+        gl.drawArrays(gl.POINTS, 0, arr.length / 4);
+      }
+
+      var raf = null, prev = 0, frame = 0;
+      function loop(ts) {
+        raf = requestAnimationFrame(loop);
+        var dt = Math.min((ts - prev) / 1000, 0.05);
+        prev = ts;
+        var t = ts / 1000;
+        if (++frame % 90 === 0) refreshTheme();
+
+        camYaw += (tYaw - camYaw) * 2.5 * dt;
+        camPitch += (tPitch - camPitch) * 2.5 * dt;
+        viewM = mMul(mT(0, -camY, -camDist), mMul(mRX(camPitch), mRY(camYaw)));
+
+        /* 鱼行为 */
+        for (var i = 0; i < fishes.length; i++) {
+          var f = fishes[i];
+          f.burst = Math.max(0, f.burst - dt);
+          var sp = f.spd * (1 + f.burst * 2.6);
+          var tgt = null, td = 1e9;
+          for (var fo = 0; fo < foods.length; fo++) {
+            var fd = foods[fo];
+            var ddx = fd.p[0] - f.p[0], ddy = fd.p[1] - f.p[1], ddz = fd.p[2] - f.p[2];
+            var d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+            if (d2 < td) { td = d2; tgt = fd; }
+          }
+          if (tgt && f.burst <= 0) {
+            var wy2 = Math.atan2(tgt.p[2] - f.p[2], tgt.p[0] - f.p[0]);
+            f.yaw = blendAngle(f.yaw, wy2, 3 * dt);
+            var horiz = Math.sqrt(Math.pow(tgt.p[0] - f.p[0], 2) + Math.pow(tgt.p[2] - f.p[2], 2));
+            f.pitch += (Math.atan2(tgt.p[1] - f.p[1], horiz + 0.001) - f.pitch) * 3 * dt;
+            if (td < 0.12) {
+              foods.splice(foods.indexOf(tgt), 1);
+              f.s = Math.min(f.s + 0.03, 1.4);
+              bubbles.push({ p: [f.p[0], f.p[1], f.p[2]], v: 0.8, s: 8, ph: 0 });
+            }
+          } else {
+            f.yaw += (Math.random() - 0.5) * 1.6 * dt;
+            f.pitch += ((Math.random() - 0.5) * 0.5 - f.pitch * 0.4) * dt;
+          }
+          var mgn = 0.82;
+          if (Math.abs(f.p[0]) > TANK.x * mgn || Math.abs(f.p[2]) > TANK.z * mgn) {
+            f.yaw = blendAngle(f.yaw, Math.atan2(-f.p[2], -f.p[0]), 2.2 * dt);
+          }
+          if (Math.abs(f.p[1]) > TANK.y * mgn) {
+            f.pitch += (-Math.sign(f.p[1]) * 0.5 - f.pitch) * 3 * dt;
+          }
+          f.pitch = Math.max(-0.6, Math.min(0.6, f.pitch));
+          var cp = Math.cos(f.pitch);
+          f.p[0] += Math.cos(f.yaw) * cp * sp * dt;
+          f.p[1] += Math.sin(f.pitch) * sp * dt;
+          f.p[2] += Math.sin(f.yaw) * cp * sp * dt;
+          f.p[0] = Math.max(-TANK.x, Math.min(TANK.x, f.p[0]));
+          f.p[1] = Math.max(-TANK.y + 0.15, Math.min(TANK.y, f.p[1]));
+          f.p[2] = Math.max(-TANK.z, Math.min(TANK.z, f.p[2]));
+        }
+        /* 饲料与气泡 */
+        for (var fo2 = foods.length - 1; fo2 >= 0; fo2--) {
+          var fd2 = foods[fo2];
+          fd2.life -= dt;
+          if (fd2.p[1] > -TANK.y + 0.1) fd2.p[1] += fd2.vy * dt;
+          fd2.p[0] += Math.sin(t * 2 + fo2) * 0.05 * dt;
+          if (fd2.life <= 0) foods.splice(fo2, 1);
+        }
+        if (Math.random() < dt * 0.7) {
+          bubbles.push({ p: [(Math.random() * 2 - 1) * TANK.x * 0.8, -TANK.y + 0.2, (Math.random() * 2 - 1) * TANK.z * 0.7], v: 0.5 + Math.random() * 0.6, s: 3 + Math.random() * 6, ph: Math.random() * 6 });
+        }
+        for (var bb = bubbles.length - 1; bb >= 0; bb--) {
+          var bub = bubbles[bb];
+          bub.p[1] += bub.v * dt;
+          bub.p[0] += Math.sin(t * 3 + bub.ph) * 0.15 * dt;
+          if (bub.p[1] > TANK.y + 0.2) bubbles.splice(bb, 1);
+        }
+
+        /* ---- render ---- */
+        gl.clearColor(water.bot[0], water.bot[1], water.bot[2], 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.disable(gl.DEPTH_TEST);
+        gl.useProgram(bgP);
+        gl.uniform3fv(bu.Top, wire ? [0.02, 0.03, 0.04] : water.top);
+        gl.uniform3fv(bu.Bot, wire ? [0.02, 0.03, 0.04] : water.bot);
+        gl.uniform1f(bu.T, t);
+        gl.uniform1f(bu.Wire, wire ? 1 : 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, quadB);
+        gl.enableVertexAttribArray(bu.aP);
+        gl.vertexAttribPointer(bu.aP, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.enable(gl.DEPTH_TEST);
+
+        gl.useProgram(meshP);
+        gl.uniformMatrix4fv(mu.P, false, projM);
+        gl.uniformMatrix4fv(mu.V, false, viewM);
+        gl.uniform1f(mu.T, t);
+        gl.uniform3fv(mu.FogC, water.fog);
+        gl.uniform1f(mu.Wire, wire ? 1 : 0);
+        gl.disable(gl.CULL_FACE);
+        /* 沙底 */
+        drawMesh(floorMesh, mT(0, -TANK.y, 0), water.floor, 0, 0);
+        /* 水草 */
+        for (var wv = 0; wv < weeds.length; wv++) {
+          var wd = weeds[wv];
+          var wm = mMul(mT(wd.x, -TANK.y, wd.z), mMul(mRY(wd.ph), mS(wd.h)));
+          drawMesh(weedMesh, wm, water.weed, 0.35, wd.ph + t * 0.15);
+        }
+        /* 鱼 */
+        for (var df = 0; df < fishes.length; df++) {
+          var ff = fishes[df];
+          var model = mMul(mT(ff.p[0], ff.p[1], ff.p[2]),
+            mMul(mRY(-ff.yaw), mMul(mRZ(ff.pitch), mS(ff.s))));
+          drawMesh(fishMesh, model, ff.c, 0.10 + ff.burst * 0.10, ff.ph);
+        }
+        /* 饲料与气泡 */
+        var fArr = [];
+        for (var pa = 0; pa < foods.length; pa++) fArr.push(foods[pa].p[0], foods[pa].p[1], foods[pa].p[2], 3.2);
+        drawPoints(fArr, wire ? [wireCol[0], wireCol[1], wireCol[2], 0.9] : [0.92, 0.82, 0.55, 0.95]);
+        var bArr = [];
+        for (var pb = 0; pb < bubbles.length; pb++) bArr.push(bubbles[pb].p[0], bubbles[pb].p[1], bubbles[pb].p[2], bubbles[pb].s * 0.35);
+        drawPoints(bArr, wire ? [wireCol[0], wireCol[1], wireCol[2], 0.5] : [0.85, 0.95, 1.0, 0.35]);
+      }
+      raf = requestAnimationFrame(function (ts) { prev = ts; loop(ts); });
+
+      return function cleanup() {
+        if (raf) cancelAnimationFrame(raf);
+        cvs.removeEventListener('mousemove', onMove);
+        cvs.removeEventListener('click', onClick);
+      };
+    }
+
+    GM.idle = {
+      bp: 'Idle', zh: '摸鱼 · 3D 鱼缸',
+      start: function (stage) {
+        hudSuspend = true;
+        var c = null;
+        try { c = fishTank3D(stage); } catch (err) { c = null; }
+        if (c) return c;
+        return fishTank2D(stage);
+      }
+    };
 
     /* ---------- 游戏厅 · 通用工具 ---------- */
     function hiGet(k) { try { return parseInt(localStorage.getItem(k) || '0', 10); } catch (err) { return 0; } }
