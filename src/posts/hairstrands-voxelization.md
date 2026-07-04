@@ -1,6 +1,6 @@
 ---
 title: "HairStrands 体素化"
-cat: 渲染管线
+cat: UE 剖析
 date: 2026-01-26
 mins: 14
 tags: [Groom, HairStrands]

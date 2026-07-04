@@ -1,6 +1,6 @@
 ---
 title: "MegaLights 完整逻辑"
-cat: 渲染管线
+cat: UE 剖析
 date: 2026-06-10
 mins: 20
 tags: [MegaLights, 光照]
