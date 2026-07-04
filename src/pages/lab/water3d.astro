@@ -28,14 +28,24 @@ import Base from '../../layouts/Base.astro';
     <label>刚度 <input id="wt-stiff" type="range" min="2" max="20" step="0.5" value="8" /></label>
     <label>粘性 <input id="wt-visc" type="range" min="0" max="0.4" step="0.01" value="0.08" /></label>
     <label>重力 <input id="wt-grav" type="range" min="1" max="20" step="0.5" value="9.8" /></label>
+    <label>渲染
+      <select id="wt-mode">
+        <option value="water" selected>水面（SSF）</option>
+        <option value="part">粒子</option>
+      </select>
+    </label>
   </div>
   <p style="max-width:800px; color:var(--ink2); font-size:14px;">
     在画布上按住拖动——一个看不见的推挤球会跟着指针搅水，甩起来能泼出水花；
     滚轮推拉视角。与烟雾实验的欧拉网格不同，这是拉格朗日视角的
     SPH（光滑粒子流体动力学）：水就是这几万个粒子本身。每个子步先用
     atomic 计数把粒子登记进空间哈希网格，然后每个粒子只遍历周围 27 格
-    找邻居，用 poly6 核累积密度、spiky 核梯度算对称压力，XSPH 做粘性
-    平滑。刚度越高水越"不可压缩"（也越容易需要小步长），粘性拉满像蜂蜜。
+    找邻居，用 poly6 核累积密度、spiky 核梯度算对称压力，XSPH 做粘性平滑。
+    渲染默认是<b>屏幕空间流体</b>（游戏里实时水的标准做法）：粒子先渲染成
+    视空间深度图，双边滤波抹掉颗粒感，再画一张厚度累积图；合成 pass 从
+    平滑后的深度重建法线，做折射（Beer-Lambert 吸收，越厚越蓝）、菲涅尔
+    反射和高光——粒子从此隐身，你看到的是一个连续水面。切到「粒子」模式
+    可以看它的本来面目。
   </p>
 
   <details style="max-width:800px;">

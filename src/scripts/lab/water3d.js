@@ -163,60 +163,204 @@ fn cs(@builtin(global_invocation_id) id: vec3u) {
   vel[id.x] = vec4f(v, 0.0);
 }`;
 
-const DRAW_WGSL = /* wgsl */ `
-struct Cam {
-  vp: mat4x4f,
-  right: vec4f,   // xyz, w 粒子半径
-  up: vec4f,      // xyz, w 未用
-};
-@group(0) @binding(0) var<uniform> cam: Cam;
-@group(0) @binding(1) var<storage, read> pos: array<vec4f>;
 
+/* ============ 渲染：屏幕空间流体（SSF） ============
+   粒子 → 视空间深度图（球面 impostor + frag_depth）
+   → 双边滤波抹平颗粒 → 厚度累积图
+   → 合成：深度重建法线，折射(Beer-Lambert 吸收) + 菲涅尔反射 + 高光 */
+
+/* 渲染共享 uniform：
+   view: 视矩阵
+   proj4: p00 p11 p22 p32（zero-to-one 深度投影常数）
+   a: x 粒子半径, y 目标宽 px, z 目标高 px, w 厚度系数
+   b: xyz 视空间世界上方向, w 双边滤波深度 sigma
+   c: xyz 视空间光方向, w 未用 */
+const CAMX_DECL = /* wgsl */ `
+struct CAMX { view: mat4x4f, proj4: vec4f, a: vec4f, b: vec4f, c: vec4f };
+`;
+
+const BILLBOARD_VS = /* wgsl */ `
 struct VSOut {
-  @builtin(position) pos: vec4f,
+  @builtin(position) p: vec4f,
   @location(0) uv: vec2f,
-  @location(1) spd: f32,
+  @location(1) vz: f32,
+  @location(2) spd: f32,
 };
-@vertex
-fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
-  var corners = array<vec2f, 6>(
+fn corner(vi: u32) -> vec2f {
+  var c = array<vec2f, 6>(
     vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
     vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
-  let p = pos[vi / 6u];
-  let c = corners[vi % 6u];
-  let wp = p.xyz + (cam.right.xyz * c.x + cam.up.xyz * c.y) * cam.right.w;
-  var o: VSOut;
-  o.pos = cam.vp * vec4f(wp, 1.0);
-  o.uv = c;
-  o.spd = p.w;
-  return o;
+  return c[vi];
 }
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
+  let pt = pos[vi / 6u];
+  let c = corner(vi % 6u);
+  var pv = (cam.view * vec4f(pt.xyz, 1.0)).xyz;
+  pv += vec3f(c * cam.a.x, 0.0);
+  var o: VSOut;
+  o.p = vec4f(pv.x * cam.proj4.x, pv.y * cam.proj4.y, pv.z * cam.proj4.z + cam.proj4.w, -pv.z);
+  o.uv = c;
+  o.vz = pv.z;
+  o.spd = pt.w;
+  return o;
+}`;
+
+const DEPTH_WGSL = CAMX_DECL + /* wgsl */ `
+@group(0) @binding(0) var<uniform> cam: CAMX;
+@group(0) @binding(1) var<storage, read> pos: array<vec4f>;
+` + BILLBOARD_VS + /* wgsl */ `
+struct FSOut { @location(0) d: f32, @builtin(frag_depth) fd: f32 };
+@fragment
+fn fs(in: VSOut) -> FSOut {
+  let r2 = dot(in.uv, in.uv);
+  if (r2 > 1.0) { discard; }
+  let zs = in.vz + sqrt(1.0 - r2) * cam.a.x;   /* 球面朝相机的视空间 z */
+  var o: FSOut;
+  o.d = -zs;
+  o.fd = (zs * cam.proj4.z + cam.proj4.w) / (-zs);
+  return o;
+}`;
+
+const THICK_WGSL = CAMX_DECL + /* wgsl */ `
+@group(0) @binding(0) var<uniform> cam: CAMX;
+@group(0) @binding(1) var<storage, read> pos: array<vec4f>;
+` + BILLBOARD_VS + /* wgsl */ `
+@fragment
+fn fs(in: VSOut) -> @location(0) f32 {
+  let r2 = dot(in.uv, in.uv);
+  if (r2 > 1.0) { discard; }
+  /* 穿过球体的弦长 = 2R√(1-r²) */
+  return 2.0 * cam.a.x * sqrt(1.0 - r2) * cam.a.w;
+}`;
+
+const BLUR_WGSL = CAMX_DECL + /* wgsl */ `
+@group(0) @binding(0) var<uniform> cam: CAMX;
+@group(0) @binding(1) var src: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> dir: vec4f;   /* xy 步长（像素） */
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  return vec4f(p[vi], 0.0, 1.0);
+}
+@fragment
+fn fs(@builtin(position) fp: vec4f) -> @location(0) f32 {
+  let d0 = textureLoad(src, vec2i(fp.xy), 0).x;
+  if (d0 > 1.0e8) { return d0; }
+  let sigR = cam.b.w;
+  var sum = 0.0;
+  var wsum = 0.0;
+  for (var i = -8; i <= 8; i++) {
+    let q = clamp(vec2i(fp.xy + dir.xy * f32(i)), vec2i(0), vec2i(i32(cam.a.y) - 1, i32(cam.a.z) - 1));
+    let di = textureLoad(src, q, 0).x;
+    if (di > 1.0e8) { continue; }
+    let dd = (di - d0) / sigR;
+    let w = exp(-f32(i * i) * 0.028 - dd * dd);
+    sum += di * w;
+    wsum += w;
+  }
+  return sum / max(wsum, 1e-6);
+}`;
+
+const BG_WGSL = /* wgsl */ `
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  return vec4f(p[vi], 0.0, 1.0);
+}
+@fragment
+fn fs(@builtin(position) fp: vec4f) -> @location(0) vec4f {
+  let g = clamp(fp.y / 900.0, 0.0, 1.0);
+  return vec4f(mix(vec3f(0.05, 0.06, 0.095), vec3f(0.012, 0.014, 0.022), g), 1.0);
+}`;
+
+const COMP_WGSL = CAMX_DECL + /* wgsl */ `
+@group(0) @binding(0) var<uniform> cam: CAMX;
+@group(0) @binding(1) var depthT: texture_2d<f32>;
+@group(0) @binding(2) var thickT: texture_2d<f32>;
+@group(0) @binding(3) var bgT: texture_2d<f32>;
+@group(0) @binding(4) var samp: sampler;
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  return vec4f(p[vi], 0.0, 1.0);
+}
+fn viewPos(px: vec2f, d: f32) -> vec3f {
+  let ndc = vec2f(px.x / cam.a.y * 2.0 - 1.0, 1.0 - px.y / cam.a.z * 2.0);
+  return vec3f(ndc.x * d / cam.proj4.x, ndc.y * d / cam.proj4.y, -d);
+}
+fn dAt(p: vec2i) -> f32 {
+  let q = clamp(p, vec2i(0), vec2i(i32(cam.a.y) - 1, i32(cam.a.z) - 1));
+  return textureLoad(depthT, q, 0).x;
+}
+@fragment
+fn fs(@builtin(position) fp: vec4f) -> @location(0) vec4f {
+  let uv = fp.xy / vec2f(cam.a.y, cam.a.z);
+  let bg = textureSampleLevel(bgT, samp, uv, 0.0).rgb;
+  let d = dAt(vec2i(fp.xy));
+  if (d > 1.0e8) { return vec4f(pow(bg, vec3f(1.0 / 2.2)), 1.0); }
+
+  /* 深度重建视空间法线（取差值较小的一侧避免轮廓伪影） */
+  let pc = vec2i(fp.xy);
+  let dR = dAt(pc + vec2i(1, 0)) - d;
+  let dL = d - dAt(pc - vec2i(1, 0));
+  let dB = dAt(pc + vec2i(0, 1)) - d;
+  let dT = d - dAt(pc - vec2i(0, 1));
+  let ddx = select(dL, dR, abs(dR) < abs(dL));
+  let ddy = select(dT, dB, abs(dB) < abs(dT));
+  let p0 = viewPos(fp.xy, d);
+  let tx = viewPos(fp.xy + vec2f(1.0, 0.0), d + ddx) - p0;
+  let ty = viewPos(fp.xy + vec2f(0.0, 1.0), d + ddy) - p0;
+  var n = normalize(cross(tx, ty));
+  if (n.z < 0.0) { n = -n; }
+
+  let thick = textureLoad(thickT, pc, 0).x;
+
+  /* 折射：按法线扰动采样背景，Beer-Lambert 吸收出水色 */
+  let ruv = clamp(uv - n.xy * clamp(thick, 0.0, 0.5) * 0.30, vec2f(0.001), vec2f(0.999));
+  let bgR = textureSampleLevel(bgT, samp, ruv, 0.0).rgb;
+  let transmit = exp(-vec3f(5.5, 1.7, 0.9) * thick);
+  var refr = bgR * transmit + vec3f(0.05, 0.24, 0.42) * (1.0 - transmit) * 0.4;
+
+  let V = -normalize(p0);
+  let fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
+  let r = reflect(-V, n);
+  let skyF = clamp(dot(r, cam.b.xyz) * 0.65 + 0.35, 0.0, 1.0);
+  let skyC = mix(vec3f(0.035, 0.05, 0.085), vec3f(0.42, 0.56, 0.75), skyF * skyF);
+  let spec = pow(max(dot(r, cam.c.xyz), 0.0), 90.0) * 0.9;
+
+  var col = mix(refr, skyC, fres) + vec3f(spec);
+  return vec4f(pow(clamp(col, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2)), 1.0);
+}`;
+
+const LINE_WGSL = CAMX_DECL + /* wgsl */ `
+@group(0) @binding(0) var<uniform> cam: CAMX;
+@group(0) @binding(1) var<storage, read> pts: array<vec4f>;
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  let pv = (cam.view * vec4f(pts[vi].xyz, 1.0)).xyz;
+  return vec4f(pv.x * cam.proj4.x, pv.y * cam.proj4.y, pv.z * cam.proj4.z + cam.proj4.w, -pv.z);
+}
+@fragment
+fn fs() -> @location(0) vec4f { return vec4f(0.30, 0.37, 0.50, 0.55); }`;
+
+/* 粒子模式（对比用）：老式球面 impostor 直接着色 */
+const PART_WGSL = CAMX_DECL + /* wgsl */ `
+@group(0) @binding(0) var<uniform> cam: CAMX;
+@group(0) @binding(1) var<storage, read> pos: array<vec4f>;
+` + BILLBOARD_VS + /* wgsl */ `
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f {
   let r2 = dot(in.uv, in.uv);
   if (r2 > 1.0) { discard; }
   let n = vec3f(in.uv, sqrt(1.0 - r2));
-  let L = normalize(vec3f(0.4, 0.8, 0.5));
-  let dif = max(dot(n, L), 0.0);
-  let fres = pow(1.0 - n.z, 2.0);
+  let dif = max(dot(n, normalize(vec3f(0.4, 0.8, 0.5))), 0.0);
   let foam = clamp(in.spd * 0.55 - 0.25, 0.0, 1.0);
   var col = mix(vec3f(0.05, 0.22, 0.55), vec3f(0.25, 0.55, 0.9), dif);
   col = mix(col, vec3f(0.85, 0.95, 1.0), foam * 0.75);
-  col += vec3f(0.5, 0.7, 0.9) * fres * 0.35;
-  col += vec3f(1.0) * pow(max(dot(reflect(-L, n), vec3f(0.0, 0.0, 1.0)), 0.0), 24.0) * 0.5;
+  col += vec3f(0.5, 0.7, 0.9) * pow(1.0 - n.z, 2.0) * 0.35;
   return vec4f(pow(col, vec3f(1.0 / 2.2)), 1.0);
 }`;
-
-const LINE_WGSL = /* wgsl */ `
-struct Cam { vp: mat4x4f, right: vec4f, up: vec4f };
-@group(0) @binding(0) var<uniform> cam: Cam;
-@group(0) @binding(1) var<storage, read> pts: array<vec4f>;
-@vertex
-fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
-  return cam.vp * vec4f(pts[vi].xyz, 1.0);
-}
-@fragment
-fn fs() -> @location(0) vec4f { return vec4f(0.35, 0.42, 0.55, 1.0); }`;
 
 const H = 0.04;                        /* 平滑核半径 */
 const BOX = [0.7, 0.5, 0.45];          /* 盒半长（y 向上留 2.2 倍飞溅高度） */
@@ -231,7 +375,8 @@ async function main() {
     wgslEl.textContent =
       '// ---- 网格登记（atomic 计数散射） ----' + BIN_WGSL +
       '\n\n// ---- SPH 密度 ----' + DENSITY_WGSL +
-      '\n\n// ---- 压力/粘性/积分 ----' + FORCE_WGSL;
+      '\n\n// ---- 压力/粘性/积分 ----' + FORCE_WGSL +
+      '\n\n// ---- 屏幕空间流体合成 ----' + COMP_WGSL;
   }
   function fail(msg) {
     if (hud) hud.textContent = '';
@@ -247,16 +392,26 @@ async function main() {
   const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
   const W = wrapW, Hc = Math.round(wrapW * 9 / 16);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = Math.round(W * dpr); cvs.height = Math.round(Hc * dpr);
+  const PW = Math.round(W * dpr), PH = Math.round(Hc * dpr);
+  cvs.width = PW; cvs.height = PH;
   cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
   const ctx = cvs.getContext('webgpu');
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
-  const depthTex = device.createTexture({
-    size: [cvs.width, cvs.height], format: 'depth24plus',
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+
+  /* 屏幕空间纹理 */
+  const mk2D = (fmt) => device.createTexture({
+    size: [PW, PH], format: fmt,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   });
-  const depthView = depthTex.createView();
+  const bgTex = mk2D('rgba8unorm').createView();
+  const depA = mk2D('r32float').createView();
+  const depB = mk2D('r32float').createView();
+  const thickTex = mk2D('r16float').createView();
+  const zView = device.createTexture({
+    size: [PW, PH], format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT,
+  }).createView();
+  const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
   /* 静息密度：在 0.8h 立方晶格上数值求和 poly6 */
   const SPACING = H * 0.8;
@@ -272,7 +427,6 @@ async function main() {
         }
   }
 
-  /* 网格维度（y 方向给飞溅留 2.2 倍高度） */
   const CELLS = [
     Math.ceil(BOX[0] * 2 / H),
     Math.ceil(BOX[1] * (1 + 2.2) / H),
@@ -289,29 +443,51 @@ async function main() {
   const binP = mkCP(BIN_WGSL);
   const denP = mkCP(DENSITY_WGSL);
   const frcP = mkCP(FORCE_WGSL);
-  const drawMod = device.createShaderModule({ code: DRAW_WGSL });
-  const drawP = device.createRenderPipeline({
-    layout: 'auto',
-    vertex: { module: drawMod, entryPoint: 'vs' },
-    fragment: { module: drawMod, entryPoint: 'fs', targets: [{ format }] },
-    primitive: { topology: 'triangle-list' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+
+  const mkRP = (code, opts) => {
+    const m = device.createShaderModule({ code });
+    return device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: m, entryPoint: 'vs' },
+      fragment: { module: m, entryPoint: 'fs', targets: [opts.target] },
+      primitive: { topology: opts.topo || 'triangle-list' },
+      ...(opts.depth ? { depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' } } : {}),
+    });
+  };
+  const depthP = mkRP(DEPTH_WGSL, { target: { format: 'r32float' }, depth: true });
+  const thickP = mkRP(THICK_WGSL, {
+    target: {
+      format: 'r16float',
+      blend: { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } },
+    },
   });
-  const lineMod = device.createShaderModule({ code: LINE_WGSL });
-  const lineP = device.createRenderPipeline({
-    layout: 'auto',
-    vertex: { module: lineMod, entryPoint: 'vs' },
-    fragment: { module: lineMod, entryPoint: 'fs', targets: [{ format }] },
-    primitive: { topology: 'line-list' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+  const blurP = mkRP(BLUR_WGSL, { target: { format: 'r32float' } });
+  const bgP = mkRP(BG_WGSL, { target: { format: 'rgba8unorm' } });
+  const bgLineP = mkRP(LINE_WGSL, { target: { format: 'rgba8unorm' }, topo: 'line-list' });
+  const compP = mkRP(COMP_WGSL, { target: { format } });
+  const ovLineP = mkRP(LINE_WGSL, {
+    target: {
+      format,
+      blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+      },
+    },
+    topo: 'line-list',
   });
+  const partP = mkRP(PART_WGSL, { target: { format }, depth: true });
+  const partLineP = mkRP(LINE_WGSL, { target: { format }, topo: 'line-list', depth: true });
 
   const suBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const camBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const camBuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const dirH = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const dirV = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(dirH, 0, new Float32Array([2 * (dpr > 1.4 ? 1.6 : 1), 0, 0, 0]));
+  device.queue.writeBuffer(dirV, 0, new Float32Array([0, 2 * (dpr > 1.4 ? 1.6 : 1), 0, 0]));
   const cntBuf = device.createBuffer({ size: CELL_TOTAL * 4, usage: GPUBufferUsage.STORAGE });
   const tblBuf = device.createBuffer({ size: CELL_TOTAL * CAP * 4, usage: GPUBufferUsage.STORAGE });
 
-  /* 容器线框（12 条边） */
+  /* 容器线框 */
   const hi = [BOX[0], BOX[1] * 2.2, BOX[2]], lo = [-BOX[0], -BOX[1], -BOX[2]];
   const cor = [];
   for (let i = 0; i < 8; i++) cor.push([i & 1 ? hi[0] : lo[0], i & 2 ? hi[1] : lo[1], i & 4 ? hi[2] : lo[2]]);
@@ -320,11 +496,41 @@ async function main() {
   edges.flat().forEach((ci, k) => lineArr.set([...cor[ci], 1], k * 4));
   const lineBuf = device.createBuffer({ size: lineArr.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(lineBuf, 0, lineArr);
-  const lineBG = device.createBindGroup({
-    layout: lineP.getBindGroupLayout(0),
+  const lineBG = (pipe) => device.createBindGroup({
+    layout: pipe.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: camBuf } },
       { binding: 1, resource: { buffer: lineBuf } },
+    ],
+  });
+  const bgLineBG = lineBG(bgLineP);
+  const ovLineBG = lineBG(ovLineP);
+  const partLineBG = lineBG(partLineP);
+
+  const blurHBG = device.createBindGroup({
+    layout: blurP.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: camBuf } },
+      { binding: 1, resource: depA },
+      { binding: 2, resource: { buffer: dirH } },
+    ],
+  });
+  const blurVBG = device.createBindGroup({
+    layout: blurP.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: camBuf } },
+      { binding: 1, resource: depB },
+      { binding: 2, resource: { buffer: dirV } },
+    ],
+  });
+  const compBG = device.createBindGroup({
+    layout: compP.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: camBuf } },
+      { binding: 1, resource: depA },
+      { binding: 2, resource: thickTex },
+      { binding: 3, resource: bgTex },
+      { binding: 4, resource: samp },
     ],
   });
 
@@ -354,16 +560,18 @@ async function main() {
     rhoBuf = device.createBuffer({ size: n * 4, usage: GPUBufferUsage.STORAGE });
     device.queue.writeBuffer(posBuf, 0, pos);
     device.queue.writeBuffer(velBuf, 0, new Float32Array(n * 4));
-    const bg = (pipe, entries) => device.createBindGroup({
+    const bg = (pipe, bufs) => device.createBindGroup({
       layout: pipe.getBindGroupLayout(0),
-      entries: entries.map((r, k) => ({ binding: k, resource: typeof r.size === 'number' || r.buffer ? r : { buffer: r } })),
+      entries: bufs.map((b, k) => ({ binding: k, resource: { buffer: b } })),
     });
     BGs = {
-      clear: bg(clearP, [{ buffer: suBuf }, { buffer: cntBuf }]),
-      bin: bg(binP, [{ buffer: suBuf }, { buffer: posBuf }, { buffer: cntBuf }, { buffer: tblBuf }]),
-      den: bg(denP, [{ buffer: suBuf }, { buffer: posBuf }, { buffer: cntBuf }, { buffer: tblBuf }, { buffer: rhoBuf }]),
-      frc: bg(frcP, [{ buffer: suBuf }, { buffer: posBuf }, { buffer: velBuf }, { buffer: cntBuf }, { buffer: tblBuf }, { buffer: rhoBuf }]),
-      draw: bg(drawP, [{ buffer: camBuf }, { buffer: posBuf }]),
+      clear: bg(clearP, [suBuf, cntBuf]),
+      bin: bg(binP, [suBuf, posBuf, cntBuf, tblBuf]),
+      den: bg(denP, [suBuf, posBuf, cntBuf, tblBuf, rhoBuf]),
+      frc: bg(frcP, [suBuf, posBuf, velBuf, cntBuf, tblBuf, rhoBuf]),
+      depth: bg(depthP, [camBuf, posBuf]),
+      thick: bg(thickP, [camBuf, posBuf]),
+      part: bg(partP, [camBuf, posBuf]),
     };
   }
 
@@ -380,29 +588,28 @@ async function main() {
     }
   }
 
-  /* 交互：拖拽 = 搅水（推挤球沿视平面移动），滚轮 = 推拉，视角自动缓转 */
+  /* 交互 */
   const $ = (id) => document.getElementById(id);
-  const ui = { n: $('wt-n'), visc: $('wt-visc'), stiff: $('wt-stiff'), grav: $('wt-grav') };
+  const ui = { n: $('wt-n'), visc: $('wt-visc'), stiff: $('wt-stiff'), grav: $('wt-grav'), mode: $('wt-mode') };
   let radius = 2.1, yaw = 0.6;
-  let pusher = null;   /* { p:[x,y,z], v:[x,y,z] } */
-  let lastPt = null, dragging = false;
-  function rayPoint(e, eye, rightV, upV, fwdV) {
+  let pusher = null, lastPt = null, dragging = false;
+  let camBasis = null;
+  function rayPoint(e) {
     const r = cvs.getBoundingClientRect();
     const nx = ((e.clientX - r.left) / r.width) * 2 - 1;
     const ny = -(((e.clientY - r.top) / r.height) * 2 - 1);
-    const th = Math.tan(0.38), aspect = cvs.width / cvs.height;
-    const dist = radius;
+    const th = Math.tan(0.38), aspect = PW / PH;
+    const b = camBasis;
     return [
-      eye[0] + (fwdV[0] + rightV[0] * nx * th * aspect + upV[0] * ny * th) * dist,
-      eye[1] + (fwdV[1] + rightV[1] * nx * th * aspect + upV[1] * ny * th) * dist,
-      eye[2] + (fwdV[2] + rightV[2] * nx * th * aspect + upV[2] * ny * th) * dist,
+      b.eye[0] + (b.fwd[0] + b.right[0] * nx * th * aspect + b.up[0] * ny * th) * radius,
+      b.eye[1] + (b.fwd[1] + b.right[1] * nx * th * aspect + b.up[1] * ny * th) * radius,
+      b.eye[2] + (b.fwd[2] + b.right[2] * nx * th * aspect + b.up[2] * ny * th) * radius,
     ];
   }
-  let camBasis = null;
   cvs.addEventListener('pointerdown', (e) => { dragging = true; lastPt = null; cvs.setPointerCapture(e.pointerId); });
   cvs.addEventListener('pointermove', (e) => {
     if (!dragging || !camBasis) return;
-    const p = rayPoint(e, camBasis.eye, camBasis.right, camBasis.up, camBasis.fwd);
+    const p = rayPoint(e);
     const v = lastPt ? [(p[0] - lastPt[0]) * 30, (p[1] - lastPt[1]) * 30, (p[2] - lastPt[2]) * 30] : [0, 0, 0];
     pusher = { p, v };
     lastPt = p;
@@ -418,9 +625,10 @@ async function main() {
 
   rebuild(parseInt((ui.n && ui.n.value) || '16384', 10));
 
-  const proj = mat4.perspective(0.76, cvs.width / cvs.height, 0.05, 30);
+  const proj = mat4.perspective(0.76, PW / PH, 0.05, 30);
+  const p4 = [proj[0], proj[5], proj[10], proj[14]];
   const suArr = new Float32Array(20);
-  const camArr = new Float32Array(24);
+  const camArr = new Float32Array(32);
   const SUBSTEPS = 3;
   let prev = 0, fps = 60;
 
@@ -432,12 +640,10 @@ async function main() {
     fps += ((1 / Math.max(dtF, 0.001)) - fps) * 0.05;
     yaw += dtF * 0.05;
 
-    /* 相机 */
     const pitch = 0.42;
     const eye = [Math.sin(yaw) * Math.cos(pitch) * radius, Math.sin(pitch) * radius, Math.cos(yaw) * Math.cos(pitch) * radius];
     const tgt = [0, 0.1, 0];
     const view = mat4.lookAt(eye, tgt, [0, 1, 0]);
-    const vp = mat4.multiply(proj, view);
     const nrm = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
     const crs = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     const fwd = nrm([tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]]);
@@ -445,9 +651,21 @@ async function main() {
     const up = crs(right, fwd);
     camBasis = { eye, right, up, fwd };
 
-    camArr.set(vp, 0);
-    camArr[16] = right[0]; camArr[17] = right[1]; camArr[18] = right[2]; camArr[19] = SPACING * 0.72;
-    camArr[20] = up[0]; camArr[21] = up[1]; camArr[22] = up[2]; camArr[23] = 0;
+    /* 世界方向 → 视空间（view 的 3x3） */
+    const toView = (d) => [
+      view[0] * d[0] + view[4] * d[1] + view[8] * d[2],
+      view[1] * d[0] + view[5] * d[1] + view[9] * d[2],
+      view[2] * d[0] + view[6] * d[1] + view[10] * d[2],
+    ];
+    const vsUp = toView([0, 1, 0]);
+    const vsL = nrm(toView(nrm([0.4, 0.8, 0.5])));
+    const R = SPACING * 0.85;
+
+    camArr.set(view, 0);
+    camArr[16] = p4[0]; camArr[17] = p4[1]; camArr[18] = p4[2]; camArr[19] = p4[3];
+    camArr[20] = R; camArr[21] = PW; camArr[22] = PH; camArr[23] = 1.0;
+    camArr[24] = vsUp[0]; camArr[25] = vsUp[1]; camArr[26] = vsUp[2]; camArr[27] = R * 3.2;
+    camArr[28] = vsL[0]; camArr[29] = vsL[1]; camArr[30] = vsL[2]; camArr[31] = 0;
     device.queue.writeBuffer(camBuf, 0, camArr);
 
     const visc = parseFloat((ui.visc && ui.visc.value) || '0.08');
@@ -475,22 +693,63 @@ async function main() {
     }
     cp.end();
 
-    const rp = enc.beginRenderPass({
-      colorAttachments: [{
-        view: ctx.getCurrentTexture().createView(),
-        loadOp: 'clear', clearValue: { r: 0.012, g: 0.014, b: 0.022, a: 1 }, storeOp: 'store',
-      }],
-      depthStencilAttachment: {
-        view: depthView, depthLoadOp: 'clear', depthClearValue: 1, depthStoreOp: 'store',
-      },
-    });
-    rp.setPipeline(lineP);
-    rp.setBindGroup(0, lineBG);
-    rp.draw(24);
-    rp.setPipeline(drawP);
-    rp.setBindGroup(0, BGs.draw);
-    rp.draw(N * 6);
-    rp.end();
+    const isWater = !ui.mode || ui.mode.value === 'water';
+    if (isWater) {
+      /* 1. 背景 + 容器线 */
+      let rp = enc.beginRenderPass({
+        colorAttachments: [{ view: bgTex, loadOp: 'clear', clearValue: { r: 0, g: 0, b: 0, a: 1 }, storeOp: 'store' }],
+      });
+      rp.setPipeline(bgP); rp.draw(3);
+      rp.setPipeline(bgLineP); rp.setBindGroup(0, bgLineBG); rp.draw(24);
+      rp.end();
+      /* 2. 粒子深度 */
+      rp = enc.beginRenderPass({
+        colorAttachments: [{ view: depA, loadOp: 'clear', clearValue: { r: 1e9, g: 0, b: 0, a: 0 }, storeOp: 'store' }],
+        depthStencilAttachment: { view: zView, depthLoadOp: 'clear', depthClearValue: 1, depthStoreOp: 'store' },
+      });
+      rp.setPipeline(depthP); rp.setBindGroup(0, BGs.depth); rp.draw(N * 6);
+      rp.end();
+      /* 3. 双边滤波 ×2 轮（H → V） */
+      for (let it = 0; it < 2; it++) {
+        rp = enc.beginRenderPass({
+          colorAttachments: [{ view: depB, loadOp: 'clear', clearValue: { r: 1e9, g: 0, b: 0, a: 0 }, storeOp: 'store' }],
+        });
+        rp.setPipeline(blurP); rp.setBindGroup(0, blurHBG); rp.draw(3);
+        rp.end();
+        rp = enc.beginRenderPass({
+          colorAttachments: [{ view: depA, loadOp: 'clear', clearValue: { r: 1e9, g: 0, b: 0, a: 0 }, storeOp: 'store' }],
+        });
+        rp.setPipeline(blurP); rp.setBindGroup(0, blurVBG); rp.draw(3);
+        rp.end();
+      }
+      /* 4. 厚度累积 */
+      rp = enc.beginRenderPass({
+        colorAttachments: [{ view: thickTex, loadOp: 'clear', clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: 'store' }],
+      });
+      rp.setPipeline(thickP); rp.setBindGroup(0, BGs.thick); rp.draw(N * 6);
+      rp.end();
+      /* 5. 合成 + 玻璃缸前缘 */
+      rp = enc.beginRenderPass({
+        colorAttachments: [{
+          view: ctx.getCurrentTexture().createView(),
+          loadOp: 'clear', clearValue: { r: 0, g: 0, b: 0, a: 1 }, storeOp: 'store',
+        }],
+      });
+      rp.setPipeline(compP); rp.setBindGroup(0, compBG); rp.draw(3);
+      rp.setPipeline(ovLineP); rp.setBindGroup(0, ovLineBG); rp.draw(24);
+      rp.end();
+    } else {
+      const rp = enc.beginRenderPass({
+        colorAttachments: [{
+          view: ctx.getCurrentTexture().createView(),
+          loadOp: 'clear', clearValue: { r: 0.012, g: 0.014, b: 0.022, a: 1 }, storeOp: 'store',
+        }],
+        depthStencilAttachment: { view: zView, depthLoadOp: 'clear', depthClearValue: 1, depthStoreOp: 'store' },
+      });
+      rp.setPipeline(partLineP); rp.setBindGroup(0, partLineBG); rp.draw(24);
+      rp.setPipeline(partP); rp.setBindGroup(0, BGs.part); rp.draw(N * 6);
+      rp.end();
+    }
 
     let slot = null;
     if (canTime) {
@@ -511,7 +770,7 @@ async function main() {
       }).catch(() => { slot.busy = false; });
     }
     if (hud) {
-      hud.textContent = N.toLocaleString() + ' 粒子 · ' + SUBSTEPS + ' 子步 · ' +
+      hud.textContent = N.toLocaleString() + ' 粒子 · ' + (isWater ? 'SSF 水面' : '粒子') + ' · ' +
         (canTime ? 'sim ' + simMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
     }
   }
