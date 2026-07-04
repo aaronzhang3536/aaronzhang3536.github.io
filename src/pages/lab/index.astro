@@ -1,0 +1,37 @@
+---
+import Base from '../../layouts/Base.astro';
+const demos = [
+  { href: '/lab/gpu-particles/', sw: '--c-render', name: 'GPU 粒子', desc: '百万粒子的 compute 模拟 + 拖尾累积，真实 timestamp-query 计时', tag: 'WebGPU', live: true },
+  { sw: '--c-tool', name: '路径追踪 Cornell Box', desc: '全屏 compute path tracer，逐帧收敛', tag: 'WebGPU', live: false },
+  { sw: '--c-ai', name: 'Radiance Cascades GI', desc: '级联辐射度全局光照的 2D 实现', tag: 'WebGPU', live: false },
+  { sw: '--c-engine', name: 'Nanite-like Meshlet', desc: 'GPU 驱动剔除 + 软件光栅可见性缓冲', tag: 'WebGPU', live: false },
+];
+---
+<Base title="实验室" desc="手撸图形学实验：GPU 粒子、路径追踪、GI、GPU 驱动管线">
+<main class="wrap reader">
+  <a class="back mono" href="/">← 返回首页</a>
+  <h1 class="rd-title">实验室</h1>
+  <div class="meta mono"><span>LAB</span><span>手撸图形学，能跑的那种</span></div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14.5px;">
+    这里的每个实验都在你的 GPU 上实时运行 —— 裸 WebGPU，不借助渲染框架。
+    配好的文章会陆续挂到对应实验上。
+  </p>
+  <div class="posts" style="border-top:1px solid var(--line); max-width:800px;">
+    {demos.map((d) => (
+      d.live ? (
+        <a class="post" href={d.href}>
+          <span class="sw" style={`background:var(${d.sw});`}></span>
+          <span class="t">{d.name}<span style="color:var(--ink2); font-size:13px;">　{d.desc}</span></span>
+          <span class="d mono">{d.tag}</span>
+        </a>
+      ) : (
+        <div class="post" style="opacity:0.5; cursor:default;">
+          <span class="sw" style={`background:var(${d.sw});`}></span>
+          <span class="t">{d.name}<span style="color:var(--ink2); font-size:13px;">　{d.desc}</span></span>
+          <span class="d mono">规划中</span>
+        </div>
+      )
+    ))}
+  </div>
+</main>
+</Base>

@@ -362,6 +362,28 @@
     border: 1px solid var(--line); background: #fff;
   }
 
+  /* ---------- 实验室 ---------- */
+  .lab-stage { position: relative; max-width: 920px; }
+  .lab-stage canvas { display: block; border: 1px solid var(--line); background: #010204; max-width: 100%; }
+  .lab-hud {
+    position: absolute; left: 12px; top: 10px;
+    font-size: 12px; color: #6fd08c;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+  }
+  .lab-ctl {
+    display: flex; gap: 22px; flex-wrap: wrap; align-items: center;
+    margin: 14px 0 18px; font-size: 12.5px; color: var(--ink2);
+    max-width: 920px;
+  }
+  .lab-ctl label { display: flex; align-items: center; gap: 8px; }
+  .lab-ctl input[type="range"] { width: 120px; accent-color: var(--accent); }
+  .lab-ctl select {
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); padding: 4px 8px;
+    font: 12px "JetBrains Mono", Consolas, ui-monospace, monospace;
+  }
+
   /* ---------- 首页文章索引树 ---------- */
   .tree { border: 1px solid var(--line); background: var(--surface); }
   .tree details { border-bottom: 1px solid var(--line); }
