@@ -3328,6 +3328,854 @@
       };
     }
 
+    /* ---------- 游戏厅 · 游戏 1：帧预算保卫战 ---------- */
+    /* 彩纸庆祝：从宿主元素底部两角向上喷彩纸 */
+    function confettiBurst(host) {
+      var rect = host.getBoundingClientRect();
+      var PAD = 90;
+      var w = rect.width + PAD * 2, h = rect.height + PAD * 2;
+      var cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.style.cssText = 'position:fixed; left:' + (rect.left - PAD) + 'px; top:' + (rect.top - PAD) +
+        'px; width:' + w + 'px; height:' + h + 'px; pointer-events:none; z-index:90;';
+      document.body.appendChild(cv);
+      var g = cv.getContext('2d');
+      var cs = getComputedStyle(document.body);
+      var colors = ['--accent', '--play', '--c-render', '--c-engine', '--c-char', '--c-tool', '--c-ai', '--c-life']
+        .map(function (k) { return cs.getPropertyValue(k).trim(); });
+      var parts = [];
+      function burst(x, y, dir) {
+        for (var i = 0; i < 46; i++) {
+          var a = (-90 + dir * (10 + Math.random() * 45)) * Math.PI / 180;
+          var v = 260 + Math.random() * 320;
+          parts.push({
+            x: x, y: y,
+            vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+            rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 14,
+            w: 5 + Math.random() * 5, h: 3 + Math.random() * 4,
+            c: colors[Math.floor(Math.random() * colors.length)]
+          });
+        }
+      }
+      burst(PAD + rect.width * 0.12, PAD + rect.height, 1);
+      burst(PAD + rect.width * 0.88, PAD + rect.height, -1);
+      var t0 = performance.now(), prevT = t0;
+      (function tick(ts) {
+        if (!cv.isConnected) return;
+        if (!host.isConnected) { cv.remove(); return; }
+        var dt = Math.min((ts - prevT) / 1000, 0.04);
+        prevT = ts;
+        var life = (ts - t0) / 2600;
+        g.clearRect(0, 0, w, h);
+        if (life >= 1) { cv.remove(); return; }
+        g.globalAlpha = life > 0.7 ? (1 - life) / 0.3 : 1;
+        parts.forEach(function (p) {
+          p.vy += 620 * dt;
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vx *= 0.99;
+          p.rot += p.vr * dt;
+          g.save();
+          g.translate(p.x, p.y);
+          g.rotate(p.rot);
+          g.fillStyle = p.c;
+          g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+          g.restore();
+        });
+        requestAnimationFrame(tick);
+      })(t0);
+    }
+
+
+    function budgetGame(stage) {
+        stage.innerHTML =
+          '<div style="text-align:center;">' +
+            '<canvas id="ag" style="border:1px solid var(--line); background:var(--surface); max-width:100%;"></canvas>' +
+            '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">' +
+              '← → / A D 或鼠标移动　·　接住 pass 攒满一帧（≥14ms 自动提交，15.5ms 以上双倍分）　·　超过 16.67ms = 掉帧，掉 3 帧游戏结束' +
+            '</div>' +
+          '</div>';
+        var cvs = stage.querySelector('#ag');
+        var W = Math.min(560, window.innerWidth - 60);
+        var H = Math.min(600, window.innerHeight - 170);
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        cvs.width = W * dpr; cvs.height = H * dpr;
+        cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+        var g = cvs.getContext('2d');
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        var BUDGET = 16.67, SUBMIT = 14;
+        var PASSES = [
+          ['ShadowDepth', 2.1, '--c-render'], ['BasePass', 3.4, '--c-char'],
+          ['Lumen GI', 4.2, '--c-render'],    ['VSM Update', 2.8, '--c-engine'],
+          ['MegaLights', 3.0, '--c-tool'],    ['PostFX', 1.6, '--c-char'],
+          ['Nanite Cull', 1.2, '--c-engine'], ['TSR', 2.4, '--c-tool']
+        ];
+        var OPTS = [['LOD 切换', -2.4], ['Nanite 启用', -3.0], ['剔除优化', -1.8]];
+        var col = {};
+        function sampleColors() {
+          var cs = getComputedStyle(document.body);
+          ['--ink', '--ink2', '--line', '--surface2', '--accent', '--play',
+           '--c-render', '--c-engine', '--c-char', '--c-tool'].forEach(function (k) {
+            col[k] = cs.getPropertyValue(k).trim();
+          });
+        }
+        sampleColors();
+
+        var hi = 0;
+        try { hi = parseInt(localStorage.getItem('yzzn-arcade-hi') || '0', 10); } catch (err) {}
+        var px, acc, score, lives, blocks, spawnT, over, shakeT, flashT, submitT, tick = 0;
+        var keys = {}, raf = null, prev = 0;
+        var PW = 132, PH = 34;
+
+        function reset() {
+          px = W / 2; acc = 0; score = 0; lives = 3;
+          blocks = []; spawnT = 0; over = false;
+          shakeT = 0; flashT = 0; submitT = 0;
+        }
+        reset();
+
+        function spawn() {
+          var isOpt = Math.random() < 0.18;
+          var src = isOpt
+            ? OPTS[Math.floor(Math.random() * OPTS.length)]
+            : PASSES[Math.floor(Math.random() * PASSES.length)];
+          var w = 60 + Math.abs(src[1]) * 15;
+          blocks.push({
+            name: src[0], ms: src[1],
+            c: isOpt ? col['--play'] : col[src[2]],
+            x: 10 + Math.random() * (W - w - 20), y: -30, w: w, h: 26
+          });
+        }
+        function onKeyDown(e) {
+          keys[e.key.toLowerCase()] = true;
+          if (over && (e.key === ' ' || e.key === 'Enter')) reset();
+          if (['arrowleft', 'arrowright', ' '].indexOf(e.key.toLowerCase()) >= 0) e.preventDefault();
+        }
+        function onKeyUp(e) { keys[e.key.toLowerCase()] = false; }
+        function onMouse(e) {
+          var r = cvs.getBoundingClientRect();
+          px = (e.clientX - r.left) / r.width * W;
+        }
+        function onClick() { if (over) reset(); }
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+        cvs.addEventListener('mousemove', onMouse);
+        cvs.addEventListener('click', onClick);
+
+        function loop(ts) {
+          raf = requestAnimationFrame(loop);
+          var dt = Math.min((ts - prev) / 1000, 0.04);
+          prev = ts;
+          if (++tick % 60 === 0) sampleColors();
+
+          if (!over) {
+            /* 输入 */
+            var v = 420;
+            if (keys['arrowleft'] || keys['a']) px -= v * dt;
+            if (keys['arrowright'] || keys['d']) px += v * dt;
+            px = Math.max(PW / 2, Math.min(W - PW / 2, px));
+            /* 生成与下落 */
+            spawnT -= dt;
+            if (spawnT <= 0) {
+              spawn();
+              spawnT = Math.max(0.5, 1.3 - score * 0.018);
+            }
+            var fall = 130 + score * 3.5;
+            var padTop = H - 60;
+            for (var i = blocks.length - 1; i >= 0; i--) {
+              var b = blocks[i];
+              b.y += fall * dt;
+              var caught = b.y + b.h >= padTop && b.y + b.h < padTop + 26 &&
+                           b.x + b.w > px - PW / 2 && b.x < px + PW / 2;
+              if (caught) {
+                blocks.splice(i, 1);
+                acc = Math.max(0, acc + b.ms);
+                if (acc > BUDGET) {
+                  lives--; acc = 0; shakeT = 0.35; flashT = 0.35;
+                  if (lives <= 0) {
+                    over = true;
+                    if (score > hi) {
+                      hi = score;
+                      try { localStorage.setItem('yzzn-arcade-hi', String(hi)); } catch (err) {}
+                    }
+                  }
+                } else if (acc >= SUBMIT) {
+                  score += acc >= 15.5 ? 2 : 1;
+                  acc = 0; submitT = 0.25;
+                }
+              } else if (b.y > H) {
+                blocks.splice(i, 1);
+              }
+            }
+            if (shakeT > 0) shakeT -= dt;
+            if (flashT > 0) flashT -= dt;
+            if (submitT > 0) submitT -= dt;
+          }
+
+          /* ---- 绘制 ---- */
+          g.clearRect(0, 0, W, H);
+          g.save();
+          if (shakeT > 0) g.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+
+          /* 顶部信息 */
+          g.font = '12px Consolas, monospace';
+          g.fillStyle = col['--ink2'];
+          g.textAlign = 'left';
+          g.fillText('SCORE ' + score + '   HI ' + hi, 12, 22);
+          g.textAlign = 'right';
+          g.fillText('LIVES ' + Array(lives + 1).join('▮') + Array(4 - lives).join('▯'), W - 12, 22);
+
+          /* 方块 */
+          g.textAlign = 'center';
+          g.font = '11px Consolas, monospace';
+          for (var j = 0; j < blocks.length; j++) {
+            var bb = blocks[j];
+            g.fillStyle = bb.c;
+            g.globalAlpha = 0.88;
+            g.fillRect(bb.x, bb.y, bb.w, bb.h);
+            g.globalAlpha = 1;
+            g.fillStyle = col['--ink'];
+            g.fillText(bb.name + ' ' + (bb.ms > 0 ? '+' : '') + bb.ms.toFixed(1), bb.x + bb.w / 2, bb.y + 17);
+          }
+
+          /* 帧槽（挡板即预算条） */
+          var padTop2 = H - 60, padL = px - PW / 2;
+          g.strokeStyle = submitT > 0 ? col['--play'] : col['--ink2'];
+          g.lineWidth = submitT > 0 ? 2.5 : 1.5;
+          g.strokeRect(padL, padTop2, PW, PH);
+          g.fillStyle = acc < SUBMIT ? col['--play'] : col['--accent'];
+          g.globalAlpha = 0.75;
+          g.fillRect(padL + 2, padTop2 + 2, (PW - 4) * Math.min(1, acc / BUDGET), PH - 4);
+          g.globalAlpha = 1;
+          /* 提交线刻度 */
+          var sx = padL + 2 + (PW - 4) * (SUBMIT / BUDGET);
+          g.strokeStyle = col['--ink'];
+          g.lineWidth = 1;
+          g.beginPath(); g.moveTo(sx, padTop2 + 2); g.lineTo(sx, padTop2 + PH - 2); g.stroke();
+          g.fillStyle = col['--ink'];
+          g.font = '11px Consolas, monospace';
+          g.fillText(acc.toFixed(1) + ' / 16.67 ms', px, padTop2 + PH + 16);
+
+          /* 掉帧红闪 */
+          if (flashT > 0) {
+            g.fillStyle = 'rgba(217, 106, 96, ' + (flashT * 0.6).toFixed(2) + ')';
+            g.fillRect(0, 0, W, H);
+          }
+          /* 结束画面 */
+          if (over) {
+            g.fillStyle = 'rgba(0,0,0,0.55)';
+            g.fillRect(0, 0, W, H);
+            g.fillStyle = col['--accent'];
+            g.font = 'bold 26px Consolas, monospace';
+            g.fillText('FRAME OUT OF BUDGET', W / 2, H / 2 - 30);
+            g.fillStyle = col['--ink'];
+            g.font = '14px Consolas, monospace';
+            g.fillText('提交帧数：' + score + '　最高纪录：' + hi, W / 2, H / 2 + 6);
+            g.fillStyle = col['--ink2'];
+            g.font = '12px Consolas, monospace';
+            g.fillText('空格 / 点击重开　·　Esc 退出', W / 2, H / 2 + 34);
+          }
+          g.restore();
+        }
+        raf = requestAnimationFrame(function (ts) { prev = ts; loop(ts); });
+
+        return function cleanup() {
+          if (raf) cancelAnimationFrame(raf);
+          document.removeEventListener('keydown', onKeyDown);
+          document.removeEventListener('keyup', onKeyUp);
+          cvs.removeEventListener('mousemove', onMouse);
+          cvs.removeEventListener('click', onClick);
+        };
+    }
+
+    /* ---------- 游戏厅 · 游戏 3：Bug 打地鼠 ---------- */
+    function bugGame(stage) {
+      var HIKEY = 'yzzn-arc-bug';
+      var BUGS = ['空指针', '越界', '竞态', '内存泄漏', 'off-by-one', '死锁'];
+      var FEATS = ['需求', 'feature'];
+      var hi = 0;
+      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      stage.innerHTML =
+        '<div style="text-align:center;">' +
+          '<div class="mono" style="display:flex; justify-content:space-between; width:min(430px,90vw); margin:0 auto 10px; font-size:12px; color:var(--ink2);">' +
+            '<span id="bw-score">SCORE 0</span><span id="bw-time">45 s</span><span id="bw-hi">HI ' + hi + '</span>' +
+          '</div>' +
+          '<div class="bug-grid" id="bw"></div>' +
+          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">打 <span style="color:var(--c-render);">bug</span> +1 分 · 打到 <span style="color:var(--play);">需求</span> −3 分（it’s not a bug, it’s a feature）</div>' +
+          '<div style="margin-top:12px;"><button type="button" class="pie-btn primary" id="bw-go">开始</button></div>' +
+        '</div>';
+      var q = function (s) { return stage.querySelector(s); };
+      var grid = q('#bw'), cells = [], active = {}, timers = [], ivs = [];
+      for (var i = 0; i < 12; i++) {
+        var c = document.createElement('div');
+        c.className = 'c';
+        c.textContent = '···';
+        (function (idx, el) {
+          el.addEventListener('click', function () { hit(idx); });
+        })(i, c);
+        grid.appendChild(c);
+        cells.push(c);
+      }
+      var score = 0, t = 45, running = false;
+      function clearCell(i) {
+        if (active[i]) { clearTimeout(active[i].to); delete active[i]; }
+        cells[i].className = 'c';
+        cells[i].textContent = '···';
+      }
+      function hit(i) {
+        if (!running || !active[i]) return;
+        score += active[i].type === 'bug' ? 1 : -3;
+        clearCell(i);
+        q('#bw-score').textContent = 'SCORE ' + score;
+      }
+      function spawnOne() {
+        if (!running) return;
+        var free = [];
+        for (var i = 0; i < 12; i++) if (!active[i]) free.push(i);
+        if (!free.length) return;
+        var i2 = free[Math.floor(Math.random() * free.length)];
+        var type = Math.random() < 0.22 ? 'feat' : 'bug';
+        var pool = type === 'bug' ? BUGS : FEATS;
+        cells[i2].className = 'c ' + type;
+        cells[i2].textContent = pool[Math.floor(Math.random() * pool.length)];
+        active[i2] = {
+          type: type,
+          to: setTimeout(function () { clearCell(i2); }, 900 + Math.random() * 600)
+        };
+      }
+      function end() {
+        running = false;
+        ivs.forEach(clearInterval); ivs = [];
+        for (var i = 0; i < 12; i++) clearCell(i);
+        if (score > hi) {
+          hi = score;
+          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+          q('#bw-hi').textContent = 'HI ' + hi;
+        }
+        q('#bw-go').textContent = '再来一局（' + score + ' 分）';
+        q('#bw-go').style.display = '';
+      }
+      q('#bw-go').addEventListener('click', function () {
+        score = 0; t = 45; running = true;
+        q('#bw-score').textContent = 'SCORE 0';
+        q('#bw-time').textContent = '45 s';
+        this.style.display = 'none';
+        ivs.push(setInterval(spawnOne, 620));
+        ivs.push(setInterval(function () {
+          t--;
+          q('#bw-time').textContent = t + ' s';
+          if (t <= 0) end();
+        }, 1000));
+      });
+      return function cleanup() {
+        running = false;
+        ivs.forEach(clearInterval);
+        Object.keys(active).forEach(function (k) { clearTimeout(active[k].to); });
+      };
+    }
+
+    /* ---------- 游戏厅 · 游戏 4：Shader 打字员 ---------- */
+    function typerGame(stage) {
+      var HIKEY = 'yzzn-arc-typer';
+      var WORDS = [
+        'lerp', 'saturate', 'dot', 'cross', 'normalize', 'mul', 'frac', 'clip',
+        'discard', 'cbuffer', 'ddx', 'ddy', 'rsqrt', 'step', 'smoothstep',
+        'float3', 'half4', 'SV_Target', 'tex2D', 'SampleLevel', 'numthreads',
+        'groupshared', 'InterlockedAdd', 'RWTexture2D', 'SV_Position'
+      ];
+      var hi = 0;
+      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      stage.innerHTML =
+        '<div style="text-align:center;">' +
+          '<div class="mono" style="display:flex; justify-content:space-between; width:min(560px,90vw); margin:0 auto 10px; font-size:12px; color:var(--ink2);">' +
+            '<span id="ty-score">SCORE 0</span><span id="ty-lives">LIVES ▮▮▮</span><span id="ty-hi">HI ' + hi + '</span>' +
+          '</div>' +
+          '<div class="ty-area" id="ty-area"></div>' +
+          '<div style="width:min(560px,90vw); margin:10px auto 0;">' +
+            '<input type="text" id="ty-in" class="mono" spellcheck="false" autocomplete="off" placeholder="敲出下落的关键字（大小写不限）…" ' +
+              'style="width:100%; box-sizing:border-box; background:var(--surface); border:1px solid var(--line); color:var(--ink); padding:9px 12px; font-size:14px; outline:none;">' +
+          '</div>' +
+          '<div id="ty-msg" class="mono" style="font-size:13px; margin-top:8px; min-height:1.4em; color:var(--accent);"></div>' +
+        '</div>';
+      var q = function (s) { return stage.querySelector(s); };
+      var area = q('#ty-area'), input = q('#ty-in');
+      var words = [], score = 0, lives = 3, over = false, ivs = [];
+      function livesTxt() {
+        return 'LIVES ' + Array(lives + 1).join('▮') + Array(4 - lives).join('▯');
+      }
+      function gameOver() {
+        over = true;
+        ivs.forEach(clearInterval); ivs = [];
+        input.disabled = true;
+        if (score > hi) {
+          hi = score;
+          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+          q('#ty-hi').textContent = 'HI ' + hi;
+        }
+        q('#ty-msg').textContent = '编译失败！得分 ' + score + ' — 点击输入框上方区域重开';
+        area.style.cursor = 'pointer';
+        area.addEventListener('click', restart);
+      }
+      function restart() {
+        area.removeEventListener('click', restart);
+        area.style.cursor = '';
+        words.forEach(function (w) { w.el.remove(); });
+        words = []; score = 0; lives = 3; over = false;
+        input.disabled = false; input.value = ''; input.focus();
+        q('#ty-score').textContent = 'SCORE 0';
+        q('#ty-lives').textContent = livesTxt();
+        q('#ty-msg').textContent = '';
+        run();
+      }
+      function run() {
+        ivs.push(setInterval(function () {   /* 生成 */
+          if (over) return;
+          var text = WORDS[Math.floor(Math.random() * WORDS.length)];
+          var el = document.createElement('span');
+          el.className = 'ty-word';
+          el.textContent = text;
+          el.style.color = 'var(--ink)';
+          area.appendChild(el);
+          var x = Math.random() * (area.clientWidth - el.offsetWidth - 16) + 8;
+          el.style.left = x + 'px';
+          words.push({ el: el, text: text.toLowerCase(), y: -18 });
+        }, 1500));
+        ivs.push(setInterval(function () {   /* 下落 */
+          if (over) return;
+          var sp = (36 + score * 0.5) * 0.045;
+          for (var i = words.length - 1; i >= 0; i--) {
+            var w = words[i];
+            w.y += sp;
+            w.el.style.top = w.y + 'px';
+            if (w.y > area.clientHeight - 14) {
+              w.el.remove();
+              words.splice(i, 1);
+              lives--;
+              q('#ty-lives').textContent = livesTxt();
+              if (lives <= 0) { gameOver(); return; }
+            }
+          }
+        }, 45));
+      }
+      input.addEventListener('input', function () {
+        if (over) return;
+        var v = input.value.trim().toLowerCase();
+        for (var i = 0; i < words.length; i++) {
+          if (words[i].text === v) {
+            score += words[i].text.length;
+            words[i].el.remove();
+            words.splice(i, 1);
+            input.value = '';
+            q('#ty-score').textContent = 'SCORE ' + score;
+            break;
+          }
+        }
+      });
+      input.focus();
+      run();
+      return function cleanup() { ivs.forEach(clearInterval); };
+    }
+
+    /* ---------- 游戏厅 · 游戏 2：纹理 2048 ---------- */
+    function tex2048Game(stage) {
+      var HIKEY = 'yzzn-arc-tex2048';
+      var LBL = { 256: '256', 512: '512', 1024: '1K', 2048: '2K', 4096: '4K', 8192: '8K', 16384: '16K' };
+      var hi = 0;
+      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      stage.innerHTML =
+        '<div style="text-align:center;">' +
+          '<div class="mono" style="display:flex; justify-content:space-between; width:min(340px,86vw); margin:0 auto 10px; font-size:12px; color:var(--ink2);">' +
+            '<span id="t2-score">SCORE 0</span><span id="t2-hi">HI ' + hi + '</span>' +
+          '</div>' +
+          '<div id="t2" class="t2-grid"></div>' +
+          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">方向键 / WASD 合并相同分辨率的贴图 · 目标 8K · R 重开</div>' +
+          '<div id="t2-msg" class="mono" style="font-size:13px; margin-top:8px; min-height:1.4em; color:var(--play);"></div>' +
+        '</div>';
+      var q = function (s) { return stage.querySelector(s); };
+      var cells, score, won, over;
+      var LINES = {
+        left:  [[0,1,2,3],[4,5,6,7],[8,9,10,11],[12,13,14,15]],
+        right: [[3,2,1,0],[7,6,5,4],[11,10,9,8],[15,14,13,12]],
+        up:    [[0,4,8,12],[1,5,9,13],[2,6,10,14],[3,7,11,15]],
+        down:  [[12,8,4,0],[13,9,5,1],[14,10,6,2],[15,11,7,3]]
+      };
+      function spawn() {
+        var free = [];
+        cells.forEach(function (v, i) { if (!v) free.push(i); });
+        if (free.length) cells[free[Math.floor(Math.random() * free.length)]] = Math.random() < 0.9 ? 256 : 512;
+      }
+      function reset() {
+        cells = []; for (var i = 0; i < 16; i++) cells.push(0);
+        score = 0; won = false; over = false;
+        spawn(); spawn(); render();
+        q('#t2-msg').textContent = '';
+      }
+      function render() {
+        var h = '';
+        cells.forEach(function (v) {
+          var lvl = v ? Math.round(Math.log(v / 256) / Math.LN2) + 1 : 0;
+          h += '<div class="c' + (lvl ? ' l' + Math.min(lvl, 7) : '') + '">' + (v ? LBL[v] : '') + '</div>';
+        });
+        q('#t2').innerHTML = h;
+        q('#t2-score').textContent = 'SCORE ' + score;
+        if (score > hi) {
+          hi = score;
+          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+          q('#t2-hi').textContent = 'HI ' + hi;
+        }
+      }
+      function slide(a) {
+        var r = a.filter(function (v) { return v; });
+        for (var i = 0; i < r.length - 1; i++) {
+          if (r[i] === r[i + 1]) {
+            r[i] *= 2; score += r[i];
+            if (r[i] === 8192 && !won) {
+              won = true;
+              q('#t2-msg').textContent = '✓ 合成 8K 贴图！还可以继续冲 16K';
+            }
+            r.splice(i + 1, 1);
+          }
+        }
+        while (r.length < 4) r.push(0);
+        return r;
+      }
+      function canMove() {
+        if (cells.indexOf(0) >= 0) return true;
+        for (var r = 0; r < 4; r++) for (var c = 0; c < 4; c++) {
+          var v = cells[r * 4 + c];
+          if (c < 3 && cells[r * 4 + c + 1] === v) return true;
+          if (r < 3 && cells[(r + 1) * 4 + c] === v) return true;
+        }
+        return false;
+      }
+      function move(dir) {
+        if (over) return;
+        var changed = false;
+        LINES[dir].forEach(function (L) {
+          var slid = slide(L.map(function (i) { return cells[i]; }));
+          for (var k = 0; k < 4; k++) {
+            if (cells[L[k]] !== slid[k]) { cells[L[k]] = slid[k]; changed = true; }
+          }
+        });
+        if (changed) {
+          spawn(); render();
+          if (!canMove()) {
+            over = true;
+            q('#t2-msg').textContent = '合并不动了 — 按 R 重开';
+          }
+        }
+      }
+      function onKey(e) {
+        var k = e.key.toLowerCase();
+        var map = { arrowleft: 'left', a: 'left', arrowright: 'right', d: 'right', arrowup: 'up', w: 'up', arrowdown: 'down', s: 'down' };
+        if (map[k]) { e.preventDefault(); move(map[k]); }
+        else if (k === 'r') reset();
+      }
+      document.addEventListener('keydown', onKey);
+      reset();
+      return function cleanup() { document.removeEventListener('keydown', onKey); };
+    }
+
+    /* ---------- 游戏厅 · 游戏 6：拼图 ---------- */
+    function jigsawGame(stage) {
+      var size = 4, res = 1024;
+      var timers = [], perm = [], sel = -1, moves = 0, sec = 0, playing = false;
+      var objUrl = null;
+      function freeObj() {
+        if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
+      }
+      function bestKey(s) { return 'yzzn-arc-jig' + s; }
+      function getBest(s) {
+        try { return parseInt(localStorage.getItem(bestKey(s)) || '0', 10); } catch (err) { return 0; }
+      }
+      function fmtT(s) { return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
+      function stopTimers() { timers.forEach(clearInterval); timers = []; }
+
+      function setup() {
+        stopTimers();
+        var best = getBest(size);
+        stage.innerHTML =
+          '<div class="pie-panel" style="text-align:center;">' +
+            '<h3>拼图</h3>' +
+            '<div class="sub">图片实时取自 Lorem Picsum（按设定分辨率出图），切块打乱。点两块交换位置，复原即胜。</div>' +
+            '<div class="mono" style="font-size:11px; color:var(--ink2); margin-bottom:8px;">切割块数：' +
+              '<span id="jg-sl" style="color:var(--ink);">' + size + '×' + size + '（' + (size * size) + ' 块）</span>' +
+            '</div>' +
+            '<div style="margin-bottom:16px;">' +
+              '<input type="range" id="jg-size" min="2" max="20" step="1" value="' + size + '" ' +
+                'style="width:min(320px,80vw); accent-color:var(--play);" aria-label="切割块数">' +
+            '</div>' +
+            '<div class="mono" style="font-size:11px; color:var(--ink2); margin-bottom:8px;">处理分辨率：' +
+              '<span id="jg-rl" style="color:var(--ink);">' + res + '×' + res + '</span>' +
+            '</div>' +
+            '<div style="margin-bottom:16px;">' +
+              '<input type="range" id="jg-res" min="256" max="8192" step="64" value="' + res + '" ' +
+                'style="width:min(320px,80vw); accent-color:var(--play);" aria-label="处理分辨率">' +
+            '</div>' +
+            '<div class="mono" style="font-size:12px; color:var(--ink2); margin-bottom:16px;">本尺寸最佳：<span id="jg-best">' + (best ? fmtT(best) : '—') + '</span></div>' +
+            '<button type="button" class="pie-btn primary" id="jg-go">拉图开拼</button>' +
+          '</div>';
+        stage.querySelector('#jg-size').addEventListener('input', function () {
+          size = parseInt(this.value, 10);
+          stage.querySelector('#jg-sl').textContent = size + '×' + size + '（' + (size * size) + ' 块）';
+          var b2 = getBest(size);
+          stage.querySelector('#jg-best').textContent = b2 ? fmtT(b2) : '—';
+        });
+        stage.querySelector('#jg-res').addEventListener('input', function () {
+          res = parseInt(this.value, 10);
+          stage.querySelector('#jg-rl').textContent =
+            res + '×' + res + (res >= 4096 ? '（大图较耗内存）' : '');
+        });
+        stage.querySelector('#jg-go').addEventListener('click', load);
+      }
+
+      function load() {
+        stopTimers();
+        /* 源图按固定比例拉取（非方形、非 2 次幂），本地中心裁切+缩放到目标分辨率 */
+        var srcW = Math.min(2400, Math.max(640, Math.round(res * 1.25)));
+        var srcH = Math.round(srcW * 2 / 3);
+        stage.innerHTML =
+          '<div class="pie-panel" style="text-align:center;">' +
+            '<h3>正在处理图片…</h3>' +
+          '</div>';
+        var tries = 0;
+        (function attempt() {
+          /* seed URL 保证同一张图可被稳定复用（随机重定向源不可用） */
+          var seed = Math.random().toString(36).slice(2, 10);
+          var url = 'https://picsum.photos/seed/' + seed + '/' + srcW + '/' + srcH;
+          var im = new Image();
+          im.crossOrigin = 'anonymous';
+          im.onload = function () {
+            try {
+              var side = Math.min(im.naturalWidth, im.naturalHeight);
+              var cv = document.createElement('canvas');
+              cv.width = res; cv.height = res;
+              var cx = cv.getContext('2d');
+              cx.imageSmoothingEnabled = true;
+              cx.imageSmoothingQuality = 'high';
+              cx.drawImage(im,
+                (im.naturalWidth - side) / 2, (im.naturalHeight - side) / 2, side, side,
+                0, 0, res, res);
+              cv.toBlob(function (bl) {
+                if (bl) {
+                  freeObj();
+                  objUrl = URL.createObjectURL(bl);
+                  board(objUrl);
+                } else {
+                  board(url);   /* 编码失败：退化为直接用源图（CSS 拉伸） */
+                }
+              }, 'image/jpeg', 0.85);
+            } catch (err) {
+              board(url);       /* canvas 不可用：同样退化 */
+            }
+          };
+          im.onerror = function () {
+            if (++tries < 3) attempt();
+            else {
+              stage.innerHTML =
+                '<div class="pie-panel" style="text-align:center;">' +
+                  '<h3>图片拉取失败</h3>' +
+                  '<div class="sub">网络不给力，稍后再试。</div>' +
+                  '<button type="button" class="pie-btn primary" id="jg-re">重试</button>' +
+                '</div>';
+              stage.querySelector('#jg-re').addEventListener('click', load);
+            }
+          };
+          im.src = url;
+        })();
+      }
+
+      function solved() {
+        for (var i = 0; i < perm.length; i++) if (perm[i] !== i) return false;
+        return true;
+      }
+
+      function board(url) {
+        var px = Math.floor(Math.min(460, window.innerWidth - 70, window.innerHeight - 300));
+        perm = [];
+        for (var i = 0; i < size * size; i++) perm.push(i);
+        do {
+          for (var j = perm.length - 1; j > 0; j--) {
+            var k = Math.floor(Math.random() * (j + 1));
+            var tmp = perm[j]; perm[j] = perm[k]; perm[k] = tmp;
+          }
+        } while (solved());
+        sel = -1; moves = 0; sec = 0; playing = true;
+        var best = getBest(size);
+        stage.innerHTML =
+          '<div style="text-align:center;">' +
+            '<div class="mono" style="display:flex; justify-content:space-between; width:' + px + 'px; margin:0 auto 10px; font-size:12px; color:var(--ink2);">' +
+              '<span id="jg-time">0:00</span><span id="jg-moves">0 步</span>' +
+              '<span>' + (best ? 'BEST ' + fmtT(best) : '') + '</span>' +
+            '</div>' +
+            '<div class="jig-wrap" style="width:' + px + 'px; height:' + px + 'px;">' +
+              '<div class="jig-board" id="jg-b" style="grid-template-columns:repeat(' + size + ',1fr); gap:' + (size >= 10 ? 1 : 2) + 'px;"></div>' +
+              '<div class="jig-prev" id="jg-p" style="background-image:url(' + url + ');"></div>' +
+            '</div>' +
+            '<div style="display:flex; gap:10px; justify-content:center; margin-top:12px;">' +
+              '<button type="button" class="pie-btn" id="jg-peek">按住看原图</button>' +
+              '<button type="button" class="pie-btn" id="jg-new">换一张</button>' +
+              '<button type="button" class="pie-btn" id="jg-opt">设置</button>' +
+            '</div>' +
+            '<div id="jg-msg" class="mono" style="font-size:13px; margin-top:10px; min-height:1.4em; color:var(--play);"></div>' +
+          '</div>';
+        var q = function (s) { return stage.querySelector(s); };
+        var b = q('#jg-b'), prev = q('#jg-p');
+
+        function setBg(el, piece) {
+          var r = Math.floor(piece / size), c = piece % size;
+          el.style.backgroundImage = 'url(' + url + ')';
+          el.style.backgroundSize = (size * 100) + '% ' + (size * 100) + '%';
+          el.style.backgroundPosition =
+            (c / (size - 1) * 100) + '% ' + (r / (size - 1) * 100) + '%';
+        }
+        function win() {
+          playing = false;
+          stopTimers();
+          b.classList.add('solved');
+          if (!reduced) b.parentNode.classList.add('win');
+          confettiBurst(b.parentNode);
+          var bs = getBest(size);
+          var isBest = !bs || sec < bs;
+          if (isBest) { try { localStorage.setItem(bestKey(size), String(sec)); } catch (err) {} }
+          q('#jg-msg').textContent =
+            '✓ 拼好了！' + size + '×' + size + ' · 用时 ' + fmtT(sec) + ' · ' + moves + ' 步' + (isBest ? ' · 新纪录！' : '');
+        }
+        function tap(i) {
+          if (!playing) return;
+          var tiles = b.children;
+          if (sel < 0) { sel = i; tiles[i].classList.add('sel'); return; }
+          if (sel === i) { tiles[i].classList.remove('sel'); sel = -1; return; }
+          var tmp = perm[sel]; perm[sel] = perm[i]; perm[i] = tmp;
+          setBg(tiles[sel], perm[sel]);
+          setBg(tiles[i], perm[i]);
+          tiles[sel].classList.remove('sel');
+          sel = -1;
+          moves++;
+          q('#jg-moves').textContent = moves + ' 步';
+          if (solved()) win();
+        }
+        for (var m = 0; m < size * size; m++) {
+          var t = document.createElement('div');
+          t.className = 't';
+          setBg(t, perm[m]);
+          (function (idx) {
+            t.addEventListener('click', function () { tap(idx); });
+          })(m);
+          b.appendChild(t);
+        }
+        timers.push(setInterval(function () {
+          if (playing) { sec++; q('#jg-time').textContent = fmtT(sec); }
+        }, 1000));
+        var peek = q('#jg-peek');
+        peek.addEventListener('pointerdown', function () { prev.style.display = 'block'; });
+        peek.addEventListener('pointerup', function () { prev.style.display = 'none'; });
+        peek.addEventListener('pointerleave', function () { prev.style.display = 'none'; });
+        q('#jg-new').addEventListener('click', load);
+        q('#jg-opt').addEventListener('click', setup);
+      }
+
+      setup();
+      return function cleanup() { stopTimers(); freeObj(); };
+    }
+
+    /* ---------- 游戏厅 · 游戏 5：N-back 训练 ---------- */
+    function nbackGame(stage) {
+      var HIKEY = 'yzzn-arc-nback';
+      var LETTERS = 'BCDFGHKMPRSTX';
+      var hi = 0;
+      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      var N = 2, timers = [], seq = [], idx = -1, responded = false;
+      var hits = 0, misses = 0, fa = 0, running = false;
+      function setup() {
+        stage.innerHTML =
+          '<div class="pie-panel" style="text-align:center;">' +
+            '<h3>N-back 训练</h3>' +
+            '<div class="sub">字母逐个出现；若与 N 个之前的相同，按空格或点「匹配」。认知科学经典的工作记忆测验。</div>' +
+            '<div style="display:flex; gap:10px; justify-content:center; margin-bottom:18px;">' +
+              '<button type="button" class="pie-btn nb-n" data-n="1">N = 1</button>' +
+              '<button type="button" class="pie-btn nb-n on" data-n="2">N = 2</button>' +
+              '<button type="button" class="pie-btn nb-n" data-n="3">N = 3</button>' +
+            '</div>' +
+            '<div class="mono" style="font-size:12px; color:var(--ink2); margin-bottom:16px;">最佳正确率：' + hi + '%</div>' +
+            '<button type="button" class="pie-btn primary" id="nb-go">开始（22 个刺激）</button>' +
+          '</div>';
+        stage.querySelectorAll('.nb-n').forEach(function (b) {
+          b.addEventListener('click', function () {
+            stage.querySelectorAll('.nb-n').forEach(function (x) { x.classList.remove('on'); });
+            b.classList.add('on');
+            N = parseInt(b.getAttribute('data-n'), 10);
+          });
+        });
+        stage.querySelector('#nb-go').addEventListener('click', runGame);
+      }
+      function runGame() {
+        var total = 20 + N;
+        seq = [];
+        for (var i = 0; i < total; i++) {
+          if (i >= N && Math.random() < 0.3) seq.push(seq[i - N]);
+          else seq.push(LETTERS[Math.floor(Math.random() * LETTERS.length)]);
+        }
+        hits = 0; misses = 0; fa = 0; idx = -1; running = true;
+        stage.innerHTML =
+          '<div class="pie-panel" style="text-align:center;">' +
+            '<div class="mono" style="font-size:12px; color:var(--ink2);" id="nb-prog"></div>' +
+            '<div class="nb-letter" id="nb-l"></div>' +
+            '<button type="button" class="pie-btn primary" id="nb-match" style="min-width:140px;">匹配（空格）</button>' +
+          '</div>';
+        stage.querySelector('#nb-match').addEventListener('click', respond);
+        step();
+      }
+      function isTarget(i) { return i >= N && seq[i] === seq[i - N]; }
+      function respond() {
+        if (!running || idx < 0 || responded) return;
+        responded = true;
+        if (isTarget(idx)) hits++;
+        else fa++;
+      }
+      function onSpace(e) {
+        if (e.key === ' ' && running) { e.preventDefault(); respond(); }
+      }
+      function step() {
+        if (idx >= 0 && isTarget(idx) && !responded) misses++;
+        idx++;
+        if (idx >= seq.length) { finish(); return; }
+        responded = false;
+        var l = stage.querySelector('#nb-l');
+        l.textContent = seq[idx];
+        stage.querySelector('#nb-prog').textContent = (idx + 1) + ' / ' + seq.length + '　N = ' + N;
+        timers.push(setTimeout(function () { l.textContent = '·'; }, 1400));
+        timers.push(setTimeout(step, 2200));
+      }
+      function finish() {
+        running = false;
+        var total = seq.length - N;
+        var targets = 0;
+        for (var i = N; i < seq.length; i++) if (isTarget(i)) targets++;
+        var correctRej = (total - targets) - fa;
+        var acc = Math.max(0, Math.round((hits + correctRej) / total * 100));
+        if (acc > hi) {
+          hi = acc;
+          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+        }
+        stage.innerHTML =
+          '<div class="pie-panel" style="text-align:center;">' +
+            '<h3>正确率 ' + acc + '%</h3>' +
+            '<div class="sub">N = ' + N + '　命中 ' + hits + ' / ' + targets + '　漏报 ' + misses + '　误报 ' + fa + '　最佳 ' + hi + '%</div>' +
+            '<button type="button" class="pie-btn primary" id="nb-again">再来一组</button>' +
+          '</div>';
+        stage.querySelector('#nb-again').addEventListener('click', setup);
+      }
+      document.addEventListener('keydown', onSpace);
+      setup();
+      return function cleanup() {
+        running = false;
+        timers.forEach(clearTimeout);
+        document.removeEventListener('keydown', onSpace);
+      };
+    }
+
     /* ---------- 程序员 · 梯度下降 ---------- */
     function gradientGame(stage) {
       var K = 'yzzn-arc-grad';
