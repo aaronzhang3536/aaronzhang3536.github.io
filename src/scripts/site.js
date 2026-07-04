@@ -597,7 +597,7 @@
             p.x += wxWind * 1.2 * dt; p.y += p.spd * dt;
             var floorY = wxH - 3 - wxWet;
             if (p.y > floorY) {
-              wxWet = Math.min(wxH, wxWet + (wxMode === 'storm' ? 0.14 : 0.06));
+              wxWet = Math.min(wxH, wxWet + (wxMode === 'storm' ? 0.014 : 0.006));
               if (wxRipples.length < 28 && Math.random() < 0.25) {
                 wxRipples.push({ x: p.x, y: floorY, r: 1.5, a: 0.5 });
               }
@@ -723,9 +723,9 @@
             p.x += (p.spd + wxWind * 0.5) * dt;
             p.y += Math.sin(wxT * 3 + p.ph) * 26 * dt + 8 * dt;
             if (p.x > wxW + 8) { p.x = -8; p.y = Math.random() * wxH; }
-            if (p.y > wxH - 4 - accAt(p.x)) {
-              if (Math.random() < 0.5) accAdd(p.x, 0.3, wxH);
-              p.y = Math.random() * wxH * 0.5;
+            if (p.y > wxH - 24 - accAt(p.x) && Math.random() < dt * 1.5) {
+              accAdd(p.x, 0.4, wxH);
+              p.y = Math.random() * wxH * 0.6;
               p.x = -8;
             }
             ctx.globalAlpha = p.a;
