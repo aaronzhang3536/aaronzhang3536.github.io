@@ -3328,15 +3328,705 @@
       };
     }
 
+    /* ---------- 程序员 · 梯度下降 ---------- */
+    function gradientGame(stage) {
+      var K = 'yzzn-arc-grad';
+      var best = hiGet(K);
+      var W = 460, H = 220;
+      var ui = arcUI(stage, W, H, '把小球滚进小旗所在的全局最小值 · lr 太小卡局部谷，太大直接发散');
+      var ctl = document.createElement('div');
+      ctl.className = 'mono';
+      ctl.style.cssText = 'display:flex; gap:10px; align-items:center; justify-content:center; margin-top:10px; flex-wrap:wrap; font-size:12px;';
+      ctl.innerHTML =
+        '<span>lr <b id="gd-lrv" style="display:inline-block; min-width:52px; text-align:left;"></b></span>' +
+        '<input id="gd-lr" type="range" min="-30" max="2" value="-14" style="width:150px;" />' +
+        '<button type="button" class="pie-btn" id="gd-step">单步 ∇</button>' +
+        '<button type="button" class="pie-btn primary" id="gd-run">自动跑</button>' +
+        '<button type="button" class="pie-btn" id="gd-new">新地形</button>';
+      stage.firstChild.appendChild(ctl);
+      var wells, x0, bx, steps, trail, timer = null, xStar, fLo, fHi, done;
+      function f(x) {
+        var v = 1.6 * (x - 0.5) * (x - 0.5) + 0.35;
+        for (var i2 = 0; i2 < wells.length; i2++) {
+          var d2 = (x - wells[i2].c) / wells[i2].s;
+          v -= wells[i2].d * Math.exp(-0.5 * d2 * d2);
+        }
+        return v;
+      }
+      function grad(x) { return (f(x + 1e-4) - f(x - 1e-4)) / 2e-4; }
+      function lr() { return Math.pow(10, parseInt(ctl.querySelector('#gd-lr').value, 10) / 10); }
+      function px(x) { return 16 + x * (W - 32); }
+      function py(fv) { return H - 22 - (fv - fLo) / (fHi - fLo) * (H - 54); }
+      function stop() {
+        if (timer) { clearInterval(timer); timer = null; }
+        ctl.querySelector('#gd-run').textContent = '自动跑';
+      }
+      function newLand() {
+        wells = [];
+        var n = 3 + Math.floor(Math.random() * 2);
+        for (var i2 = 0; i2 < n; i2++) {
+          wells.push({
+            c: 0.1 + 0.8 * (i2 + 0.15 + Math.random() * 0.7) / n,
+            d: 0.3 + Math.random() * 0.55,
+            s: 0.035 + Math.random() * 0.04
+          });
+        }
+        xStar = 0; fLo = 1e9; fHi = -1e9;
+        for (var j2 = 0; j2 <= 600; j2++) {
+          var fv = f(j2 / 600);
+          if (fv < fLo) { fLo = fv; xStar = j2 / 600; }
+          if (fv > fHi) fHi = fv;
+        }
+        x0 = Math.random() < 0.5 ? 0.03 + Math.random() * 0.05 : 0.92 + Math.random() * 0.05;
+        reset();
+      }
+      function reset() {
+        bx = x0; steps = 0; trail = []; done = false;
+        stop();
+        ui.msg.textContent = '';
+        draw();
+      }
+      function draw() {
+        var P = pal(), g = ui.g;
+        g.clearRect(0, 0, W, H);
+        /* 损失曲面 */
+        g.strokeStyle = P.ink2; g.lineWidth = 1.5; g.beginPath();
+        for (var i2 = 0; i2 <= 300; i2++) {
+          var xx = i2 / 300;
+          if (i2 === 0) g.moveTo(px(xx), py(f(xx))); else g.lineTo(px(xx), py(f(xx)));
+        }
+        g.stroke();
+        /* 全局最小值小旗 */
+        var fx = px(xStar), fy = py(f(xStar));
+        g.strokeStyle = P.play; g.lineWidth = 1.5;
+        g.beginPath(); g.moveTo(fx, fy - 2); g.lineTo(fx, fy - 20); g.stroke();
+        g.fillStyle = P.play;
+        g.beginPath(); g.moveTo(fx, fy - 20); g.lineTo(fx + 11, fy - 16); g.lineTo(fx, fy - 12); g.closePath(); g.fill();
+        /* 轨迹 */
+        for (var t2 = 0; t2 < trail.length; t2++) {
+          g.globalAlpha = 0.12 + 0.5 * (t2 / trail.length);
+          g.fillStyle = P.accent;
+          g.beginPath(); g.arc(px(trail[t2]), py(f(trail[t2])), 2.5, 0, Math.PI * 2); g.fill();
+        }
+        g.globalAlpha = 1;
+        /* 小球 */
+        g.fillStyle = P.accent;
+        g.beginPath(); g.arc(px(bx), py(f(bx)) - 5, 6, 0, Math.PI * 2); g.fill();
+        ui.s.textContent = 'STEP ' + steps;
+        ui.m.textContent = 'loss ' + f(bx).toFixed(3);
+        ui.hb.textContent = best ? 'BEST ' + best + ' 步' : '';
+        ctl.querySelector('#gd-lrv').textContent = lr() < 0.01 ? lr().toExponential(1) : lr().toFixed(lr() < 0.1 ? 3 : 2);
+      }
+      function step() {
+        if (done) return;
+        bx = bx - lr() * grad(bx);
+        steps++;
+        trail.push(bx);
+        if (trail.length > 48) trail.shift();
+        if (!isFinite(bx) || bx < -0.25 || bx > 1.25) {
+          ui.msg.textContent = '💥 发散了！lr 调小点（本次步数作废）';
+          bx = x0; steps = 0; trail = [];
+          stop();
+        } else if (steps > 1 && Math.abs(lr() * grad(bx)) < 5e-4) {
+          if (f(bx) - f(xStar) < 0.02) {
+            done = true;
+            stop();
+            ui.msg.textContent = '🎉 收敛到全局最小值！共 ' + steps + ' 步 — 点「新地形」再来';
+            if (!best || steps < best) { best = steps; hiSet(K, best); }
+          } else {
+            ui.msg.textContent = '卡在局部极小值了 — 调大 lr 冲出去，或换新地形';
+          }
+        }
+        draw();
+      }
+      ctl.querySelector('#gd-step').addEventListener('click', step);
+      ctl.querySelector('#gd-new').addEventListener('click', newLand);
+      ctl.querySelector('#gd-lr').addEventListener('input', draw);
+      ctl.querySelector('#gd-run').addEventListener('click', function () {
+        if (timer) { stop(); return; }
+        if (done) return;
+        ctl.querySelector('#gd-run').textContent = '停止';
+        timer = setInterval(step, 80);
+      });
+      newLand();
+      return function () { stop(); };
+    }
+
+    /* ---------- 程序员 · 过拟合警察 ---------- */
+    function overfitGame(stage) {
+      var K = 'yzzn-arc-overfit';
+      var best = hiGet(K);
+      var W = 460, H = 210, ROUNDS = 10;
+      var ui = arcUI(stage, W, H, '灰点是训练数据，彩线是模型 · 判断它学得怎么样 · 共 10 题');
+      var ctl = document.createElement('div');
+      ctl.className = 'mono';
+      ctl.style.cssText = 'display:flex; gap:10px; justify-content:center; margin-top:10px; flex-wrap:wrap;';
+      var LABELS = ['欠拟合', '恰到好处', '过拟合'];
+      ctl.innerHTML = LABELS.map(function (t2, i2) {
+        return '<button type="button" class="pie-btn" data-a="' + i2 + '">' + t2 + '</button>';
+      }).join('');
+      stage.firstChild.appendChild(ctl);
+      var pts, ans, round, score, lock, over, timers = [];
+      var s1, k1, p1, s2, k2, p2;
+      function truth(x) { return 0.5 + s1 * Math.sin(k1 * x + p1) + s2 * Math.sin(k2 * x + p2); }
+      function px(x) { return 16 + x * (W - 32); }
+      function py(y) { return H - 16 - y * (H - 32); }
+      function gen() {
+        s1 = 0.16 + Math.random() * 0.1; k1 = 5 + Math.random() * 4; p1 = Math.random() * 6.28;
+        s2 = 0.05 + Math.random() * 0.05; k2 = 11 + Math.random() * 5; p2 = Math.random() * 6.28;
+        pts = [];
+        var m = 14;
+        for (var i2 = 0; i2 < m; i2++) {
+          var x = (i2 + 0.2 + Math.random() * 0.6) / m;
+          var n2 = (Math.random() + Math.random() + Math.random() - 1.5) * 0.075;
+          pts.push({ x: x, y: Math.max(0.04, Math.min(0.96, truth(x) + n2)) });
+        }
+        ans = Math.floor(Math.random() * 3);
+        lock = false;
+        draw(false);
+        ui.msg.textContent = '';
+      }
+      /* 线性最小二乘（欠拟合用） */
+      function linFit() {
+        var sx = 0, sy = 0, sxx = 0, sxy = 0, n2 = pts.length;
+        pts.forEach(function (p) { sx += p.x; sy += p.y; sxx += p.x * p.x; sxy += p.x * p.y; });
+        var b2 = (n2 * sxy - sx * sy) / (n2 * sxx - sx * sx);
+        var a2 = (sy - b2 * sx) / n2;
+        return function (x) { return a2 + b2 * x; };
+      }
+      /* Catmull-Rom 过每个样本点（过拟合用） */
+      function splineY(x) {
+        var ps = pts;
+        if (x <= ps[0].x) return ps[0].y;
+        if (x >= ps[ps.length - 1].x) return ps[ps.length - 1].y;
+        var i2 = 0;
+        while (i2 < ps.length - 2 && ps[i2 + 1].x < x) i2++;
+        var p0 = ps[Math.max(0, i2 - 1)], pA = ps[i2], pB = ps[i2 + 1], p3 = ps[Math.min(ps.length - 1, i2 + 2)];
+        var t2 = (x - pA.x) / (pB.x - pA.x), tt = t2 * t2, ttt = tt * t2;
+        return 0.5 * ((2 * pA.y) + (-p0.y + pB.y) * t2 +
+          (2 * p0.y - 5 * pA.y + 4 * pB.y - p3.y) * tt +
+          (-p0.y + 3 * pA.y - 3 * pB.y + p3.y) * ttt);
+      }
+      function modelY(x) {
+        if (ans === 0) return linFit()(x);
+        if (ans === 1) return truth(x);
+        return splineY(x);
+      }
+      function draw(reveal) {
+        var P = pal(), g = ui.g;
+        g.clearRect(0, 0, W, H);
+        if (reveal && ans !== 1) {
+          g.strokeStyle = P.ink2; g.lineWidth = 1; g.setLineDash([4, 4]); g.beginPath();
+          for (var r2 = 0; r2 <= 200; r2++) {
+            var xr = r2 / 200;
+            if (r2 === 0) g.moveTo(px(xr), py(truth(xr))); else g.lineTo(px(xr), py(truth(xr)));
+          }
+          g.stroke(); g.setLineDash([]);
+        }
+        g.strokeStyle = ans === 0 ? P['c-tool'] : ans === 1 ? P.play : P['c-render'];
+        g.lineWidth = 2; g.beginPath();
+        var first = true;
+        for (var i2 = 0; i2 <= 240; i2++) {
+          var x = i2 / 240, y = modelY(x);
+          if (y < -0.3 || y > 1.3) { first = true; continue; }
+          if (first) { g.moveTo(px(x), py(y)); first = false; } else g.lineTo(px(x), py(y));
+        }
+        g.stroke();
+        g.fillStyle = P.ink2;
+        pts.forEach(function (p) {
+          g.beginPath(); g.arc(px(p.x), py(p.y), 3, 0, Math.PI * 2); g.fill();
+        });
+        ui.s.textContent = over ? 'DONE' : 'Q ' + round + ' / ' + ROUNDS;
+        ui.m.textContent = 'SCORE ' + score;
+        ui.hb.textContent = best ? 'HI ' + best + ' 分' : '';
+      }
+      function answer(i2) {
+        if (lock) return;
+        if (over) { round = 1; score = 0; over = false; gen(); return; }
+        lock = true;
+        var okAns = i2 === ans;
+        if (okAns) score++;
+        draw(true);
+        ui.msg.textContent = (okAns ? '✓ 答对了' : '✗ 是「' + LABELS[ans] + '」') + '（虚线为真实规律）';
+        timers.push(setTimeout(function () {
+          if (round >= ROUNDS) {
+            over = true;
+            if (score > best) { best = score; hiSet(K, best); }
+            ui.msg.textContent = '答对 ' + score + ' / ' + ROUNDS + ' — 点任意按钮再来一轮';
+            draw(true);
+          } else {
+            round++;
+            gen();
+          }
+        }, 1100));
+      }
+      ctl.querySelectorAll('button').forEach(function (b) {
+        b.addEventListener('click', function () { answer(parseInt(b.getAttribute('data-a'), 10)); });
+      });
+      round = 1; score = 0; over = false;
+      gen();
+      return function () { timers.forEach(clearTimeout); };
+    }
+
+    /* ---------- 程序员 · 视锥体剔除 ---------- */
+    function frustumGame(stage) {
+      var K = 'yzzn-arc-frustum';
+      var best = hiGet(K);
+      var W = 460, H = 290;
+      var ui = arcUI(stage, W, H, '俯视图：把落在视锥内（会被渲染）的物体全部点掉 · 点错 −15 · 60 秒');
+      var cam, objs, remain, score, wave, tLeft, tick = null, playing = false;
+      function inside(o) {
+        var dx = o.x - cam.x, dy = o.y - cam.y;
+        var d = Math.sqrt(dx * dx + dy * dy);
+        if (d < cam.near || d > cam.far) return false;
+        var a = Math.atan2(dy, dx) - cam.ang;
+        while (a > Math.PI) a -= Math.PI * 2;
+        while (a < -Math.PI) a += Math.PI * 2;
+        return Math.abs(a) <= cam.fov / 2;
+      }
+      function newWave() {
+        wave++;
+        var n = 12 + Math.min(10, wave * 2);
+        for (var tries = 0; tries < 60; tries++) {
+          cam = {
+            x: 70 + Math.random() * (W - 140), y: 70 + Math.random() * (H - 140),
+            ang: Math.random() * Math.PI * 2,
+            fov: (36 + Math.random() * 36) * Math.PI / 180,
+            near: 24 + Math.random() * 18, far: 120 + Math.random() * 85
+          };
+          objs = [];
+          for (var i2 = 0; i2 < n; i2++) {
+            objs.push({ x: 12 + Math.random() * (W - 24), y: 12 + Math.random() * (H - 24), st: 0 });
+          }
+          remain = 0;
+          objs.forEach(function (o) { if (inside(o)) remain++; });
+          if (remain >= 3 && remain <= n - 4) break;
+        }
+        while (remain < 3) {
+          var d2 = cam.near + (cam.far - cam.near) * (0.2 + Math.random() * 0.6);
+          var a2 = cam.ang + (Math.random() - 0.5) * cam.fov * 0.85;
+          var ox = cam.x + Math.cos(a2) * d2, oy = cam.y + Math.sin(a2) * d2;
+          if (ox > 10 && ox < W - 10 && oy > 10 && oy < H - 10) {
+            objs.push({ x: ox, y: oy, st: 0 });
+            remain++;
+          }
+        }
+        draw();
+      }
+      function draw() {
+        var P = pal(), g = ui.g;
+        g.clearRect(0, 0, W, H);
+        if (playing || tLeft <= 0) {
+          /* 视锥（近平面到远平面的扇环） */
+          var a1 = cam.ang - cam.fov / 2, a2 = cam.ang + cam.fov / 2;
+          g.beginPath();
+          g.arc(cam.x, cam.y, cam.far, a1, a2);
+          g.arc(cam.x, cam.y, cam.near, a2, a1, true);
+          g.closePath();
+          g.globalAlpha = 0.1; g.fillStyle = P.accent; g.fill();
+          g.globalAlpha = 1; g.strokeStyle = P.accent; g.lineWidth = 1.2; g.stroke();
+          /* 相机本体 */
+          g.fillStyle = P.ink;
+          g.save();
+          g.translate(cam.x, cam.y); g.rotate(cam.ang);
+          g.beginPath(); g.moveTo(8, 0); g.lineTo(-6, -6); g.lineTo(-6, 6); g.closePath(); g.fill();
+          g.restore();
+          /* 物体 */
+          objs.forEach(function (o) {
+            if (o.st === 1) {
+              g.strokeStyle = P.play; g.lineWidth = 1.5;
+              g.strokeRect(o.x - 4, o.y - 4, 8, 8);
+              g.beginPath(); g.moveTo(o.x - 3, o.y); g.lineTo(o.x - 1, o.y + 3); g.lineTo(o.x + 4, o.y - 3); g.stroke();
+            } else if (o.st === 2) {
+              g.strokeStyle = P['c-render']; g.lineWidth = 1.5;
+              g.beginPath();
+              g.moveTo(o.x - 4, o.y - 4); g.lineTo(o.x + 4, o.y + 4);
+              g.moveTo(o.x + 4, o.y - 4); g.lineTo(o.x - 4, o.y + 4);
+              g.stroke();
+            } else {
+              g.fillStyle = P.ink;
+              g.fillRect(o.x - 4, o.y - 4, 8, 8);
+            }
+          });
+        } else {
+          g.fillStyle = P.ink;
+          g.font = '600 16px Consolas,monospace';
+          g.textAlign = 'center';
+          g.fillText(tLeft === undefined ? '点击开始' : '时间到！得分 ' + score + ' — 点击再来', W / 2, H / 2);
+          g.textAlign = 'left';
+        }
+        ui.s.textContent = 'SCORE ' + (score || 0);
+        ui.m.textContent = playing ? 'WAVE ' + wave + ' · 剩 ' + remain + ' · ' + tLeft + 's' : '';
+        ui.hb.textContent = best ? 'HI ' + best : '';
+      }
+      function start() {
+        score = 0; wave = 0; tLeft = 60; playing = true;
+        newWave();
+        tick = setInterval(function () {
+          tLeft--;
+          if (tLeft <= 0) {
+            playing = false;
+            clearInterval(tick); tick = null;
+            if (score > best) { best = score; hiSet(K, best); }
+            ui.msg.textContent = '';
+          }
+          draw();
+        }, 1000);
+      }
+      ui.cvs.addEventListener('click', function (e) {
+        if (!playing) { start(); return; }
+        var r2 = ui.cvs.getBoundingClientRect();
+        var mx = (e.clientX - r2.left) * (W / r2.width);
+        var my = (e.clientY - r2.top) * (H / r2.height);
+        var hit = null, hd = 14;
+        objs.forEach(function (o) {
+          if (o.st) return;
+          var d2 = Math.max(Math.abs(o.x - mx), Math.abs(o.y - my));
+          if (d2 < hd) { hd = d2; hit = o; }
+        });
+        if (!hit) return;
+        if (inside(hit)) {
+          hit.st = 1; score += 10; remain--;
+          if (remain <= 0) {
+            score += 20;
+            ui.msg.textContent = '✓ 本波清空 +20';
+            setTimeout(function () { if (playing) { ui.msg.textContent = ''; newWave(); } }, 500);
+          }
+        } else {
+          hit.st = 2;
+          score = Math.max(0, score - 15);
+          ui.msg.textContent = '✗ 它在视锥外，本来就会被剔除 −15';
+          setTimeout(function () { ui.msg.textContent = ''; }, 900);
+        }
+        draw();
+      });
+      draw();
+      return function () { if (tick) clearInterval(tick); };
+    }
+
+    /* ---------- 音乐 · 调音师 ---------- */
+    function tunerGame(stage) {
+      var K = 'yzzn-arc-tuner';
+      var best = hiGet(K);
+      var W = 460, H = 110, ROUNDS = 5;
+      var ui = arcUI(stage, W, H, '你的弦跑调了 · 「同时播」能听到拍频，拍越慢越准 · 5 轮平均误差');
+      var ctl = document.createElement('div');
+      ctl.className = 'mono';
+      ctl.style.cssText = 'display:flex; gap:10px; align-items:center; justify-content:center; margin-top:10px; flex-wrap:wrap; font-size:12px;';
+      ctl.innerHTML =
+        '<input id="tn-adj" type="range" min="-600" max="600" value="0" step="5" style="width:230px;" />' +
+        '<button type="button" class="pie-btn" id="tn-ref">▶ 标准音</button>' +
+        '<button type="button" class="pie-btn" id="tn-you">▶ 你的弦</button>' +
+        '<button type="button" class="pie-btn" id="tn-both">▶ 同时播</button>' +
+        '<button type="button" class="pie-btn primary" id="tn-ok">调好了</button>';
+      stage.firstChild.appendChild(ctl);
+      var actx = null, f0, D, round, errs, revealed, over, timers = [];
+      function adj() { return parseInt(ctl.querySelector('#tn-adj').value, 10) / 10; }
+      function tone(freq, when, dur) {
+        try {
+          if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+          var o = actx.createOscillator(), g2 = actx.createGain();
+          o.type = 'sine';
+          o.frequency.value = freq;
+          var t2 = actx.currentTime + (when || 0);
+          g2.gain.setValueAtTime(0.0001, t2);
+          g2.gain.exponentialRampToValueAtTime(0.14, t2 + 0.02);
+          g2.gain.exponentialRampToValueAtTime(0.001, t2 + dur);
+          o.connect(g2); g2.connect(actx.destination);
+          o.start(t2); o.stop(t2 + dur + 0.05);
+        } catch (err) {}
+      }
+      function yourFreq() { return f0 * Math.pow(2, (D + adj()) / 1200); }
+      function draw() {
+        var P = pal(), g = ui.g;
+        g.clearRect(0, 0, W, H);
+        var cx = W / 2, y0 = H - 34;
+        g.strokeStyle = P.line; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(24, y0); g.lineTo(W - 24, y0); g.stroke();
+        g.font = '10px Consolas,monospace'; g.textAlign = 'center'; g.fillStyle = P.ink2;
+        for (var c2 = -60; c2 <= 60; c2 += 10) {
+          var x = cx + c2 / 60 * (W / 2 - 24);
+          g.strokeStyle = c2 === 0 ? P.ink : P.line;
+          g.beginPath(); g.moveTo(x, y0 - (c2 === 0 ? 12 : c2 % 20 === 0 ? 8 : 5)); g.lineTo(x, y0); g.stroke();
+          if (c2 % 20 === 0) g.fillText((c2 > 0 ? '+' : '') + c2, x, y0 + 14);
+        }
+        /* 完美位置（提交后揭示） */
+        if (revealed) {
+          var tx = cx + Math.max(-60, Math.min(60, -D)) / 60 * (W / 2 - 24);
+          g.fillStyle = P.play;
+          g.beginPath(); g.moveTo(tx, y0 - 24); g.lineTo(tx - 5, y0 - 32); g.lineTo(tx + 5, y0 - 32); g.closePath(); g.fill();
+        }
+        /* 指针 = 你的微调旋钮 */
+        var nx = cx + adj() / 60 * (W / 2 - 24);
+        g.strokeStyle = P.accent; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(nx, y0 - 22); g.lineTo(nx, y0); g.stroke();
+        g.fillStyle = P.accent;
+        g.fillText((adj() > 0 ? '+' : '') + adj().toFixed(1) + 'c', nx, y0 - 28);
+        g.textAlign = 'left';
+        ui.s.textContent = over ? 'DONE' : 'ROUND ' + round + ' / ' + ROUNDS;
+        ui.m.textContent = f0 ? '基准 ' + f0.toFixed(1) + ' Hz' : '';
+        ui.hb.textContent = best ? 'BEST ' + best + ' 音分' : '';
+      }
+      function newRound() {
+        f0 = 220 * Math.pow(2, Math.floor(Math.random() * 25) / 12);
+        D = (Math.random() < 0.5 ? -1 : 1) * (8 + Math.random() * 47);
+        ctl.querySelector('#tn-adj').value = '0';
+        revealed = false;
+        ui.msg.textContent = '';
+        draw();
+      }
+      function submit() {
+        if (over) {
+          round = 1; errs = []; over = false;
+          newRound();
+          return;
+        }
+        if (revealed) return;
+        revealed = true;
+        var err = Math.abs(D + adj());
+        errs.push(err);
+        draw();
+        ui.msg.textContent = '本轮误差 ' + err.toFixed(1) + ' 音分' + (err < 3 ? ' — 金耳朵！' : err < 10 ? ' — 很稳' : '');
+        timers.push(setTimeout(function () {
+          if (round >= ROUNDS) {
+            over = true;
+            var avg = Math.round(errs.reduce(function (a, b) { return a + b; }, 0) / ROUNDS);
+            if (!best || avg < best) { best = avg; hiSet(K, best); }
+            ui.msg.textContent = '平均误差 ' + avg + ' 音分（' + errs.map(function (e2) { return e2.toFixed(0); }).join(' / ') + '）— 点「调好了」再来';
+            draw();
+          } else {
+            round++;
+            newRound();
+          }
+        }, 1600));
+      }
+      ctl.querySelector('#tn-ref').addEventListener('click', function () { tone(f0, 0, 1.2); });
+      ctl.querySelector('#tn-you').addEventListener('click', function () { tone(yourFreq(), 0, 1.2); });
+      ctl.querySelector('#tn-both').addEventListener('click', function () { tone(f0, 0, 1.8); tone(yourFreq(), 0, 1.8); });
+      ctl.querySelector('#tn-ok').addEventListener('click', submit);
+      ctl.querySelector('#tn-adj').addEventListener('input', draw);
+      round = 1; errs = []; over = false;
+      newRound();
+      return function () {
+        timers.forEach(clearTimeout);
+        if (actx) { try { actx.close(); } catch (err) {} }
+      };
+    }
+
+    /* ---------- 音乐 · 节奏机 ---------- */
+    function rhythmGame(stage) {
+      var K = 'yzzn-arc-rhythm';
+      var best = hiGet(K);
+      var W = 460, H = 330;
+      var ui = arcUI(stage, W, H, 'D F J K 对应四轨（也可点击轨道） · PERFECT ±55ms · 曲子每局现编');
+      var KEYS = ['KeyD', 'KeyF', 'KeyJ', 'KeyK'], KLAB = 'DFJK';
+      var LANE_W = 74, FIELD = LANE_W * 4, X0 = (W - FIELD) / 2;
+      var HITY = H - 46, SPEED = 190, LEAD = 2.2;
+      var PENT = [0, 3, 5, 7, 10];
+      var actx = null, raf = null, sched = null, noiseBuf = null;
+      var notes, evts, evIdx, playing = false, over = false, t0 = 0;
+      var score, combo, maxCombo, judges, laneFx, judgeFx, endT;
+      function gen() {
+        notes = []; evts = [];
+        var bpm = 112, beat = 60 / bpm, bars = 28;
+        var prog = [0, -4, -9, -2];   /* Am F C G */
+        var mel = 3 + Math.floor(Math.random() * 3);
+        for (var i2 = 0; i2 < 4; i2++) evts.push({ t: LEAD - (4 - i2) * beat + beat * 0, ty: 'hat', f: 0 });
+        for (var b2 = 0; b2 < bars; b2++) {
+          var rootF = 110 * Math.pow(2, prog[b2 % 4] / 12);
+          for (var q = 0; q < 4; q++) {
+            evts.push({ t: LEAD + (b2 * 4 + q) * beat, ty: 'bass', f: q === 0 ? rootF : rootF * (q === 2 ? 1.5 : 1) });
+          }
+          var dens = b2 < 4 ? 0.4 : b2 < 12 ? 0.55 : b2 < 20 ? 0.68 : 0.78;
+          for (var e2 = 0; e2 < 8; e2++) {
+            var t2 = LEAD + (b2 * 4 + e2 * 0.5) * beat;
+            evts.push({ t: t2, ty: 'hat', f: 0 });
+            var want = e2 % 2 === 0 ? dens : dens * 0.55;
+            if (b2 >= 1 && Math.random() < want) {
+              mel += Math.floor(Math.random() * 3) - 1;
+              if (mel < 0) mel = 0;
+              if (mel > 9) mel = 9;
+              var f = 440 * Math.pow(2, (PENT[mel % 5] + 12 * Math.floor(mel / 5)) / 12);
+              var lane = Math.min(3, Math.floor(mel * 4 / 10));
+              evts.push({ t: t2, ty: 'mel', f: f });
+              notes.push({ t: t2, lane: lane, st: 0 });
+            }
+          }
+        }
+        evts.sort(function (a, b) { return a.t - b.t; });
+        notes.sort(function (a, b) { return a.t - b.t; });
+        endT = notes[notes.length - 1].t + 1.2;
+      }
+      function synth(ev) {
+        var t2 = t0 + ev.t;
+        if (ev.ty === 'hat') {
+          if (!noiseBuf) {
+            noiseBuf = actx.createBuffer(1, actx.sampleRate * 0.04, actx.sampleRate);
+            var ch = noiseBuf.getChannelData(0);
+            for (var i2 = 0; i2 < ch.length; i2++) ch[i2] = (Math.random() * 2 - 1) * (1 - i2 / ch.length);
+          }
+          var src = actx.createBufferSource(), hg = actx.createGain(), hp = actx.createBiquadFilter();
+          src.buffer = noiseBuf;
+          hp.type = 'highpass'; hp.frequency.value = 6000;
+          hg.gain.value = 0.05;
+          src.connect(hp); hp.connect(hg); hg.connect(actx.destination);
+          src.start(t2);
+          return;
+        }
+        var o = actx.createOscillator(), g2 = actx.createGain();
+        o.type = ev.ty === 'bass' ? 'sine' : 'square';
+        o.frequency.value = ev.f;
+        var vol = ev.ty === 'bass' ? 0.1 : 0.045;
+        var dur = ev.ty === 'bass' ? 0.32 : 0.22;
+        g2.gain.setValueAtTime(0.0001, t2);
+        g2.gain.exponentialRampToValueAtTime(vol, t2 + 0.01);
+        g2.gain.exponentialRampToValueAtTime(0.001, t2 + dur);
+        o.connect(g2); g2.connect(actx.destination);
+        o.start(t2); o.stop(t2 + dur + 0.05);
+      }
+      function now() { return actx.currentTime - t0; }
+      function judge(lane) {
+        if (!playing) return;
+        laneFx[lane] = now();
+        var cand = null;
+        for (var i2 = 0; i2 < notes.length; i2++) {
+          var nt = notes[i2];
+          if (nt.st || nt.lane !== lane) continue;
+          if (nt.t - now() > 0.14) break;
+          if (Math.abs(nt.t - now()) <= 0.14) { cand = nt; break; }
+        }
+        if (!cand) {
+          combo = 0;
+          judgeFx = { txt: '✕', col: 'ink2', t: now() };
+          return;
+        }
+        cand.st = 1;
+        var d2 = Math.abs(cand.t - now());
+        if (d2 <= 0.055) { score += 300; judges.P++; judgeFx = { txt: 'PERFECT', col: 'play', t: now() }; }
+        else { score += 100; judges.G++; judgeFx = { txt: 'GOOD', col: 'accent', t: now() }; }
+        combo++;
+        if (combo > maxCombo) maxCombo = combo;
+      }
+      function finish() {
+        playing = false; over = true;
+        if (sched) { clearInterval(sched); sched = null; }
+        if (score > best) { best = score; hiSet(K, best); }
+        ui.msg.textContent = 'PERFECT ' + judges.P + ' · GOOD ' + judges.G + ' · MISS ' + judges.M +
+          ' · 最大连击 ' + maxCombo + ' — 点击再来一曲';
+      }
+      function draw() {
+        var P = pal(), g = ui.g;
+        g.clearRect(0, 0, W, H);
+        var COLS4 = [P['c-render'], P['c-engine'], P['c-char'], P['c-tool']];
+        g.strokeStyle = P.line; g.lineWidth = 1;
+        for (var l2 = 0; l2 <= 4; l2++) {
+          g.beginPath(); g.moveTo(X0 + l2 * LANE_W, 0); g.lineTo(X0 + l2 * LANE_W, H - 24); g.stroke();
+        }
+        g.font = '600 13px Consolas,monospace'; g.textAlign = 'center';
+        for (var l3 = 0; l3 < 4; l3++) {
+          g.fillStyle = P.ink2;
+          g.fillText(KLAB[l3], X0 + (l3 + 0.5) * LANE_W, H - 8);
+        }
+        if (playing) {
+          var nw = now();
+          /* 按键闪光 */
+          for (var l4 = 0; l4 < 4; l4++) {
+            var dt2 = nw - laneFx[l4];
+            if (dt2 >= 0 && dt2 < 0.16) {
+              g.globalAlpha = 0.25 * (1 - dt2 / 0.16);
+              g.fillStyle = COLS4[l4];
+              g.fillRect(X0 + l4 * LANE_W, HITY - 60, LANE_W, 60);
+              g.globalAlpha = 1;
+            }
+          }
+          /* 判定线 */
+          g.strokeStyle = P.accent; g.lineWidth = 2;
+          g.beginPath(); g.moveTo(X0, HITY); g.lineTo(X0 + FIELD, HITY); g.stroke();
+          /* 音符 + 漏接判定 */
+          for (var i3 = 0; i3 < notes.length; i3++) {
+            var nt = notes[i3];
+            if (!nt.st && nw - nt.t > 0.14) { nt.st = 2; combo = 0; judges.M++; judgeFx = { txt: 'MISS', col: 'c-render', t: nw }; }
+            if (nt.st) continue;
+            var y = HITY - (nt.t - nw) * SPEED;
+            if (y < -16 || y > HITY + 30) continue;
+            g.fillStyle = COLS4[nt.lane];
+            g.fillRect(X0 + nt.lane * LANE_W + 5, y - 6, LANE_W - 10, 12);
+          }
+          /* 判定文字 + 连击 */
+          if (judgeFx && nw - judgeFx.t < 0.5) {
+            g.globalAlpha = 1 - (nw - judgeFx.t) / 0.5;
+            g.fillStyle = P[judgeFx.col] || P.ink2;
+            g.font = '700 17px Consolas,monospace';
+            g.fillText(judgeFx.txt, W / 2, HITY - 74);
+            g.globalAlpha = 1;
+          }
+          if (combo >= 5) {
+            g.fillStyle = P.ink; g.font = '700 22px Consolas,monospace';
+            g.fillText(combo + ' COMBO', W / 2, 40);
+          }
+          if (nw > endT) finish();
+        } else {
+          g.fillStyle = P.ink; g.font = '600 15px Consolas,monospace';
+          g.fillText(over ? 'FINISH · SCORE ' + score : '点击开始（会出声）', W / 2, H / 2 - 20);
+        }
+        g.textAlign = 'left';
+        ui.s.textContent = 'SCORE ' + (score || 0);
+        ui.m.textContent = playing && combo ? 'COMBO ' + combo : '';
+        ui.hb.textContent = best ? 'HI ' + best : '';
+        raf = requestAnimationFrame(draw);
+      }
+      function start() {
+        try {
+          if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+          if (actx.state === 'suspended') actx.resume();
+        } catch (err) { ui.msg.textContent = '此环境不支持 WebAudio'; return; }
+        gen();
+        score = 0; combo = 0; maxCombo = 0;
+        judges = { P: 0, G: 0, M: 0 };
+        laneFx = [-9, -9, -9, -9]; judgeFx = null;
+        evIdx = 0; t0 = actx.currentTime + 0.1;
+        playing = true; over = false;
+        ui.msg.textContent = '';
+        sched = setInterval(function () {
+          while (evIdx < evts.length && evts[evIdx].t < now() + 0.6) {
+            synth(evts[evIdx]);
+            evIdx++;
+          }
+        }, 120);
+      }
+      function onKey(e) {
+        if (e.repeat) return;
+        var lane = KEYS.indexOf(e.code);
+        if (lane < 0) return;
+        e.preventDefault();
+        judge(lane);
+      }
+      document.addEventListener('keydown', onKey);
+      ui.cvs.addEventListener('pointerdown', function (e) {
+        if (!playing) { start(); return; }
+        var r2 = ui.cvs.getBoundingClientRect();
+        var mx = (e.clientX - r2.left) * (W / r2.width);
+        var lane = Math.floor((mx - X0) / LANE_W);
+        if (lane >= 0 && lane <= 3) judge(lane);
+      });
+      draw();
+      return function () {
+        cancelAnimationFrame(raf);
+        if (sched) clearInterval(sched);
+        document.removeEventListener('keydown', onKey);
+        if (actx) { try { actx.close(); } catch (err) {} }
+      };
+    }
+
     /* ---------- GameMode: 游戏厅（合集大厅） ---------- */
     var ARC = [
       /* 程序员特供 */
       { id: 'budget',   name: '帧预算保卫战',  cat: 'dev', glyph: '16.7', desc: '接住 render pass，攒满一帧就提交', hiKey: 'yzzn-arcade-hi', start: budgetGame },
       { id: 'bugwhack', name: 'Bug 打地鼠',    cat: 'dev', glyph: 'BUG',  desc: '手起锤落修 bug，小心别打到需求', hiKey: 'yzzn-arc-bug', start: bugGame },
       { id: 'typer',    name: 'Shader 打字员', cat: 'dev', glyph: 'HLSL', desc: '关键字落地之前把它敲出来', hiKey: 'yzzn-arc-typer', start: typerGame },
-      { id: 'gradient', name: '梯度下降',      cat: 'dev', glyph: '∇',    desc: '调好学习率，滚进全局最小值', wip: true },
-      { id: 'overfit',  name: '过拟合警察',    cat: 'dev', glyph: 'FIT',  desc: '一眼识别欠拟合与过拟合', wip: true },
-      { id: 'frustum',  name: '视锥体剔除',    cat: 'dev', glyph: 'CULL', desc: '只点视锥内的，手要快', wip: true },
+      { id: 'gradient', name: '梯度下降',      cat: 'dev', glyph: '∇',    desc: '调好学习率，滚进全局最小值', hiKey: 'yzzn-arc-grad', hiLabel: 'BEST', hiSuf: ' 步', start: gradientGame },
+      { id: 'overfit',  name: '过拟合警察',    cat: 'dev', glyph: 'FIT',  desc: '一眼识别欠拟合与过拟合', hiKey: 'yzzn-arc-overfit', hiSuf: ' 分', start: overfitGame },
+      { id: 'frustum',  name: '视锥体剔除',    cat: 'dev', glyph: 'CULL', desc: '只点视锥内的，手要快', hiKey: 'yzzn-arc-frustum', start: frustumGame },
       /* 经典街机 */
       { id: 'snake',    name: '贪吃蛇',        cat: 'classic', glyph: 'SNK',  desc: '经典中的经典，吃到停不下来', hiKey: 'yzzn-arc-snake', start: snakeGame },
       { id: 'tetris',   name: '俄罗斯方块',    cat: 'classic', glyph: 'TET',  desc: '旋转、消行、心跳加速', hiKey: 'yzzn-arc-tetris', start: tetrisGame },
@@ -3360,8 +4050,8 @@
       { id: 'reaction', name: '反应力测试',    cat: 'brain', glyph: 'MS',   desc: '变绿就点，5 轮取平均', hiKey: 'yzzn-arc-reaction', hiLabel: 'BEST', hiSuf: 'ms', start: reactionGame },
       { id: 'simon',    name: 'Simon 序列',    cat: 'brain', glyph: 'SIM',  desc: '记住闪烁与音高的顺序', hiKey: 'yzzn-arc-simon', start: simonGame },
       /* 音乐 */
-      { id: 'tuner',    name: '调音师',        cat: 'music', glyph: '440',  desc: '凭耳朵把失谐的音调准', wip: true },
-      { id: 'rhythm',   name: '节奏机',        cat: 'music', glyph: '4/4',  desc: '四轨下落式音游', wip: true }
+      { id: 'tuner',    name: '调音师',        cat: 'music', glyph: '440',  desc: '凭耳朵把失谐的音调准', hiKey: 'yzzn-arc-tuner', hiLabel: 'BEST', hiSuf: ' 音分', start: tunerGame },
+      { id: 'rhythm',   name: '节奏机',        cat: 'music', glyph: '4/4',  desc: '四轨下落式音游，曲子每局现编', hiKey: 'yzzn-arc-rhythm', start: rhythmGame }
     ];
     var ARC_CATS = {
       dev: ['程序员特供', '--c-render'],
