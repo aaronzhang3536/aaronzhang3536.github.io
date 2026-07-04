@@ -1,0 +1,43 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="八字排盘" desc="八字四柱排盘：藏干、十神、纳音、五行统计与大运">
+<main class="wrap reader">
+  <a class="back mono" href="/shu/">← 术数</a>
+  <h1 class="rd-title">八字排盘</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-render);"></span>
+    <span>四柱 · 藏干 · 十神 · 纳音 · 五行 · 大运</span>
+  </div>
+
+  <div class="shu-panel">
+    <label class="mono">出生日期 <input id="bz-date" type="date" /></label>
+    <label class="mono">时间 <input id="bz-time" type="time" value="12:00" /></label>
+    <label class="mono"><input id="bz-male" type="radio" name="bz-sex" checked /> 男</label>
+    <label class="mono"><input id="bz-female" type="radio" name="bz-sex" /> 女</label>
+    <button type="button" class="pie-btn primary" id="bz-go">排盘</button>
+  </div>
+  <p class="mono hint2" style="max-width:800px;">
+    年柱以立春分界、月柱以十二节分界（节气按日推算）；晚子时（23 点后）按不换日流派。
+  </p>
+
+  <div id="bz-out" hidden>
+    <p id="bz-summary" style="max-width:800px;"></p>
+    <div id="bz-pillars" class="bz-grid"></div>
+    <h2 class="shu-h mono">五行</h2>
+    <div id="bz-wuxing" class="shu-card" style="max-width:520px;"></div>
+    <p id="bz-strength" style="max-width:800px; font-size:14px;"></p>
+    <h2 class="shu-h mono">大运</h2>
+    <div id="bz-dayun"></div>
+    <p id="bz-warn" hidden class="mono" style="max-width:800px; color:var(--accent); font-size:12.5px;"></p>
+  </div>
+
+  <p class="mono" style="max-width:800px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
+    算法参考作者自己的 BaZi Android 项目并升级节气分界；旺衰为极简粗断。命理内容仅供文化研究与娱乐参考。
+  </p>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/shu/bazi.js';
+</script>
