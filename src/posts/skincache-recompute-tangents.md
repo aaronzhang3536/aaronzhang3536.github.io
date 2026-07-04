@@ -1,6 +1,7 @@
 ---
 title: "GPU Skin Cache：Recompute Tangents"
-cat: 角色技术
+cat: UE 剖析
+sub: 角色
 date: 2026-01-19
 mins: 11
 tags: [SkinCache, 切线]

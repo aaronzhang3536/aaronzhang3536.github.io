@@ -3,7 +3,7 @@ import Base from '../../layouts/Base.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
-  const cats = ['UE 剖析', '角色技术', '读渲染', 'AI 与认知', '音乐与生活'];
+  const cats = ['UE 剖析', '读渲染', 'AI 与认知', '音乐与生活'];
   return cats.map((cat) => ({ params: { cat } }));
 }
 
@@ -12,26 +12,53 @@ const posts = (await getCollection('posts', (p) => p.data.cat === cat))
   .sort((a, b) => +b.data.date - +a.data.date);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  'UE 剖析': '--c-render', '角色技术': '--c-char',
-  '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
+const SUB_SW: Record<string, string> = {
+  '渲染': '--c-render', '角色': '--c-char', '几何': '--c-engine', '系统': '--c-tool',
+};
+const swOf = (p: any) => (p.data.sub ? SUB_SW[p.data.sub] : CAT_SW[p.data.cat] || '--accent');
+const SUB_ORDER = ['渲染', '角色', '几何', '系统'];
+const hasSubs = posts.some((p) => p.data.sub);
+const groups = hasSubs
+  ? SUB_ORDER.map((s) => ({ s, items: posts.filter((p) => p.data.sub === s) })).filter((g) => g.items.length)
+  : [];
 ---
 <Base title={cat}>
 <main class="wrap reader">
   <a class="back mono" href="/">← 返回首页</a>
   <h1 class="rd-title">{cat}</h1>
   <div class="meta mono">
-    <span class="sw" style={`background:var(${CAT_SW[cat]});`}></span>
+    <span class="sw" style={`background:var(${CAT_SW[cat!]});`}></span>
     <span>专栏</span>
     {posts.length > 0 && <span>{posts.length} 篇</span>}
   </div>
   {posts.length === 0 ? (
     <p class="mono" style="color:var(--ink2);">这个专栏还在筹备中，第一篇正在路上。</p>
+  ) : hasSubs ? (
+    groups.map((g) => (
+      <section style="max-width:800px;">
+        <h2 class="mono" style="display:flex; align-items:center; gap:9px; font-size:14px; letter-spacing:0.2em; color:var(--ink2); margin:32px 0 6px;">
+          <span class="sw" style={`width:10px; height:10px; background:var(${SUB_SW[g.s]});`}></span>
+          {g.s} <span style="font-size:12px;">· {g.items.length} 篇</span>
+        </h2>
+        <div class="posts" style="border-top:1px solid var(--line);">
+          {g.items.map((p) => (
+            <a class="post" href={`/posts/${p.id}/`}>
+              <span class="sw" style={`background:var(${swOf(p)});`}></span>
+              <span class="t">{p.data.title}</span>
+              <span class="cat mono">{p.data.sub}</span>
+              <span class="d mono">{fmt(p.data.date)} · {p.data.mins} min</span>
+            </a>
+          ))}
+        </div>
+      </section>
+    ))
   ) : (
     <div class="posts" style="border-top:1px solid var(--line); max-width:800px;">
       {posts.map((p) => (
         <a class="post" href={`/posts/${p.id}/`}>
-          <span class="sw" style={`background:var(${CAT_SW[p.data.cat]});`}></span>
+          <span class="sw" style={`background:var(${swOf(p)});`}></span>
           <span class="t">{p.data.title}</span>
           <span class="cat mono">{p.data.cat}</span>
           <span class="d mono">{fmt(p.data.date)} · {p.data.mins} min</span>

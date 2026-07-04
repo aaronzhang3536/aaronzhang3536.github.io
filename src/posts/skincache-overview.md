@@ -1,6 +1,7 @@
 ---
 title: "GPU Skin Cache 概述"
-cat: 角色技术
+cat: UE 剖析
+sub: 角色
 date: 2026-01-19
 mins: 4
 tags: [SkinCache, 蒙皮]

@@ -1,6 +1,7 @@
 ---
 title: "PlaneCut 调用堆栈逐层拆解"
 cat: UE 剖析
+sub: 几何
 date: 2026-05-20
 mins: 9
 tags: [几何处理, 调用栈]

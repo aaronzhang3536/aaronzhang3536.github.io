@@ -10,7 +10,10 @@ export async function getStaticPaths() {
       post,
       newer: i > 0 ? posts[i - 1] : null,
       older: i < posts.length - 1 ? posts[i + 1] : null,
-      related: posts.filter((p) => p.data.cat === post.data.cat && p.id !== post.id).slice(0, 3),
+      related: (post.data.sub
+        ? posts.filter((p) => p.data.sub === post.data.sub && p.id !== post.id)
+        : posts.filter((p) => p.data.cat === post.data.cat && p.id !== post.id)
+      ).slice(0, 3),
     },
   }));
 }
@@ -20,17 +23,21 @@ const { Content, headings } = await render(post);
 const toc = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  'UE 剖析': '--c-render', '角色技术': '--c-char',
-  '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
+const SUB_SW: Record<string, string> = {
+  '渲染': '--c-render', '角色': '--c-char', '几何': '--c-engine', '系统': '--c-tool',
+};
+const swOf = (p: any) => (p.data.sub ? SUB_SW[p.data.sub] : CAT_SW[p.data.cat] || '--accent');
 ---
 <Base title={post.data.title} desc={`「${post.data.cat}」专栏 · 约 ${post.data.mins} 分钟读完 · 一帧之内的引擎技术笔记`}>
 <main class="wrap reader">
   <a class="back mono" href="/">← 返回首页</a>
   <h1 class="rd-title">{post.data.title}</h1>
   <div class="meta mono">
-    <span class="sw" style={`background:var(${CAT_SW[post.data.cat]});`}></span>
+    <span class="sw" style={`background:var(${swOf(post)});`}></span>
     <a href={`/cat/${post.data.cat}/`}>{post.data.cat}</a>
+    {post.data.sub && <span>· {post.data.sub}</span>}
     <span>{fmt(post.data.date)} · {post.data.mins} min</span>
     {post.data.tags.map((t) => (
       <a href={`/tags/${t}/`} style="color:var(--ink2);">#{t}</a>
@@ -70,10 +77,10 @@ const CAT_SW: Record<string, string> = {
 
   {related.length > 0 && (
     <section class="related">
-      <div class="mono rel-t">「{post.data.cat}」的更多文章</div>
+      <div class="mono rel-t">「{post.data.sub ? `${post.data.cat} · ${post.data.sub}` : post.data.cat}」的更多文章</div>
       {related.map((p) => (
         <a class="post" href={`/posts/${p.id}/`}>
-          <span class="sw" style={`background:var(${CAT_SW[p.data.cat]});`}></span>
+          <span class="sw" style={`background:var(${swOf(p)});`}></span>
           <span class="t">{p.data.title}</span>
           <span class="d mono">{fmt(p.data.date)} · {p.data.mins} min</span>
         </a>
