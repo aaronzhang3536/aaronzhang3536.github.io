@@ -1,6 +1,6 @@
 ---
 title: "MegaLights 渲染管线技术详解"
-cat: 渲染管线
+cat: UE 剖析
 date: 2026-05-27
 mins: 16
 tags: [MegaLights, 渲染管线]

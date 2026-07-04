@@ -1,6 +1,6 @@
 ---
 title: "MegaLights 蒙特卡洛估计"
-cat: 渲染管线
+cat: UE 剖析
 date: 2026-05-27
 mins: 12
 tags: [MegaLights, 蒙特卡洛]

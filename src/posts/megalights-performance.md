@@ -1,6 +1,6 @@
 ---
 title: "MegaLights 性能分析与优化"
-cat: 渲染管线
+cat: UE 剖析
 date: 2026-05-27
 mins: 9
 tags: [MegaLights, 性能优化]

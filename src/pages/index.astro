@@ -9,8 +9,8 @@ const cnt = (c: string, empty = '筹备中') => (counts[c] ? `${counts[c]} 篇` 
 const tagCounts: Record<string, number> = {};
 for (const p of posts) for (const t of p.data.tags) tagCounts[t] = (tagCounts[t] || 0) + 1;
 const tagList = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
-/* 时间线按真实文章分布计算：技术四类占满一帧 16.67ms，异步轨按 AI/生活占比 */
-const TECH = ['渲染管线', '引擎剖析', '角色技术', '读渲染'];
+/* 时间线按真实文章分布计算：技术三类占满一帧 16.67ms，异步轨按 AI/生活占比 */
+const TECH = ['UE 剖析', '角色技术', '读渲染'];
 const techTotal = TECH.reduce((s, c) => s + (counts[c] || 0), 0) || 1;
 const pct = (c: string) => (((counts[c] || 0) / techTotal) * 100).toFixed(1);
 const ms = (c: string) => (((counts[c] || 0) / techTotal) * 16.67).toFixed(1);
@@ -19,7 +19,7 @@ const lifeN = counts['音乐与生活'] || 0;
 const aiPct = aiN + lifeN ? ((aiN / (aiN + lifeN)) * 100).toFixed(1) : '50';
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  '渲染管线': '--c-render', '引擎剖析': '--c-engine', '角色技术': '--c-char',
+  'UE 剖析': '--c-render', '角色技术': '--c-char',
   '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
 ---
@@ -37,13 +37,12 @@ const CAT_SW: Record<string, string> = {
     主线程跑 UE5 引擎剖析、实时渲染与角色技术；异步线程跑深度学习、脑机接口，和管弦乐 ——
     记录踩过的坑、读过的 paper，和帧预算之外的生活。</p>
 
-    <div class="frame" role="img" aria-label="以 GPU 帧时间线呈现的四个内容专栏">
+    <div class="frame" role="img" aria-label="以 GPU 帧时间线呈现的内容分布">
       <div class="frame-head mono">
         <span>本站内容分布 — GPU 轨道以一帧 16.67 ms 计</span>
       </div>
       <div class="track">
-        <div class="seg" style={`width:${pct('渲染管线')}%; background:var(--c-render);`}></div>
-        <div class="seg" style={`width:${pct('引擎剖析')}%; background:var(--c-engine);`}></div>
+        <div class="seg" style={`width:${pct('UE 剖析')}%; background:var(--c-render);`}></div>
         <div class="seg" style={`width:${pct('角色技术')}%; background:var(--c-char);`}></div>
         <div class="seg" style={`width:${pct('读渲染')}%; background:var(--c-tool);`}></div>
       </div>
@@ -52,8 +51,7 @@ const CAT_SW: Record<string, string> = {
         <div class="seg" style={`width:${100 - Number(aiPct)}%; background:var(--c-life);`}></div>
       </div>
       <div class="legend mono">
-        <div class="row"><span class="sw" style="background:var(--c-render);"></span><b>渲染管线</b><span class="ms">{ms('渲染管线')} ms · {counts['渲染管线'] || 0} 篇</span></div>
-        <div class="row"><span class="sw" style="background:var(--c-engine);"></span><b>引擎剖析</b><span class="ms">{ms('引擎剖析')} ms · {counts['引擎剖析'] || 0} 篇</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-render);"></span><b>UE 剖析</b><span class="ms">{ms('UE 剖析')} ms · {counts['UE 剖析'] || 0} 篇</span></div>
         <div class="row"><span class="sw" style="background:var(--c-char);"></span><b>角色技术</b><span class="ms">{ms('角色技术')} ms · {counts['角色技术'] || 0} 篇</span></div>
         <div class="row"><span class="sw" style="background:var(--c-tool);"></span><b>读渲染</b><span class="ms">{ms('读渲染')} ms · {counts['读渲染'] || 0} 篇</span></div>
         <div class="row"><span class="sw" style="background:var(--c-ai);"></span><b>AI 与认知</b><span class="ms">async · {aiN} 篇</span></div>
@@ -64,22 +62,16 @@ const CAT_SW: Record<string, string> = {
 
   <section>
     <div class="sec-head">
-      <h2 id="series">专栏</h2><span class="k mono">SERIES / 06</span>
+      <h2 id="series">专栏</h2><span class="k mono">SERIES / 05</span>
       <span class="rule"></span>
       <a class="more mono" href="/archive/">归档 →</a>
     </div>
     <div class="cols">
-      <a class="col-card" href="/cat/渲染管线/">
-        <div class="col-tag mono"><span class="sw" style="background:var(--c-render);"></span>RENDERING</div>
-        <h3>渲染管线</h3>
-        <p>MegaLights、Nanite、毛发渲染 —— 实时渲染管线的机制拆解，与主机帧预算内的实战。</p>
-        <div class="n mono">{cnt("渲染管线")}</div>
-      </a>
-      <a class="col-card" href="/cat/引擎剖析/">
-        <div class="col-tag mono"><span class="sw" style="background:var(--c-engine);"></span>ENGINE</div>
-        <h3>引擎剖析</h3>
-        <p>引擎源码级分析与定制分支手记：几何切割算法、Mass 框架、序列化机制、升级合并踩坑。</p>
-        <div class="n mono">{cnt("引擎剖析")}</div>
+      <a class="col-card" href="/cat/UE 剖析/">
+        <div class="col-tag mono"><span class="sw" style="background:var(--c-render);"></span>UE INTERNALS</div>
+        <h3>UE 剖析</h3>
+        <p>从 MegaLights、Nanite、毛发渲染，到几何切割、Mass 框架、序列化机制 —— UE 源码级的拆解与实战，标签细分方向。</p>
+        <div class="n mono">{cnt("UE 剖析")}</div>
       </a>
       <a class="col-card" href="/cat/角色技术/">
         <div class="col-tag mono"><span class="sw" style="background:var(--c-char);"></span>CHARACTER</div>

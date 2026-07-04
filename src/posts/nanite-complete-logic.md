@@ -1,6 +1,6 @@
 ---
 title: "Nanite 完整逻辑"
-cat: 渲染管线
+cat: UE 剖析
 date: 2026-01-20
 mins: 26
 tags: [Nanite, 几何管线]

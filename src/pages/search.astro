@@ -4,7 +4,7 @@ import { getCollection } from 'astro:content';
 
 const posts = (await getCollection('posts')).sort((a, b) => +b.data.date - +a.data.date);
 const CAT_SW: Record<string, string> = {
-  '渲染管线': '--c-render', '引擎剖析': '--c-engine', '角色技术': '--c-char',
+  'UE 剖析': '--c-render', '角色技术': '--c-char',
   '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
 const idx = posts.map((p) => {

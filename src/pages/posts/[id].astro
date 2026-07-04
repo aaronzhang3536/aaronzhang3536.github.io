@@ -20,7 +20,7 @@ const { Content, headings } = await render(post);
 const toc = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  '渲染管线': '--c-render', '引擎剖析': '--c-engine', '角色技术': '--c-char',
+  'UE 剖析': '--c-render', '角色技术': '--c-char',
   '读渲染': '--c-tool', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
 };
 ---

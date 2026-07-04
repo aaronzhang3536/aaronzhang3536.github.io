@@ -1,6 +1,6 @@
 ---
 title: "PlaneCut 调用堆栈：Keep Both Halves 配置"
-cat: 引擎剖析
+cat: UE 剖析
 date: 2026-05-20
 mins: 10
 tags: [几何处理, 调用栈]

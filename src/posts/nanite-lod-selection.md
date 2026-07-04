@@ -1,6 +1,6 @@
 ---
 title: "Nanite LOD 选择逻辑"
-cat: 渲染管线
+cat: UE 剖析
 date: 2026-05-27
 mins: 22
 tags: [Nanite, LOD]
