@@ -5,6 +5,8 @@ const demos = [
   { href: '/lab/path-tracer/', sw: '--c-tool', name: '路径追踪 Cornell Box', desc: 'compute 逐像素路径追踪，累积渐进收敛，可拖拽环绕', tag: 'WebGPU', live: true },
   { href: '/lab/fluid/', sw: '--c-char', name: '2D 流体模拟', desc: 'Stable Fluids：平流 + Jacobi 压力投影 + 涡量约束，鼠标搅动', tag: 'WebGPU', live: true },
   { href: '/lab/fluid3d/', sw: '--c-engine', name: '3D 流体（烟雾）', desc: '三维欧拉网格 + 浮力/涡量约束，体积光线步进渲染自阴影烟雾', tag: 'WebGPU', live: true },
+  { href: '/lab/water3d/', sw: '--c-char', name: '3D 水体（SPH）', desc: '拉格朗日粒子流体：空间哈希邻居搜索 + 压力/粘性，拖拽搅水', tag: 'WebGPU', live: true },
+  { href: '/lab/cloth/', sw: '--c-render', name: '布料试验场', desc: 'XPBD / PBD / 质点弹簧三种解算器热切换，五种场景，抓取拖拽', tag: 'WebGPU', live: true },
   { sw: '--c-ai', name: 'Radiance Cascades GI', desc: '级联辐射度全局光照的 2D 实现', tag: 'WebGPU', live: false },
   { sw: '--c-engine', name: 'Nanite-like Meshlet', desc: 'GPU 驱动剔除 + 软件光栅可见性缓冲', tag: 'WebGPU', live: false },
 ];

@@ -1,0 +1,72 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="布料试验场" desc="裸 WebGPU：XPBD / PBD / 质点弹簧三种布料解算器，五种场景，全参数可调">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">布料试验场</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-render);"></span>
+    <span>WebGPU · XPBD / PBD / 质点弹簧</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>算法
+      <select id="cl-algo">
+        <option value="xpbd" selected>XPBD</option>
+        <option value="pbd">PBD</option>
+        <option value="spring">质点弹簧</option>
+      </select>
+    </label>
+    <label>场景
+      <select id="cl-scene">
+        <option value="flag" selected>旗帜</option>
+        <option value="table">桌布落球</option>
+        <option value="curtain">帘幕</option>
+        <option value="net">渔网落球</option>
+        <option value="fall">自由飘落</option>
+      </select>
+    </label>
+    <label>分辨率
+      <select id="cl-res">
+        <option value="33">33×33</option>
+        <option value="49" selected>49×49</option>
+        <option value="65">65×65</option>
+      </select>
+    </label>
+    <button type="button" class="pie-btn" id="cl-reset">重置</button>
+  </div>
+  <div class="lab-ctl mono">
+    <label>迭代/子步 <input id="cl-iter" type="range" min="4" max="40" step="1" value="16" /> <b id="cl-iter-v">16</b></label>
+    <label>拉伸刚度 <input id="cl-stretch" type="range" min="0" max="1" step="0.01" value="0.85" /></label>
+    <label>弯曲刚度 <input id="cl-bend" type="range" min="0" max="1" step="0.01" value="0.4" /></label>
+    <label>阻尼 <input id="cl-damp" type="range" min="0" max="0.15" step="0.005" value="0.02" /></label>
+    <label>风力 <input id="cl-wind" type="range" min="0" max="3.5" step="0.1" value="1.6" /></label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    直接拽住布料拖动（点空白处则旋转视角，滚轮推拉）。三种解算器可以在同一
+    场景里热切换对比：<b>XPBD</b> 用柔度（compliance）表达材质，刚度与迭代数
+    解耦，是目前游戏引擎的主流；<b>PBD</b> 是它的前身，刚度会随迭代数漂移
+    ——把迭代拉高试试，布会明显变硬；<b>质点弹簧</b>是最老的显式做法，
+    刚度拉满会看到经典的数值爆炸（重置即恢复）。约束按图着色分成 20 个
+    无冲突组，组内在 GPU 上并行做 Gauss-Seidel 投影。正反异色 + 条纹
+    帮你看清褶皱走向；渔网场景只保留结构约束、以线框渲染。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码（核心 kernel）</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/cloth.js';
+</script>
