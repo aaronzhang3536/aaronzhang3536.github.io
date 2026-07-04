@@ -1,0 +1,58 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="双摆混沌" desc="几千个初始条件几乎相同的双摆，看混沌何时让它们分道扬镳">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">双摆混沌系综</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-ai);"></span>
+    <span>WebGPU · 混沌与蝴蝶效应</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>数量
+      <select id="dp-n">
+        <option value="1024">1,024</option>
+        <option value="4096" selected>4,096</option>
+        <option value="16384">16,384</option>
+      </select>
+    </label>
+    <label>初始角 <input id="dp-ang" type="range" min="60" max="175" step="1" value="120" /></label>
+    <label>扰动 <input id="dp-eps" type="range" min="-9" max="-2" step="1" value="-7" /> <b id="dp-epsv"></b></label>
+    <label>时间流速 <input id="dp-speed" type="range" min="0.2" max="3" step="0.1" value="1" /></label>
+    <label>视图
+      <select id="dp-view">
+        <option value="0" selected>实空间（摆尖云）</option>
+        <option value="1">相空间（θ₂-ω₂）</option>
+      </select>
+    </label>
+    <button type="button" class="pie-btn" id="dp-reset">重放</button>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    这几千个双摆的初始角度只差 10⁻⁷ 弧度——比原子直径对应的摆角还小。
+    起初它们完全重叠成一个点，几秒钟后彩色的摆尖云突然炸开：这就是对初值
+    的敏感依赖，「蝴蝶效应」的可视化本体（白色亮线是 0 号摆本尊）。
+    每个摆用 RK4 积分真实的双摆动力学方程。试试把初始角调小到 60°——
+    小角度下系统近似线性，云几乎永远不散；120° 以上则是标准的混沌区。
+    切到<b>相空间</b>视图看 (θ₂, ω₂) 平面：混沌不是"乱"，轨迹仍被束缚在
+    有结构的区域里，只是永不重复。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码（RK4 动力学）</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/pendulum.js';
+</script>

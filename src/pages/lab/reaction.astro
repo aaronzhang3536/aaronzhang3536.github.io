@@ -1,0 +1,60 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="反应扩散" desc="Gray-Scott 反应扩散：两个方程长出斑点、条纹、珊瑚与迷宫">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">反应扩散（Gray-Scott）</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-life);"></span>
+    <span>WebGPU · 图灵斑图</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>形态
+      <select id="rd-preset">
+        <option value="coral" selected>珊瑚生长</option>
+        <option value="spots">斑点分裂</option>
+        <option value="maze">迷宫</option>
+        <option value="stripe">指纹条纹</option>
+        <option value="worms">蠕虫</option>
+        <option value="chaos">扰动混沌</option>
+      </select>
+    </label>
+    <label>F <input id="rd-f" type="range" min="0.010" max="0.090" step="0.001" value="0.058" /> <b id="rd-fv"></b></label>
+    <label>k <input id="rd-k" type="range" min="0.040" max="0.070" step="0.001" value="0.062" /> <b id="rd-kv"></b></label>
+    <label>速度 <input id="rd-speed" type="range" min="1" max="40" step="1" value="12" /></label>
+    <label>视图
+      <select id="rd-view">
+        <option value="0" selected>伪彩色</option>
+        <option value="1">U 浓度（底物）</option>
+        <option value="2">V 浓度（催化剂）</option>
+      </select>
+    </label>
+    <button type="button" class="pie-btn" id="rd-reset">重新播种</button>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    在画布上按住涂抹，亲手种下催化剂。这是图灵 1952 年提出的形态发生学模型
+    的经典实现：底物 U 不断补充（进料率 F），催化剂 V 消耗 U 自我复制
+    （U + 2V → 3V）又不断流失（移除率 k），两者以不同速度扩散。仅仅改变
+    F 和 k 两个数字，同一组方程就能长出斑点、条纹、珊瑚、迷宫——豹纹、
+    斑马纹、指纹的数学原型。拖动 F/k 滑块离开稳定区，看斑图当场融解。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/reaction.js';
+</script>

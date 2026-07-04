@@ -21,6 +21,14 @@ import Base from '../../layouts/Base.astro';
     <label>涡量 <input id="fl-vort" type="range" min="0" max="40" step="1" value="18" /></label>
     <label>染料保留 <input id="fl-keep" type="range" min="0.9" max="0.999" step="0.001" value="0.985" /></label>
     <label>笔刷半径 <input id="fl-rad" type="range" min="0.005" max="0.045" step="0.001" value="0.014" /></label>
+    <label>视图
+      <select id="fl-view">
+        <option value="0" selected>染料</option>
+        <option value="1">速度场（色相=方向）</option>
+        <option value="2">压力场</option>
+        <option value="3">涡量场</option>
+      </select>
+    </label>
   </div>
   <p style="max-width:800px; color:var(--ink2); font-size:14px;">
     在画布上划动搅动流体（颜色随速度流转），闲置几秒后它会自己泼墨。

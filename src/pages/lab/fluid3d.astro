@@ -28,6 +28,13 @@ import Base from '../../layouts/Base.astro';
         <option value="128">128×160×128</option>
       </select>
     </label>
+    <label>视图
+      <select id="f3-view">
+        <option value="0" selected>体积渲染</option>
+        <option value="1">密度切片（z=0.5）</option>
+        <option value="2">速度切片（RGB=XYZ）</option>
+      </select>
+    </label>
   </div>
   <p style="max-width:800px; color:var(--ink2); font-size:14px;">
     拖拽环绕、滚轮推拉。两股彩色烟从盒底绕圈上升，在浮力与涡量约束的作用下

@@ -49,6 +49,12 @@ import Base from '../../layouts/Base.astro';
     <label>弯曲刚度 <input id="cl-bend" type="range" min="0" max="1" step="0.01" value="0.4" /></label>
     <label>阻尼 <input id="cl-damp" type="range" min="0" max="0.15" step="0.005" value="0.02" /></label>
     <label>风力 <input id="cl-wind" type="range" min="0" max="3.5" step="0.1" value="1.6" /></label>
+    <label>视图
+      <select id="cl-view">
+        <option value="0" selected>材质</option>
+        <option value="1">应力热图（红拉伸/蓝压缩）</option>
+      </select>
+    </label>
   </div>
   <p style="max-width:800px; color:var(--ink2); font-size:14px;">
     直接拽住布料拖动（点空白处则旋转视角，滚轮推拉）。三种解算器可以在同一

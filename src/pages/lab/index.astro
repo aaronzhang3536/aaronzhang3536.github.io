@@ -6,7 +6,10 @@ const demos = [
   { href: '/lab/fluid/', sw: '--c-char', name: '2D 流体模拟', desc: 'Stable Fluids：平流 + Jacobi 压力投影 + 涡量约束，鼠标搅动', tag: 'WebGPU', live: true },
   { href: '/lab/fluid3d/', sw: '--c-engine', name: '3D 流体（烟雾）', desc: '三维欧拉网格 + 浮力/涡量约束，体积光线步进渲染自阴影烟雾', tag: 'WebGPU', live: true },
   { href: '/lab/water3d/', sw: '--c-char', name: '3D 水体（SPH）', desc: '拉格朗日粒子流体：空间哈希邻居搜索 + 压力/粘性，拖拽搅水', tag: 'WebGPU', live: true },
-  { href: '/lab/cloth/', sw: '--c-render', name: '布料试验场', desc: 'XPBD / PBD / 质点弹簧三种解算器热切换，五种场景，抓取拖拽', tag: 'WebGPU', live: true },
+  { href: '/lab/cloth/', sw: '--c-render', name: '布料试验场', desc: 'XPBD / PBD / 质点弹簧三种解算器热切换，五种场景，应力热图', tag: 'WebGPU', live: true },
+  { href: '/lab/cpu8/', sw: '--c-ai', name: '八位流水线 CPU', desc: '周期精确五级流水线：前递/停顿/冲刷，加法下沉到全加器进位涟漪', tag: '体系结构', live: true },
+  { href: '/lab/reaction/', sw: '--c-life', name: '反应扩散', desc: 'Gray-Scott 图灵斑图：改两个参数长出斑点、条纹、珊瑚、迷宫', tag: 'WebGPU', live: true },
+  { href: '/lab/pendulum/', sw: '--c-ai', name: '双摆混沌系综', desc: '上万个初值只差 10⁻⁷ 的双摆同时积分，看蝴蝶效应炸开', tag: 'WebGPU', live: true },
   { sw: '--c-ai', name: 'Radiance Cascades GI', desc: '级联辐射度全局光照的 2D 实现', tag: 'WebGPU', live: false },
   { sw: '--c-engine', name: 'Nanite-like Meshlet', desc: 'GPU 驱动剔除 + 软件光栅可见性缓冲', tag: 'WebGPU', live: false },
 ];

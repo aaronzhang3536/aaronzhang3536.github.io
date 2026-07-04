@@ -195,10 +195,11 @@ fn cs(@builtin(global_invocation_id) id: vec3u) {
    eye: xyz 相机, w tan(fov/2) · right: xyz, w aspect · up: xyz, w 步数
    fwd: xyz, w 密度倍率 · box: xyz 半长, w 时间 */
 const SHOW_WGSL = /* wgsl */ `
-struct RU { eye: vec4f, right: vec4f, up: vec4f, fwd: vec4f, box: vec4f };
+struct RU { eye: vec4f, right: vec4f, up: vec4f, fwd: vec4f, box: vec4f, d: vec4f };
 @group(0) @binding(0) var<uniform> ru: RU;
 @group(0) @binding(1) var den: texture_3d<f32>;
 @group(0) @binding(2) var samp: sampler;
+@group(0) @binding(3) var velT: texture_3d<f32>;
 
 struct VSOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 @vertex
@@ -228,8 +229,31 @@ fn hash2(v: vec2f) -> f32 {
   return fract(sin(dot(v, vec2f(12.9898, 78.233))) * 43758.5453);
 }
 
+/* 发散色标 */
+fn diverge(t: f32) -> vec3f {
+  let a = clamp(t, -1.0, 1.0);
+  if (a < 0.0) { return mix(vec3f(0.05, 0.06, 0.09), vec3f(0.15, 0.45, 0.95), -a); }
+  return mix(vec3f(0.05, 0.06, 0.09), vec3f(0.95, 0.30, 0.12), a);
+}
+
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f {
+  /* 剖析切片：穿过体积中心的 z=0.5 平面 */
+  let view = u32(ru.d.x);
+  if (view != 0u) {
+    let suv = vec3f(in.ndc.x * 0.5 + 0.5, in.ndc.y * 0.5 + 0.5, 0.5);
+    var c: vec3f;
+    if (view == 1u) {
+      let s = textureSampleLevel(den, samp, suv, 0.0);
+      let t = clamp(s.a * 0.55, 0.0, 1.0);
+      c = mix(vec3f(0.015, 0.02, 0.045), s.rgb / max(s.a, 1e-3), t) * max(t, 0.04);
+      c = mix(c, vec3f(0.95, 0.97, 0.9), smoothstep(0.75, 1.0, t));
+    } else {
+      let v = textureSampleLevel(velT, samp, suv, 0.0).xyz;
+      c = vec3f(diverge(v.x * 2.0).r, clamp(abs(v.y) * 1.6, 0.03, 1.0), diverge(v.z * 2.0).b);
+    }
+    return vec4f(pow(clamp(c, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2)), 1.0);
+  }
   let ro = ru.eye.xyz;
   let rd = normalize(ru.fwd.xyz
     + ru.right.xyz * in.ndc.x * ru.eye.w * ru.right.w
@@ -316,7 +340,7 @@ async function main() {
     addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', addressModeW: 'clamp-to-edge',
   });
   const fuBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const ruBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const ruBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
   const mkCP = (code) => device.createComputePipeline({
     layout: 'auto',
@@ -374,7 +398,7 @@ async function main() {
       jac: [bg(jacP, [pV[0], divV, pV[1]]), bg(jacP, [pV[1], divV, pV[0]])],
       sub: bg(subP, [vV[1], pV[0], vV[0]]),
       advDen: bg(advDenP, [fuR, dV[1], vV[0], samp, dV[0]]),
-      show: bg(showP, [{ buffer: ruBuf }, dV[0], samp]),
+      show: bg(showP, [{ buffer: ruBuf }, dV[0], samp, vV[0]]),
     };
   }
 
@@ -393,7 +417,7 @@ async function main() {
 
   /* 交互：拖拽环绕 + 滚轮推拉 */
   const $ = (id) => document.getElementById(id);
-  const ui = { buoy: $('f3-buoy'), vort: $('f3-vort'), inj: $('f3-inj'), grid: $('f3-grid') };
+  const ui = { buoy: $('f3-buoy'), vort: $('f3-vort'), inj: $('f3-inj'), grid: $('f3-grid'), view: $('f3-view') };
   let yaw = 0.5, pitch = 0.12, radius = 2.7;
   let dragging = false, px0 = 0, py0 = 0;
   cvs.addEventListener('pointerdown', (e) => {
@@ -417,7 +441,7 @@ async function main() {
 
   const HALF = [0.5, 0.66, 0.5];
   const fuArr = new Float32Array(20);
-  const ruArr = new Float32Array(20);
+  const ruArr = new Float32Array(24);
   let prev = 0, fps = 60;
 
   function loop(ts) {
@@ -457,6 +481,7 @@ async function main() {
     ruArr[8] = up[0]; ruArr[9] = up[1]; ruArr[10] = up[2]; ruArr[11] = 64;
     ruArr[12] = fwd[0]; ruArr[13] = fwd[1]; ruArr[14] = fwd[2]; ruArr[15] = 22;
     ruArr[16] = HALF[0]; ruArr[17] = HALF[1]; ruArr[18] = HALF[2]; ruArr[19] = t % 37;
+    ruArr[20] = parseInt((ui.view && ui.view.value) || '0', 10);
     device.queue.writeBuffer(ruBuf, 0, ruArr);
 
     const gx = Math.ceil(GW / 4), gy = Math.ceil(GH / 4), gz = Math.ceil(GD / 4);
