@@ -2484,11 +2484,669 @@
       };
     }
 
+    /* ---------- 摸鱼 · WebGPU 写实鱼缸 ---------- */
+    function fishTankGPU(stage) {
+      if (!navigator.gpu) return null;
+      var dead = false, innerCleanup = null, raf = null;
+      var W = Math.min(840, window.innerWidth - 60);
+      var H = Math.min(470, window.innerHeight - 230);
+      var touched = 0;
+      try { touched = parseInt(localStorage.getItem('yzzn-fish') || '0', 10); } catch (err) {}
+      stage.innerHTML =
+        '<div style="text-align:center;">' +
+          '<canvas id="f4d" style="border:1px solid var(--line); max-width:94vw;"></canvas>' +
+          '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">WebGPU 渲染 · 点水里撒饲料 · 点到鱼就是字面意义的摸鱼 · 移动鼠标环视</div>' +
+          '<div class="mono" id="f4d-n" style="font-size:12.5px; margin-top:6px; color:var(--ink);"></div>' +
+        '</div>';
+      var cvs = stage.querySelector('#f4d');
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      cvs.width = W * dpr; cvs.height = H * dpr;
+      cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+      var nEl = stage.querySelector('#f4d-n');
+      function hud() { if (nEl) nEl.textContent = '累计摸鱼 ' + touched + ' 次'; }
+      hud();
+
+      function fallback() {
+        if (dead) return;
+        var c = null;
+        try { c = fishTank3D(stage); } catch (err) { c = null; }
+        innerCleanup = c || fishTank2D(stage);
+      }
+
+      /* ---- 小工具（闭包内独立） ---- */
+      function cssRGB(name, fb) {
+        var v = getComputedStyle(document.body).getPropertyValue(name).trim();
+        if (!v || v === 'transparent') v = fb;
+        var m = v.match(/^#([0-9a-f]{6})$/i);
+        if (m) {
+          var n = parseInt(m[1], 16);
+          return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+        }
+        m = v.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+        if (m) return [+m[1] / 255, +m[2] / 255, +m[3] / 255];
+        return [1, 0.55, 0.2];
+      }
+      function mMulG(a, b) {
+        var o = new Float32Array(16);
+        for (var c = 0; c < 4; c++) for (var r = 0; r < 4; r++) {
+          o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+        }
+        return o;
+      }
+      function mPerspG(fovy, asp, n, f) {
+        var t = 1 / Math.tan(fovy / 2), o = new Float32Array(16);
+        o[0] = t / asp; o[5] = t; o[10] = f / (n - f); o[11] = -1; o[14] = f * n / (n - f);
+        return o;
+      }
+      function mLookG(eye, at) {
+        var zx = eye[0] - at[0], zy = eye[1] - at[1], zz = eye[2] - at[2];
+        var zl = Math.hypot(zx, zy, zz); zx /= zl; zy /= zl; zz /= zl;
+        var xx = -zz, xz = zx;                       /* up=(0,1,0) 的叉积简化 */
+        var xl = Math.hypot(xx, xz) || 1; xx /= xl; xz /= xl;
+        var yx = zy * xz, yy = zz * xx - zx * xz, yz = -zy * xx;
+        return new Float32Array([
+          xx, yx, zx, 0,
+          0, yy, zy, 0,
+          xz, yz, zz, 0,
+          -(xx * eye[0] + xz * eye[2]),
+          -(yx * eye[0] + yy * eye[1] + yz * eye[2]),
+          -(zx * eye[0] + zy * eye[1] + zz * eye[2]), 1
+        ]);
+      }
+
+      (async function init() {
+        var adapter = null, device = null;
+        try {
+          adapter = await navigator.gpu.requestAdapter();
+          if (adapter) device = await adapter.requestDevice();
+        } catch (err) { device = null; }
+        if (!device || dead) { fallback(); return; }
+
+        var ctx = cvs.getContext('webgpu');
+        var format = navigator.gpu.getPreferredCanvasFormat();
+        ctx.configure({ device: device, format: format, alphaMode: 'opaque' });
+        var depthTex = device.createTexture({
+          size: [W * dpr, H * dpr], format: 'depth24plus',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT
+        });
+        var depthView = depthTex.createView();
+
+        /* ---- WGSL ---- */
+        var MESH = ''
+          + 'struct G { vp: mat4x4f, eye: vec4f, fog: vec4f };\n'
+          + 'struct M { m: mat4x4f, color: vec4f, anim: vec4f };\n'
+          + '@group(0) @binding(0) var<uniform> g: G;\n'
+          + '@group(1) @binding(0) var<uniform> mdl: M;\n'
+          + 'struct VSI { @location(0) p: vec3f, @location(1) n: vec3f, @location(2) u: f32 };\n'
+          + 'struct VSO { @builtin(position) cp: vec4f, @location(0) n: vec3f, @location(1) w: vec3f,\n'
+          + '  @location(2) ly: f32, @location(3) u: f32, @location(4) fog: f32 };\n'
+          + '@vertex fn vs(in: VSI) -> VSO {\n'
+          + '  var p = in.p;\n'
+          + '  let t = g.eye.w;\n'
+          + '  p.z += sin(t * 5.0 + mdl.anim.y - in.u * 5.0) * mdl.anim.x * (0.12 + in.u * in.u * 0.9);\n'
+          + '  let w = mdl.m * vec4f(p, 1.0);\n'
+          + '  var o: VSO;\n'
+          + '  o.cp = g.vp * w;\n'
+          + '  o.n = (mdl.m * vec4f(in.n, 0.0)).xyz;\n'
+          + '  o.w = w.xyz;\n'
+          + '  o.ly = in.p.y;\n'
+          + '  o.u = in.u;\n'
+          + '  o.fog = clamp((distance(g.eye.xyz, w.xyz) - 5.0) / 11.0, 0.0, 1.0);\n'
+          + '  return o;\n'
+          + '}\n'
+          + 'fn caust(p: vec2f, t: f32) -> f32 {\n'
+          + '  var c = 0.5 + 0.5 * sin(p.x * 2.9 + t * 1.6) * sin(p.y * 2.6 - t * 1.1);\n'
+          + '  c += 0.5 + 0.5 * sin(p.x * 4.7 - t * 1.9) * sin(p.y * 3.9 + t * 1.4);\n'
+          + '  return pow(c * 0.5, 4.0) * 1.7;\n'
+          + '}\n'
+          + '@fragment fn fs(in: VSO) -> @location(0) vec4f {\n'
+          + '  if (g.fog.w > 0.5) { return vec4f(mdl.color.rgb, 1.0); }\n'
+          + '  let t = g.eye.w;\n'
+          + '  let n = normalize(in.n);\n'
+          + '  let v = normalize(g.eye.xyz - in.w);\n'
+          + '  let l = normalize(vec3f(0.3, 0.9, 0.25));\n'
+          + '  let diff = max(dot(n, l), 0.0);\n'
+          + '  let h = normalize(l + v);\n'
+          + '  var spec = pow(max(dot(n, h), 0.0), 80.0) * 0.6;\n'
+          + '  let fres = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.32;\n'
+          + '  var albedo = mdl.color.rgb;\n'
+          + '  if (mdl.color.w < 0.5) {\n'
+          + '    albedo = mix(albedo, vec3f(0.93, 0.95, 0.9), clamp(-in.ly * 3.5, 0.0, 1.0) * 0.4);\n'
+          + '    albedo *= 0.9 + 0.1 * sin(in.u * 30.0);\n'
+          + '  } else { spec *= 0.2; }\n'
+          + '  let ca = caust(in.w.xz * 1.3 - in.w.y * 0.35, t) * max(n.y, 0.12);\n'
+          + '  var c = albedo * (0.28 + 0.75 * diff) + vec3f(spec) + fres * (g.fog.rgb + 0.25);\n'
+          + '  c += ca * vec3f(0.35, 0.52, 0.58) * 0.6;\n'
+          + '  c = mix(c, g.fog.rgb, in.fog * 0.8);\n'
+          + '  return vec4f(c, 1.0);\n'
+          + '}\n';
+        var BG = ''
+          + 'struct B { ta: vec4f, tb: vec4f };\n'
+          + '@group(0) @binding(0) var<uniform> b: B;\n'
+          + 'struct O { @builtin(position) p: vec4f, @location(0) uv: vec2f };\n'
+          + '@vertex fn vs(@builtin(vertex_index) vi: u32) -> O {\n'
+          + '  var q = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));\n'
+          + '  var o: O;\n'
+          + '  o.p = vec4f(q[vi], 0.0, 1.0);\n'
+          + '  o.uv = q[vi] * vec2f(0.5, -0.5) + 0.5;\n'
+          + '  return o;\n'
+          + '}\n'
+          + '@fragment fn fs(in: O) -> @location(0) vec4f {\n'
+          + '  let t = b.ta.w;\n'
+          + '  let y = 1.0 - in.uv.y;\n'
+          + '  var c = mix(b.tb.rgb, b.ta.rgb, pow(y, 1.15));\n'
+          + '  if (b.tb.w < 0.5) {\n'
+          + '    let ca = sin(in.uv.x * 18.0 + t * 0.5) * sin(y * 13.0 - t * 0.7) * 0.5\n'
+          + '           + sin(in.uv.x * 9.0 - t * 0.3) * 0.5;\n'
+          + '    c += ca * 0.02 * y;\n'
+          + '    let b1 = exp(-pow((in.uv.x - 0.32 + sin(t * 0.07) * 0.06) * 7.0, 2.0));\n'
+          + '    let b2 = exp(-pow((in.uv.x - 0.66 + sin(t * 0.09 + 2.0) * 0.08) * 9.0, 2.0));\n'
+          + '    c += (b1 * 0.10 + b2 * 0.07) * vec3f(0.8, 0.95, 1.0) * pow(y, 1.6);\n'
+          + '    let d = in.uv - 0.5;\n'
+          + '    c *= 1.0 - dot(d, d) * 0.55;\n'
+          + '  }\n'
+          + '  return vec4f(c, 1.0);\n'
+          + '}\n';
+        var SPR = ''
+          + 'struct S { vp: mat4x4f, color: vec4f, misc: vec4f };\n'   /* misc: x aspect, y sizeK */
+          + '@group(0) @binding(0) var<uniform> s: S;\n'
+          + '@group(0) @binding(1) var<storage, read> pts: array<vec4f>;\n'
+          + 'struct O { @builtin(position) p: vec4f, @location(0) uv: vec2f };\n'
+          + '@vertex fn vs(@builtin(vertex_index) vi: u32) -> O {\n'
+          + '  var q = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),\n'
+          + '    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));\n'
+          + '  let pt = pts[vi / 6u];\n'
+          + '  let c = q[vi % 6u];\n'
+          + '  var clip = s.vp * vec4f(pt.xyz, 1.0);\n'
+          + '  clip = vec4f(clip.xy + c * pt.w * s.misc.y * vec2f(1.0, s.misc.x), clip.zw);\n'
+          + '  var o: O;\n'
+          + '  o.p = clip;\n'
+          + '  o.uv = c;\n'
+          + '  return o;\n'
+          + '}\n'
+          + '@fragment fn fs(in: O) -> @location(0) vec4f {\n'
+          + '  let r = dot(in.uv, in.uv);\n'
+          + '  if (r > 1.0) { discard; }\n'
+          + '  let a = (1.0 - smoothstep(0.35, 1.0, r)) * s.color.a;\n'
+          + '  return vec4f(s.color.rgb, a);\n'
+          + '}\n';
+
+        var meshMod = device.createShaderModule({ code: MESH });
+        var bgMod = device.createShaderModule({ code: BG });
+        var sprMod = device.createShaderModule({ code: SPR });
+
+        var gBGL = device.createBindGroupLayout({
+          entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
+        });
+        var mBGL = device.createBindGroupLayout({
+          entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 96 } }]
+        });
+        var meshLayout = device.createPipelineLayout({ bindGroupLayouts: [gBGL, mBGL] });
+        function meshPipe(topology) {
+          return device.createRenderPipeline({
+            layout: meshLayout,
+            vertex: {
+              module: meshMod, entryPoint: 'vs',
+              buffers: [{
+                arrayStride: 28,
+                attributes: [
+                  { shaderLocation: 0, offset: 0, format: 'float32x3' },
+                  { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                  { shaderLocation: 2, offset: 24, format: 'float32' },
+                ],
+              }],
+            },
+            fragment: { module: meshMod, entryPoint: 'fs', targets: [{ format: format }] },
+            primitive: { topology: topology, cullMode: 'none' },
+            depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+          });
+        }
+        var pipeTri = meshPipe('triangle-list');
+        var pipeLine = meshPipe('line-list');
+        var bgPipe = device.createRenderPipeline({
+          layout: 'auto',
+          vertex: { module: bgMod, entryPoint: 'vs' },
+          fragment: { module: bgMod, entryPoint: 'fs', targets: [{ format: format }] },
+          primitive: { topology: 'triangle-list' },
+          depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'always' },
+        });
+        var sprPipe = device.createRenderPipeline({
+          layout: 'auto',
+          vertex: { module: sprMod, entryPoint: 'vs' },
+          fragment: {
+            module: sprMod, entryPoint: 'fs',
+            targets: [{
+              format: format,
+              blend: {
+                color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+              },
+            }],
+          },
+          primitive: { topology: 'triangle-list' },
+          depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+        });
+
+        /* ---- 几何 ---- */
+        function mesh(pos, nrm, us, idx) {
+          var n = us.length, inter = new Float32Array(n * 7);
+          for (var i = 0; i < n; i++) {
+            inter[i * 7] = pos[i * 3]; inter[i * 7 + 1] = pos[i * 3 + 1]; inter[i * 7 + 2] = pos[i * 3 + 2];
+            inter[i * 7 + 3] = nrm[i * 3]; inter[i * 7 + 4] = nrm[i * 3 + 1]; inter[i * 7 + 5] = nrm[i * 3 + 2];
+            inter[i * 7 + 6] = us[i];
+          }
+          var edges = {}, lines = [];
+          for (var e = 0; e < idx.length; e += 3) {
+            var tri = [[idx[e], idx[e + 1]], [idx[e + 1], idx[e + 2]], [idx[e + 2], idx[e]]];
+            for (var k = 0; k < 3; k++) {
+              var key = Math.min(tri[k][0], tri[k][1]) + '_' + Math.max(tri[k][0], tri[k][1]);
+              if (!edges[key]) { edges[key] = 1; lines.push(tri[k][0], tri[k][1]); }
+            }
+          }
+          function ib(arr) {
+            var b = device.createBuffer({ size: (arr.length * 2 + 3) & ~3, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+            device.queue.writeBuffer(b, 0, new Uint16Array(arr));
+            return b;
+          }
+          var vb = device.createBuffer({ size: inter.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+          device.queue.writeBuffer(vb, 0, inter);
+          return { vb: vb, ti: ib(idx), li: ib(lines), nT: idx.length, nL: lines.length };
+        }
+        function norm3(x, y, z) { var l = Math.sqrt(x * x + y * y + z * z) || 1; return [x / l, y / l, z / l]; }
+        function buildFish() {
+          var SEG = 12, RING = 10, pos = [], nrm = [], us = [], idx = [];
+          for (var i = 0; i <= SEG; i++) {
+            var u = i / SEG, x = 0.55 - u * 1.1;
+            var r = Math.sin(Math.min(u * 1.25, 1) * Math.PI);
+            var ry = 0.02 + 0.20 * r, rz = 0.02 + 0.085 * r;
+            for (var j = 0; j < RING; j++) {
+              var a = j / RING * Math.PI * 2, cy = Math.cos(a), sz = Math.sin(a);
+              pos.push(x, cy * ry, sz * rz);
+              var nn = norm3(0, cy / Math.max(ry, 0.02), sz / Math.max(rz, 0.02));
+              nrm.push(nn[0], nn[1], nn[2]);
+              us.push(u);
+            }
+          }
+          for (var i2 = 0; i2 < SEG; i2++) for (var j2 = 0; j2 < RING; j2++) {
+            var a0 = i2 * RING + j2, b0 = i2 * RING + (j2 + 1) % RING;
+            idx.push(a0, a0 + RING, b0, b0, a0 + RING, b0 + RING);
+          }
+          var base = pos.length / 3;
+          [[-0.55, 0, 0, 1.0], [-0.88, 0.24, 0, 1.35], [-0.88, -0.24, 0, 1.35], [-0.72, 0, 0, 1.15]].forEach(function (t2) {
+            pos.push(t2[0], t2[1], t2[2]); nrm.push(0, 0, 1); us.push(t2[3]);
+          });
+          idx.push(base, base + 1, base + 3, base, base + 3, base + 2);
+          var b2 = pos.length / 3;
+          [[0.16, 0.15, 0, 0.35], [-0.08, 0.30, 0, 0.55], [-0.18, 0.15, 0, 0.6]].forEach(function (t2) {
+            pos.push(t2[0], t2[1], t2[2]); nrm.push(0, 0, 1); us.push(t2[3]);
+          });
+          idx.push(b2, b2 + 1, b2 + 2);
+          return mesh(pos, nrm, us, idx);
+        }
+        function buildRibbon() {
+          var SEG = 9, w = 0.09, pos = [], nrm = [], us = [], idx = [];
+          for (var i = 0; i <= SEG; i++) {
+            var u = i / SEG;
+            pos.push(-w * (1 - u * 0.6), u, 0, w * (1 - u * 0.6), u, 0);
+            nrm.push(0, 0, 1, 0, 0, 1);
+            us.push(u, u);
+          }
+          for (var s2 = 0; s2 < SEG; s2++) {
+            var o = s2 * 2;
+            idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
+          }
+          return mesh(pos, nrm, us, idx);
+        }
+        var asp = W / H;
+        var TANK = { x: Math.max(3.4, 2.6 * asp), y: 2.2, z: 2.1 };
+        function buildFloor() {
+          var tx = TANK.x + 1.6, tz = TANK.z + 1.3;
+          return mesh(
+            [-tx, 0, -tz, tx, 0, -tz, tx, 0, tz, -tx, 0, tz],
+            [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+            [0, 0, 0, 0], [0, 2, 1, 0, 3, 2]);
+        }
+        var fishMesh = buildFish(), weedMesh = buildRibbon(), floorMesh = buildFloor();
+
+        /* ---- uniform / 场景数据 ---- */
+        var gUB = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        var gBG = device.createBindGroup({ layout: gBGL, entries: [{ binding: 0, resource: { buffer: gUB } }] });
+        var SLOTS = 1 + 9 + 8;
+        var mUB = device.createBuffer({ size: SLOTS * 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        var mBG = device.createBindGroup({
+          layout: mBGL,
+          entries: [{ binding: 0, resource: { buffer: mUB, size: 96 } }]
+        });
+        var mData = new Float32Array(SLOTS * 64);
+        var bgUB = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        var bgBG = device.createBindGroup({ layout: bgPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: bgUB } }] });
+        function sprSet(maxN) {
+          var ub = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+          var sb = device.createBuffer({ size: maxN * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+          return {
+            ub: ub, sb: sb, max: maxN,
+            bg: device.createBindGroup({
+              layout: sprPipe.getBindGroupLayout(0),
+              entries: [
+                { binding: 0, resource: { buffer: ub } },
+                { binding: 1, resource: { buffer: sb } },
+              ],
+            }),
+          };
+        }
+        var sprSh = sprSet(16), sprMote = sprSet(80), sprFood = sprSet(20), sprBub = sprSet(80);
+        var sprU = new Float32Array(24);
+
+        var palette = [
+          cssRGB('--c-render', '#d96a60'), cssRGB('--c-tool', '#cfa23a'),
+          cssRGB('--c-char', '#6b99d8'), cssRGB('--c-ai', '#9d86d9'),
+          cssRGB('--c-life', '#cf7fa0'), cssRGB('--accent', '#ff8a1e')
+        ];
+        var fishes = [];
+        for (var fi = 0; fi < 8; fi++) {
+          fishes.push({
+            p: [(Math.random() * 2 - 1) * TANK.x * 0.7, (Math.random() * 2 - 1) * TANK.y * 0.6, (Math.random() * 2 - 1) * TANK.z * 0.6],
+            yaw: Math.random() * 6.28, pitch: 0,
+            spd: 0.6 + Math.random() * 0.6, s: 0.55 + Math.random() * 0.55,
+            c: palette[fi % palette.length], ph: Math.random() * 6.28, burst: 0
+          });
+        }
+        var weeds = [];
+        for (var wi = 0; wi < 9; wi++) {
+          weeds.push({
+            x: (Math.random() * 2 - 1) * TANK.x * 0.9,
+            z: -TANK.z * 0.3 - Math.random() * TANK.z * 0.6,
+            h: 1.1 + Math.random() * 1.6, ph: Math.random() * 6.28
+          });
+        }
+        var motes = [];
+        for (var mo = 0; mo < 70; mo++) {
+          motes.push({
+            p: [(Math.random() * 2 - 1) * TANK.x, (Math.random() * 2 - 1) * TANK.y, (Math.random() * 2 - 1) * TANK.z],
+            ph: Math.random() * 6.28, s: 0.012 + Math.random() * 0.018
+          });
+        }
+        var foods = [], bubbles = [];
+        var camYaw = 0, camPitch = 0, tYaw = 0, tPitch = 0;
+        var camDist = 8.6, camY = 0.35, FOV = 0.8;
+        var projM = mPerspG(FOV, asp, 0.5, 40);
+        var viewM = null, vpM = null;
+        var wire = false, wireCol = [0.32, 0.78, 0.9];
+        var water = null;
+        function refreshTheme() {
+          wire = document.body.classList.contains('vm-wire');
+          wireCol = cssRGB('--wire', '#52c8e6');
+          var bgc = cssRGB('--bg', '#101418');
+          var lum = bgc[0] * 0.3 + bgc[1] * 0.6 + bgc[2] * 0.1;
+          water = lum < 0.5
+            ? { top: [0.07, 0.24, 0.33], bot: [0.008, 0.045, 0.09], fog: [0.03, 0.10, 0.16], floor: [0.30, 0.26, 0.19], weed: [0.13, 0.38, 0.22] }
+            : { top: [0.62, 0.84, 0.92], bot: [0.22, 0.47, 0.60], fog: [0.45, 0.66, 0.76], floor: [0.74, 0.67, 0.50], weed: [0.22, 0.52, 0.30] };
+        }
+        refreshTheme();
+        function blendAngle(a, b, k) {
+          var d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+          return a + d * Math.min(1, k);
+        }
+
+        /* ---- 交互 ---- */
+        function onMove(e) {
+          var r = cvs.getBoundingClientRect();
+          tYaw = ((e.clientX - r.left) / r.width - 0.5) * 0.22;
+          tPitch = ((e.clientY - r.top) / r.height - 0.5) * 0.14;
+        }
+        function touch(i) {
+          touched++;
+          try { localStorage.setItem('yzzn-fish', String(touched)); } catch (err) {}
+          hud();
+          var f = fishes[i];
+          f.burst = 1.4;
+          f.yaw += Math.PI * (0.7 + Math.random() * 0.6);
+          for (var b = 0; b < 5; b++) {
+            bubbles.push({ p: [f.p[0], f.p[1], f.p[2]], v: 0.7 + Math.random() * 0.7, s: 0.03 + Math.random() * 0.04, ph: Math.random() * 6 });
+          }
+        }
+        function onClick(e) {
+          var r = cvs.getBoundingClientRect();
+          var nx = ((e.clientX - r.left) / r.width) * 2 - 1;
+          var ny = -(((e.clientY - r.top) / r.height) * 2 - 1);
+          if (vpM) {
+            var best = -1, bd = 1e9;
+            for (var i = 0; i < fishes.length; i++) {
+              var f = fishes[i];
+              var x = f.p[0], y = f.p[1], z = f.p[2];
+              var cw = vpM[3] * x + vpM[7] * y + vpM[11] * z + vpM[15];
+              if (cw <= 0.1) continue;
+              var cx = (vpM[0] * x + vpM[4] * y + vpM[8] * z + vpM[12]) / cw;
+              var cy = (vpM[1] * x + vpM[5] * y + vpM[9] * z + vpM[13]) / cw;
+              var dx = cx - nx, dy = cy - ny;
+              var rr = 1.1 * f.s / cw;
+              if (dx * dx + dy * dy < rr * rr && cw < bd) { bd = cw; best = i; }
+            }
+            if (best >= 0) { touch(best); return; }
+          }
+          var th = Math.tan(FOV / 2);
+          var wx = nx * th * asp * camDist;
+          var wy = ny * th * camDist + camY;
+          wx = Math.max(-TANK.x * 0.9, Math.min(TANK.x * 0.9, wx));
+          wy = Math.min(TANK.y - 0.15, Math.max(-TANK.y * 0.5, wy));
+          foods.push({ p: [wx, wy, (Math.random() * 2 - 1) * TANK.z * 0.4], vy: -0.55, life: 25 });
+          if (foods.length > 14) foods.shift();
+        }
+        cvs.addEventListener('mousemove', onMove);
+        cvs.addEventListener('click', onClick);
+
+        /* ---- 帧循环 ---- */
+        function slot(i, model, color, matType, amp, ph) {
+          var o = i * 64;
+          mData.set(model, o);
+          mData[o + 16] = color[0]; mData[o + 17] = color[1]; mData[o + 18] = color[2]; mData[o + 19] = matType;
+          mData[o + 20] = amp; mData[o + 21] = ph;
+        }
+        function mModel(x, y, z, yaw, pitch, s) {
+          var cyw = Math.cos(-yaw), syw = Math.sin(-yaw);
+          var cp = Math.cos(pitch), sp = Math.sin(pitch);
+          /* T * RY(-yaw) * RZ(pitch) * S，列主序展开 */
+          return new Float32Array([
+            cyw * cp * s, sp * s, -syw * cp * s, 0,
+            -cyw * sp * s, cp * s, syw * sp * s, 0,
+            syw * s, 0, cyw * s, 0,
+            x, y, z, 1
+          ]);
+        }
+        var prev = 0, frame = 0;
+        function loop(ts) {
+          if (dead || !cvs.isConnected) return;
+          raf = requestAnimationFrame(loop);
+          var dt = Math.min((ts - prev) / 1000, 0.05);
+          prev = ts;
+          var t = ts / 1000;
+          if (++frame % 90 === 0) refreshTheme();
+
+          camYaw += (tYaw - camYaw) * 2.5 * dt;
+          camPitch += (tPitch - camPitch) * 2.5 * dt;
+          var eye = [
+            Math.sin(camYaw) * Math.cos(camPitch) * camDist,
+            camY + Math.sin(camPitch) * camDist,
+            Math.cos(camYaw) * Math.cos(camPitch) * camDist
+          ];
+          viewM = mLookG(eye, [0, 0, 0]);
+          vpM = mMulG(projM, viewM);
+
+          /* 行为（与 WebGL 版一致） */
+          for (var i = 0; i < fishes.length; i++) {
+            var f = fishes[i];
+            f.burst = Math.max(0, f.burst - dt);
+            var sp2 = f.spd * (1 + f.burst * 2.6);
+            var tgt = null, td = 1e9;
+            for (var fo = 0; fo < foods.length; fo++) {
+              var fd = foods[fo];
+              var ddx = fd.p[0] - f.p[0], ddy = fd.p[1] - f.p[1], ddz = fd.p[2] - f.p[2];
+              var d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+              if (d2 < td) { td = d2; tgt = fd; }
+            }
+            if (tgt && f.burst <= 0) {
+              f.yaw = blendAngle(f.yaw, Math.atan2(tgt.p[2] - f.p[2], tgt.p[0] - f.p[0]), 3 * dt);
+              var horiz = Math.sqrt(Math.pow(tgt.p[0] - f.p[0], 2) + Math.pow(tgt.p[2] - f.p[2], 2));
+              f.pitch += (Math.atan2(tgt.p[1] - f.p[1], horiz + 0.001) - f.pitch) * 3 * dt;
+              if (td < 0.12) {
+                foods.splice(foods.indexOf(tgt), 1);
+                f.s = Math.min(f.s + 0.03, 1.4);
+                bubbles.push({ p: [f.p[0], f.p[1], f.p[2]], v: 0.8, s: 0.04, ph: 0 });
+              }
+            } else {
+              f.yaw += (Math.random() - 0.5) * 1.6 * dt;
+              f.pitch += ((Math.random() - 0.5) * 0.5 - f.pitch * 0.4) * dt;
+            }
+            var mgn = 0.82;
+            if (Math.abs(f.p[0]) > TANK.x * mgn || Math.abs(f.p[2]) > TANK.z * mgn) {
+              f.yaw = blendAngle(f.yaw, Math.atan2(-f.p[2], -f.p[0]), 2.2 * dt);
+            }
+            if (Math.abs(f.p[1]) > TANK.y * mgn) {
+              f.pitch += (-Math.sign(f.p[1]) * 0.5 - f.pitch) * 3 * dt;
+            }
+            f.pitch = Math.max(-0.6, Math.min(0.6, f.pitch));
+            var cp2 = Math.cos(f.pitch);
+            f.p[0] += Math.cos(f.yaw) * cp2 * sp2 * dt;
+            f.p[1] += Math.sin(f.pitch) * sp2 * dt;
+            f.p[2] += Math.sin(f.yaw) * cp2 * sp2 * dt;
+            f.p[0] = Math.max(-TANK.x, Math.min(TANK.x, f.p[0]));
+            f.p[1] = Math.max(-TANK.y + 0.15, Math.min(TANK.y, f.p[1]));
+            f.p[2] = Math.max(-TANK.z, Math.min(TANK.z, f.p[2]));
+          }
+          for (var fo2 = foods.length - 1; fo2 >= 0; fo2--) {
+            var fd2 = foods[fo2];
+            fd2.life -= dt;
+            if (fd2.p[1] > -TANK.y + 0.1) fd2.p[1] += fd2.vy * dt;
+            if (fd2.life <= 0) foods.splice(fo2, 1);
+          }
+          if (Math.random() < dt * 0.7) {
+            bubbles.push({ p: [(Math.random() * 2 - 1) * TANK.x * 0.8, -TANK.y + 0.2, (Math.random() * 2 - 1) * TANK.z * 0.7], v: 0.5 + Math.random() * 0.6, s: 0.02 + Math.random() * 0.04, ph: Math.random() * 6 });
+          }
+          for (var bb = bubbles.length - 1; bb >= 0; bb--) {
+            var bub = bubbles[bb];
+            bub.p[1] += bub.v * dt;
+            bub.p[0] += Math.sin(t * 3 + bub.ph) * 0.15 * dt;
+            if (bub.p[1] > TANK.y + 0.2) bubbles.splice(bb, 1);
+          }
+          for (var mo2 = 0; mo2 < motes.length; mo2++) {
+            var mt = motes[mo2];
+            mt.p[0] += Math.sin(t * 0.3 + mt.ph) * 0.03 * dt;
+            mt.p[1] += Math.cos(t * 0.2 + mt.ph * 1.7) * 0.04 * dt + 0.01 * dt;
+            if (mt.p[1] > TANK.y) mt.p[1] = -TANK.y + 0.2;
+          }
+
+          /* uniforms */
+          var gArr = new Float32Array(24);
+          gArr.set(vpM, 0);
+          gArr[16] = eye[0]; gArr[17] = eye[1]; gArr[18] = eye[2]; gArr[19] = t;
+          gArr[20] = water.fog[0]; gArr[21] = water.fog[1]; gArr[22] = water.fog[2]; gArr[23] = wire ? 1 : 0;
+          device.queue.writeBuffer(gUB, 0, gArr);
+
+          slot(0, mModel(0, -TANK.y, 0, 0, 0, 1), wire ? wireCol : water.floor, 1, 0, 0);
+          for (var wv = 0; wv < weeds.length; wv++) {
+            var wd = weeds[wv];
+            var wm = mModel(wd.x, -TANK.y, wd.z, -wd.ph, 0, wd.h);
+            slot(1 + wv, wm, wire ? wireCol : water.weed, 2, 0.35, wd.ph + t * 0.15);
+          }
+          for (var df = 0; df < fishes.length; df++) {
+            var ff = fishes[df];
+            slot(10 + df, mModel(ff.p[0], ff.p[1], ff.p[2], ff.yaw, ff.pitch, ff.s),
+              wire ? wireCol : ff.c, 0, 0.10 + ff.burst * 0.10, ff.ph);
+          }
+          device.queue.writeBuffer(mUB, 0, mData);
+
+          var bgArr = new Float32Array(8);
+          var topC = wire ? [0.02, 0.03, 0.04] : water.top;
+          var botC = wire ? [0.02, 0.03, 0.04] : water.bot;
+          bgArr[0] = topC[0]; bgArr[1] = topC[1]; bgArr[2] = topC[2]; bgArr[3] = t;
+          bgArr[4] = botC[0]; bgArr[5] = botC[1]; bgArr[6] = botC[2]; bgArr[7] = wire ? 1 : 0;
+          device.queue.writeBuffer(bgUB, 0, bgArr);
+
+          function fillSpr(set, list, color) {
+            var n = Math.min(list.length / 4, set.max);
+            if (n > 0) device.queue.writeBuffer(set.sb, 0, new Float32Array(list.slice(0, n * 4)));
+            sprU.set(vpM, 0);
+            sprU[16] = color[0]; sprU[17] = color[1]; sprU[18] = color[2]; sprU[19] = color[3];
+            sprU[20] = asp; sprU[21] = 1.0;
+            device.queue.writeBuffer(set.ub, 0, sprU);
+            return n;
+          }
+          var shL = [];
+          for (var sf = 0; sf < fishes.length; sf++) {
+            var fsh = fishes[sf];
+            var hgt2 = (fsh.p[1] + TANK.y) / (TANK.y * 2);
+            shL.push(fsh.p[0], -TANK.y + 0.03, fsh.p[2], fsh.s * (0.5 - hgt2 * 0.25));
+          }
+          var moL = [];
+          for (var m3 = 0; m3 < motes.length; m3++) moL.push(motes[m3].p[0], motes[m3].p[1], motes[m3].p[2], motes[m3].s);
+          var foL = [];
+          for (var f3 = 0; f3 < foods.length; f3++) foL.push(foods[f3].p[0], foods[f3].p[1], foods[f3].p[2], 0.05);
+          var buL = [];
+          for (var b3 = 0; b3 < bubbles.length; b3++) buL.push(bubbles[b3].p[0], bubbles[b3].p[1], bubbles[b3].p[2], bubbles[b3].s);
+          var nSh = fillSpr(sprSh, shL, wire ? [0, 0, 0, 0] : [0.0, 0.02, 0.03, 0.32]);
+          var nMo = fillSpr(sprMote, moL, wire ? [wireCol[0], wireCol[1], wireCol[2], 0.15] : [0.85, 0.92, 0.95, 0.10]);
+          var nFo = fillSpr(sprFood, foL, wire ? [wireCol[0], wireCol[1], wireCol[2], 0.9] : [0.92, 0.82, 0.55, 0.95]);
+          var nBu = fillSpr(sprBub, buL, wire ? [wireCol[0], wireCol[1], wireCol[2], 0.5] : [0.85, 0.95, 1.0, 0.4]);
+
+          /* ---- encode ---- */
+          var enc = device.createCommandEncoder();
+          var rp = enc.beginRenderPass({
+            colorAttachments: [{
+              view: ctx.getCurrentTexture().createView(),
+              loadOp: 'clear', clearValue: { r: botC[0], g: botC[1], b: botC[2], a: 1 }, storeOp: 'store',
+            }],
+            depthStencilAttachment: {
+              view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store',
+            },
+          });
+          rp.setPipeline(bgPipe);
+          rp.setBindGroup(0, bgBG);
+          rp.draw(3);
+
+          var mp = wire ? pipeLine : pipeTri;
+          rp.setPipeline(mp);
+          rp.setBindGroup(0, gBG);
+          function drawSlot(m2, i3) {
+            rp.setBindGroup(1, mBG, [i3 * 256]);
+            rp.setVertexBuffer(0, m2.vb);
+            if (wire) { rp.setIndexBuffer(m2.li, 'uint16'); rp.drawIndexed(m2.nL); }
+            else { rp.setIndexBuffer(m2.ti, 'uint16'); rp.drawIndexed(m2.nT); }
+          }
+          drawSlot(floorMesh, 0);
+          for (var w2 = 0; w2 < weeds.length; w2++) drawSlot(weedMesh, 1 + w2);
+          for (var f2 = 0; f2 < fishes.length; f2++) drawSlot(fishMesh, 10 + f2);
+
+          rp.setPipeline(sprPipe);
+          if (nSh) { rp.setBindGroup(0, sprSh.bg); rp.draw(nSh * 6); }
+          if (nMo) { rp.setBindGroup(0, sprMote.bg); rp.draw(nMo * 6); }
+          if (nFo) { rp.setBindGroup(0, sprFood.bg); rp.draw(nFo * 6); }
+          if (nBu) { rp.setBindGroup(0, sprBub.bg); rp.draw(nBu * 6); }
+          rp.end();
+          device.queue.submit([enc.finish()]);
+        }
+        raf = requestAnimationFrame(function (ts) { prev = ts; loop(ts); });
+
+        innerCleanup = function () {
+          if (raf) cancelAnimationFrame(raf);
+          cvs.removeEventListener('mousemove', onMove);
+          cvs.removeEventListener('click', onClick);
+          try { depthTex.destroy(); } catch (err) {}
+        };
+      })();
+
+      return function cleanup() {
+        dead = true;
+        if (innerCleanup) innerCleanup();
+      };
+    }
+
     GM.idle = {
       bp: 'Idle', zh: '摸鱼 · 3D 鱼缸',
       start: function (stage) {
         hudSuspend = true;
         var c = null;
+        try { c = fishTankGPU(stage); } catch (err) { c = null; }
+        if (c) return c;
         try { c = fishTank3D(stage); } catch (err) { c = null; }
         if (c) return c;
         return fishTank2D(stage);
