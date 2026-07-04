@@ -362,6 +362,45 @@
     border: 1px solid var(--line); background: #fff;
   }
 
+  /* ---------- 首页文章索引树 ---------- */
+  .tree { border: 1px solid var(--line); background: var(--surface); }
+  .tree details { border-bottom: 1px solid var(--line); }
+  .tree > details:last-child { border-bottom: 0; }
+  .tree summary {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 18px; cursor: pointer; list-style: none;
+    font-weight: 700; font-size: 14.5px; user-select: none;
+  }
+  .tree summary::-webkit-details-marker { display: none; }
+  .tree summary::before {
+    content: "▸"; color: var(--ink2); font-size: 11px;
+    transition: transform 0.15s;
+  }
+  .tree details[open] > summary::before { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) {
+    .tree summary::before { transition: none; }
+  }
+  .tree summary:hover { background: var(--accent-dim); }
+  .tree .cnt { margin-left: auto; color: var(--ink2); font-size: 11.5px; font-weight: 500; }
+  .tree details details { margin-left: 20px; border-left: 1px solid var(--line); border-bottom: 0; }
+  .tree .dot { width: 9px; height: 9px; flex: none; }
+  .tree .leaf {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 18px 7px 40px; font-size: 14.5px;
+  }
+  .tree .leaf:hover { background: var(--accent-dim); }
+  .tree .leaf .t { flex: 1; min-width: 0; }
+  .tree .leaf:hover .t { color: var(--accent); }
+  .tree .leaf .d { color: var(--ink2); font-size: 11.5px; flex: none; }
+  .tree .leaf .new {
+    color: var(--bg); background: var(--accent);
+    font-size: 10px; padding: 1px 6px; letter-spacing: 0.1em; flex: none;
+  }
+  .tree .empty { padding: 8px 18px 12px 40px; color: var(--ink2); font-size: 13px; }
+  @media (max-width: 560px) {
+    .tree .leaf .d { display: none; }
+  }
+
   /* ---------- 文章目录与阅读进度 ---------- */
   .toc {
     border: 1px solid var(--line); background: var(--surface);
