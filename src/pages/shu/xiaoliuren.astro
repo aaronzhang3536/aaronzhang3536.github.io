@@ -13,6 +13,9 @@ import Base from '../../layouts/Base.astro';
   <div class="shu-tabs mono">
     <button type="button" class="xlr-tab pie-btn on" data-m="time">时间起课</button>
     <button type="button" class="xlr-tab pie-btn" data-m="num">报数起课</button>
+    <label class="xlr-typewrap">问事
+      <select id="xlr-type" class="mono"></select>
+    </label>
   </div>
 
   <div id="xlr-time-panel" class="shu-panel">
@@ -34,9 +37,10 @@ import Base from '../../layouts/Base.astro';
 
   <div id="xlr-out" hidden>
     <div id="xlr-wheel" class="xlr-wheel"></div>
-    <div id="xlr-path" class="xlr-pathbar"></div>
+    <div id="xlr-path" class="xlr-stages"></div>
     <div id="xlr-result" class="shu-card"></div>
   </div>
+  <div id="xlr-history" class="xlr-hisbox" hidden></div>
 
   <p class="mono" style="max-width:800px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
     六宫五行与六神配属各流派略有出入，本页取常见一种；结论仅供文化研究与娱乐。

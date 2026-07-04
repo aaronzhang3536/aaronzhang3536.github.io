@@ -363,7 +363,34 @@
   }
 
   /* ---------- 术数 ---------- */
-  .shu-tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+  .shu-tabs { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  .shu-panel[hidden], .xlr-hisbox[hidden] { display: none !important; }
+  .xlr-typewrap { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink2); }
+  .xlr-typewrap select {
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); padding: 6px 10px; font-size: 12px;
+  }
+  .xlr-stages { display: grid; gap: 8px; max-width: 800px; margin-top: 14px; }
+  .xlr-stage {
+    display: flex; align-items: baseline; gap: 14px;
+    border: 1px solid var(--line); background: var(--surface);
+    padding: 9px 14px; font-size: 13px;
+  }
+  .xlr-stage .st { font-size: 10.5px; color: var(--ink2); flex: none; width: 150px; }
+  .xlr-stage b { font-size: 17px; flex: none; }
+  .xlr-stage .sd { color: var(--ink2); }
+  .xlr-hisbox { max-width: 800px; margin-top: 22px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .xlr-hisbox .ht { width: 100%; font-size: 10.5px; letter-spacing: 0.2em; color: var(--ink2); }
+  .xlr-his {
+    appearance: none; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface);
+    color: var(--ink2); font-size: 11.5px; padding: 6px 11px;
+  }
+  .xlr-his:hover { border-color: var(--accent); color: var(--ink); }
+  @media (max-width: 640px) {
+    .xlr-stage { flex-wrap: wrap; }
+    .xlr-stage .st { width: auto; }
+  }
   .shu-tabs .pie-btn.on { border-color: var(--accent); color: var(--accent); }
   .shu-panel {
     display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
@@ -423,6 +450,11 @@
     display: flex; flex-direction: column; gap: 6px;
   }
   .bz-lab { font-size: 10.5px; letter-spacing: 0.2em; color: var(--ink2); }
+  .bz-kong {
+    font-style: normal; color: var(--accent);
+    border: 1px solid var(--accent); font-size: 9px;
+    padding: 0 3px; margin-left: 5px; letter-spacing: 0;
+  }
   .bz-ss { font-size: 11px; color: var(--accent); }
   .bz-gz { font-size: 30px; font-weight: 700; line-height: 1.25; display: flex; flex-direction: column; }
   .bz-cang { font-size: 11px; color: var(--ink2); display: flex; flex-direction: column; gap: 1px; }
