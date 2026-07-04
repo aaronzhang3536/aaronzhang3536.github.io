@@ -218,6 +218,7 @@
     var bolts = null, boltAge = 0, nextBolt = 0;
     /* 底部积累：雪堆 / 沙丘用高度场，雨用积水系数 + 涟漪 */
     var ACC_W = 6, wxAccum = null, wxAccumN = 0, wxWet = 0, wxRipples = [];
+    var wxMeadow = null;   /* 晴天草地 */
     function accIdx(x) { return Math.max(0, Math.min(wxAccumN - 1, Math.round(x / ACC_W))); }
     function accAt(x) { return wxAccum ? wxAccum[accIdx(x)] : 0; }
     function accAdd(x, amt, cap) {
@@ -258,6 +259,7 @@
     }
     function wxBuild() {
       wxParts = []; wxLeaves = [];
+      wxMeadow = null;
       wxAccumN = Math.ceil(wxW / ACC_W) + 1;
       wxAccum = [];
       for (var ai = 0; ai < wxAccumN; ai++) wxAccum.push(0);
@@ -296,6 +298,32 @@
           spd: 350 + Math.random() * 450, size: 0.8 + Math.random() * 1.8,
           a: 0.25 + Math.random() * 0.55, ph: Math.random() * 6.28
         });
+      } else if (wxMode === 'clear') {
+        /* 晴天：底部长出花花草草 */
+        var csm = getComputedStyle(document.body);
+        var tok = function (k, fb) {
+          var v = csm.getPropertyValue(k).trim();
+          return (!v || v === 'transparent') ? csm.getPropertyValue(fb).trim() : v;
+        };
+        var grassCol = tok('--c-engine', '--wx-wind');
+        var petals = ['--c-render', '--c-ai', '--c-life', '--accent', '--c-tool']
+          .map(function (k) { return tok(k, '--accent'); });
+        wxMeadow = [];
+        var nB = Math.min(Math.round(wxW / 9), 220);
+        for (var bi = 0; bi < nB; bi++) {
+          var isF = Math.random() < 0.14;
+          wxMeadow.push({
+            x: Math.random() * wxW,
+            h: 14 + Math.random() * (isF ? 30 : 42),
+            g: 0,
+            rate: 1 / (40 + Math.random() * 100),
+            ph: Math.random() * 6.28,
+            sw: 0.6 + Math.random() * 0.8,
+            f: isF ? petals[Math.floor(Math.random() * petals.length)] : null,
+            c: grassCol,
+            a: 0.45 + Math.random() * 0.4
+          });
+        }
       }
     }
     function makeBoltPath() {
@@ -576,7 +604,45 @@
         wxT += dt;
         if (++wxColorTick % 45 === 0) wxRefreshColors();  /* 跟随主题/视图模式换色 */
         wxCtx.clearRect(0, 0, wxW, wxH);
-        if (wxMode === 'clear') return;
+        if (wxMode === 'clear') {
+          if (!wxMeadow) return;
+          var gm = wxCtx;
+          var breeze = Math.sin(wxT * 0.4) * 0.6 + Math.sin(wxT * 1.7) * 0.2;
+          for (var mi = 0; mi < wxMeadow.length; mi++) {
+            var bl = wxMeadow[mi];
+            if (bl.g < 1) bl.g = Math.min(1, bl.g + bl.rate * dt);
+            var hgt = bl.h * bl.g;
+            if (hgt < 2) continue;
+            var bend = (Math.sin(wxT * bl.sw + bl.ph) * 3 + breeze * 6) * (hgt / 40);
+            var tipX = bl.x + bend, tipY = wxH - hgt;
+            gm.strokeStyle = bl.c;
+            gm.globalAlpha = bl.a;
+            gm.lineWidth = 1.4;
+            gm.beginPath();
+            gm.moveTo(bl.x, wxH + 1);
+            gm.quadraticCurveTo(bl.x + bend * 0.3, wxH - hgt * 0.55, tipX, tipY);
+            gm.stroke();
+            if (bl.f) {
+              var bloom = Math.max(0, (bl.g - 0.7) / 0.3);
+              if (bloom > 0.05) {
+                var fr = 2.6 * bloom;
+                gm.fillStyle = bl.f;
+                for (var pi = 0; pi < 5; pi++) {
+                  var pa = pi / 5 * 6.2832 + bl.ph;
+                  gm.beginPath();
+                  gm.arc(tipX + Math.cos(pa) * fr, tipY + Math.sin(pa) * fr, fr * 0.75, 0, 6.2832);
+                  gm.fill();
+                }
+                gm.fillStyle = bl.c;
+                gm.beginPath();
+                gm.arc(tipX, tipY, fr * 0.55, 0, 6.2832);
+                gm.fill();
+              }
+            }
+          }
+          gm.globalAlpha = 1;
+          return;
+        }
 
         /* 风场：不同天气不同的基础风 + 阵风 */
         var target =
