@@ -595,9 +595,9 @@
           for (i = 0; i < wxParts.length; i++) {
             p = wxParts[i];
             p.x += wxWind * 1.2 * dt; p.y += p.spd * dt;
-            var floorY = wxH - 3 - wxWet * 14;
+            var floorY = wxH - 3 - wxWet;
             if (p.y > floorY) {
-              wxWet = Math.min(1, wxWet + (wxMode === 'storm' ? 0.0012 : 0.0005));
+              wxWet = Math.min(wxH, wxWet + (wxMode === 'storm' ? 0.14 : 0.06));
               if (wxRipples.length < 28 && Math.random() < 0.25) {
                 wxRipples.push({ x: p.x, y: floorY, r: 1.5, a: 0.5 });
               }
@@ -611,9 +611,9 @@
           ctx.stroke();
 
           /* 底部积水与涟漪 */
-          if (wxWet > 0.02) {
-            var band = 2 + wxWet * 15;
-            ctx.globalAlpha = 0.22 + wxWet * 0.3;
+          if (wxWet > 1) {
+            var band = wxWet;
+            ctx.globalAlpha = Math.min(0.22 + wxWet / 300, 0.55);
             ctx.fillStyle = wxColors.rain;
             ctx.fillRect(0, wxH - band, wxW, band);
             ctx.globalAlpha = 1;
@@ -702,7 +702,7 @@
             p.y += p.spd * dt;
             p.x += (wxWind * 0.4 + Math.sin(wxT * 0.9 + p.ph) * p.amp) * dt;
             if (p.y > wxH - 2 - accAt(p.x)) {
-              accAdd(p.x, 0.45 + p.size * 0.22, 72);
+              accAdd(p.x, 0.45 + p.size * 0.22, wxH);
               p.y = -6; p.x = Math.random() * wxW;
             }
             if (p.x > wxW + 6) p.x = -6;
@@ -724,7 +724,7 @@
             p.y += Math.sin(wxT * 3 + p.ph) * 26 * dt + 8 * dt;
             if (p.x > wxW + 8) { p.x = -8; p.y = Math.random() * wxH; }
             if (p.y > wxH - 4 - accAt(p.x)) {
-              if (Math.random() < 0.5) accAdd(p.x, 0.3, 48);
+              if (Math.random() < 0.5) accAdd(p.x, 0.3, wxH);
               p.y = Math.random() * wxH * 0.5;
               p.x = -8;
             }
@@ -735,7 +735,7 @@
           for (var di = wxAccumN - 2; di >= 0; di--) {
             var mv = wxAccum[di] * 0.006;
             wxAccum[di] -= mv;
-            wxAccum[di + 1] = Math.min(48, wxAccum[di + 1] + mv);
+            wxAccum[di + 1] = Math.min(wxH, wxAccum[di + 1] + mv);
           }
           drawAccum(wxColors.sand, 0.85);
           ctx.globalAlpha = 1;
