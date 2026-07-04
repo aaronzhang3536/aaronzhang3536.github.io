@@ -2744,8 +2744,10 @@
             }
           }
           function ib(arr) {
-            var b = device.createBuffer({ size: (arr.length * 2 + 3) & ~3, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-            device.queue.writeBuffer(b, 0, new Uint16Array(arr));
+            /* 索引数为奇数时补 0：writeBuffer 要求字节数是 4 的倍数 */
+            var padded = arr.length % 2 ? arr.concat([0]) : arr;
+            var b = device.createBuffer({ size: padded.length * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+            device.queue.writeBuffer(b, 0, new Uint16Array(padded));
             return b;
           }
           var vb = device.createBuffer({ size: inter.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
