@@ -4,6 +4,7 @@ const demos = [
   { href: '/lab/gpu-particles/', sw: '--c-render', name: 'GPU 粒子', desc: '4K~400 万粒子的 compute 模拟 + 拖尾累积，真实 timestamp-query 计时', tag: 'WebGPU', live: true },
   { href: '/lab/path-tracer/', sw: '--c-tool', name: '路径追踪 Cornell Box', desc: 'compute 逐像素路径追踪，累积渐进收敛，可拖拽环绕', tag: 'WebGPU', live: true },
   { href: '/lab/fluid/', sw: '--c-char', name: '2D 流体模拟', desc: 'Stable Fluids：平流 + Jacobi 压力投影 + 涡量约束，鼠标搅动', tag: 'WebGPU', live: true },
+  { href: '/lab/fluid3d/', sw: '--c-engine', name: '3D 流体（烟雾）', desc: '三维欧拉网格 + 浮力/涡量约束，体积光线步进渲染自阴影烟雾', tag: 'WebGPU', live: true },
   { sw: '--c-ai', name: 'Radiance Cascades GI', desc: '级联辐射度全局光照的 2D 实现', tag: 'WebGPU', live: false },
   { sw: '--c-engine', name: 'Nanite-like Meshlet', desc: 'GPU 驱动剔除 + 软件光栅可见性缓冲', tag: 'WebGPU', live: false },
 ];
