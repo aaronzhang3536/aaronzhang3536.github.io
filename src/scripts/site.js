@@ -1680,9 +1680,9 @@
       var w = rect.width + PAD * 2, h = rect.height + PAD * 2;
       var cv = document.createElement('canvas');
       cv.width = w; cv.height = h;
-      cv.style.cssText = 'position:absolute; left:' + (-PAD) + 'px; top:' + (-PAD) +
-        'px; width:' + w + 'px; height:' + h + 'px; pointer-events:none; z-index:6;';
-      host.appendChild(cv);
+      cv.style.cssText = 'position:fixed; left:' + (rect.left - PAD) + 'px; top:' + (rect.top - PAD) +
+        'px; width:' + w + 'px; height:' + h + 'px; pointer-events:none; z-index:90;';
+      document.body.appendChild(cv);
       var g = cv.getContext('2d');
       var cs = getComputedStyle(document.body);
       var colors = ['--accent', '--play', '--c-render', '--c-engine', '--c-char', '--c-tool', '--c-ai', '--c-life']
@@ -1706,6 +1706,7 @@
       var t0 = performance.now(), prevT = t0;
       (function tick(ts) {
         if (!cv.isConnected) return;
+        if (!host.isConnected) { cv.remove(); return; }
         var dt = Math.min((ts - prevT) / 1000, 0.04);
         prevT = ts;
         var life = (ts - t0) / 2600;
@@ -1886,10 +1887,8 @@
           playing = false;
           stopTimers();
           b.classList.add('solved');
-          if (!reduced) {
-            b.parentNode.classList.add('win');
-            confettiBurst(b.parentNode);
-          }
+          if (!reduced) b.parentNode.classList.add('win');
+          confettiBurst(b.parentNode);
           var bs = getBest(size);
           var isBest = !bs || sec < bs;
           if (isBest) { try { localStorage.setItem(bestKey(size), String(sec)); } catch (err) {} }
