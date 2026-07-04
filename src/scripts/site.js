@@ -1072,7 +1072,7 @@
           + '}\n';
         var MESH = ''
           + 'struct G { vp: mat4x4f, eye: vec4f, fog: vec4f };\n'
-          + 'struct M { m: mat4x4f, color: vec4f, anim: vec4f };\n'
+          + 'struct M { m: mat4x4f, color: vec4f, anim: vec4f, pat: vec4f };\n'
           + '@group(0) @binding(0) var<uniform> g: G;\n'
           + '@group(1) @binding(0) var<uniform> mdl: M;\n'
           + '@group(2) @binding(0) var samp2: sampler;\n'
@@ -1109,6 +1109,15 @@
           + '  let n = normalize(in.n);\n'
           + '  let v = normalize(g.eye.xyz - in.w);\n'
           + '  var albedo = texC * mdl.color.rgb;\n'
+          + '  if (mdl.anim.w > 0.5) {\n'
+          + '    /* 热带鱼重着色：用原贴图明度当细节，体长向双色条纹 */\n'
+          + '    let lum = dot(texC, vec3f(0.299, 0.587, 0.114));\n'
+          + '    let bands = 0.5 + 0.5 * sin(in.u * mdl.pat.w + in.ly * 5.0 + mdl.anim.y);\n'
+          + '    let mask = smoothstep(0.35, 0.65, bands);\n'
+          + '    let fishCol = mix(mdl.color.rgb, mdl.pat.rgb, mask);\n'
+          + '    albedo = fishCol * (0.35 + 1.1 * lum);\n'
+          + '    albedo = mix(albedo, vec3f(0.9, 0.92, 0.88), clamp(-in.ly * 3.0, 0.0, 1.0) * 0.3);\n'
+          + '  }\n'
           + '  if (mdl.anim.z > 0.5) {\n'
           + '    albedo = mix(albedo, vec3f(0.85, 0.88, 0.82), clamp(-in.ly * 3.5, 0.0, 1.0) * 0.4);\n'
           + '    albedo *= 0.9 + 0.1 * sin(in.u * 30.0);\n'
@@ -1205,7 +1214,7 @@
           entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
         });
         var mBGL = device.createBindGroupLayout({
-          entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 96 } }]
+          entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 112 } }]
         });
         var tBGL = device.createBindGroupLayout({
           entries: [
@@ -1372,7 +1381,7 @@
             mn[k] = Math.min(mn[k], p0[i * 3 + k]);
             mx[k] = Math.max(mx[k], p0[i * 3 + k]);
           }
-          var HEAD = 1;
+          var HEAD = -1;
           var cx = (mn[0] + mx[0]) / 2, cyc = (mn[1] + mx[1]) / 2, cz = (mn[2] + mx[2]) / 2;
           var scale = 1.15 / Math.max(mx[2] - mn[2], 0.001);
           var pos = new Float32Array(nV * 3), nrm = new Float32Array(nV * 3), us = new Float32Array(nV);
@@ -1424,11 +1433,11 @@
         /* ---- uniform / 场景 ---- */
         var gUB = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         var gBG = device.createBindGroup({ layout: gBGL, entries: [{ binding: 0, resource: { buffer: gUB } }] });
-        var SLOTS = 1 + 9 + 8;
+        var SLOTS = 1 + 9 + 14;
         var mUB = device.createBuffer({ size: SLOTS * 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         var mBG = device.createBindGroup({
           layout: mBGL,
-          entries: [{ binding: 0, resource: { buffer: mUB, size: 96 } }]
+          entries: [{ binding: 0, resource: { buffer: mUB, size: 112 } }]
         });
         var mData = new Float32Array(SLOTS * 64);
         var bgUB = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -1455,18 +1464,29 @@
           cssRGB('--c-char', '#6b99d8'), cssRGB('--c-ai', '#9d86d9'),
           cssRGB('--c-life', '#cf7fa0'), cssRGB('--accent', '#ff8a1e')
         ];
-        function tint(i) {
-          if (procFish) return lin3(palette[i % palette.length]);
-          var p = palette[i % palette.length];
-          return lin3([1 - (1 - p[0]) * 0.22, 1 - (1 - p[1]) * 0.22, 1 - (1 - p[2]) * 0.22]);
-        }
+        /* 热带配色：[主色, 副色, 条纹频率] */
+        var TROP = [
+          [[1.0, 0.42, 0.05], [0.98, 0.96, 0.9], 9.0],
+          [[0.05, 0.35, 1.0], [1.0, 0.85, 0.1], 5.0],
+          [[1.0, 0.83, 0.0], [1.0, 0.55, 0.0], 4.0],
+          [[0.62, 0.1, 0.9], [0.1, 0.9, 0.9], 7.0],
+          [[0.95, 0.12, 0.15], [0.98, 0.95, 0.9], 11.0],
+          [[0.1, 0.85, 0.4], [0.05, 0.3, 0.8], 6.0]
+        ];
         var fishes = [];
-        for (var fi = 0; fi < 8; fi++) {
+        for (var fi = 0; fi < 14; fi++) {
+          var isTrop = fi >= 3;
+          var tp = isTrop ? TROP[(fi - 3) % TROP.length] : null;
           fishes.push({
             p: [(Math.random() * 2 - 1) * TANK.x * 0.7, (Math.random() * 2 - 1) * TANK.y * 0.6, (Math.random() * 2 - 1) * TANK.z * 0.6],
             yaw: Math.random() * 6.28, pitch: 0,
-            spd: 0.6 + Math.random() * 0.6, s: 0.55 + Math.random() * 0.55,
-            c: tint(fi), ph: Math.random() * 6.28, burst: 0
+            spd: isTrop ? 0.7 + Math.random() * 0.7 : 0.55 + Math.random() * 0.4,
+            s: isTrop ? 0.34 + Math.random() * 0.3 : 0.75 + Math.random() * 0.35,
+            c: isTrop ? lin3(tp[0]) : lin3([0.96, 0.96, 0.94]),
+            patC: isTrop ? lin3(tp[1]) : null,
+            patF: isTrop ? tp[2] : 0,
+            trop: isTrop ? 1 : 0,
+            ph: Math.random() * 6.28, burst: 0
           });
         }
         var weeds = [];
@@ -1556,11 +1576,12 @@
         cvs.addEventListener('click', onClick);
 
         /* ---- 帧循环 ---- */
-        function slot(i, model, color, matType, amp, ph, proc) {
+        function slot(i, model, color, matType, amp, ph, proc, trop, patC, patF) {
           var o = i * 64;
           mData.set(model, o);
           mData[o + 16] = color[0]; mData[o + 17] = color[1]; mData[o + 18] = color[2]; mData[o + 19] = matType;
-          mData[o + 20] = amp; mData[o + 21] = ph; mData[o + 22] = proc || 0;
+          mData[o + 20] = amp; mData[o + 21] = ph; mData[o + 22] = proc || 0; mData[o + 23] = trop || 0;
+          if (patC) { mData[o + 24] = patC[0]; mData[o + 25] = patC[1]; mData[o + 26] = patC[2]; mData[o + 27] = patF || 6; }
         }
         function mModel(x, y, z, yaw, pitch, s) {
           var cyw = Math.cos(-yaw), syw = Math.sin(-yaw);
@@ -1659,16 +1680,17 @@
           gArr[20] = water.fog[0]; gArr[21] = water.fog[1]; gArr[22] = water.fog[2]; gArr[23] = wire ? 1 : 0;
           device.queue.writeBuffer(gUB, 0, gArr);
 
-          slot(0, mModel(0, -TANK.y, 0, 0, 0, 1), wire ? wireCol : water.floor, 1, 0, 0, 0);
+          slot(0, mModel(0, -TANK.y, 0, 0, 0, 1), wire ? wireCol : water.floor, 1, 0, 0, 0, 0, null, 0);
           for (var wv = 0; wv < weeds.length; wv++) {
             var wd = weeds[wv];
             slot(1 + wv, mModel(wd.x, -TANK.y, wd.z, -wd.ph, 0, wd.h),
-              wire ? wireCol : water.weed, 2, 0.35, wd.ph + t * 0.15, 0);
+              wire ? wireCol : water.weed, 2, 0.35, wd.ph + t * 0.15, 0, 0, null, 0);
           }
           for (var df = 0; df < fishes.length; df++) {
             var ff = fishes[df];
             slot(10 + df, mModel(ff.p[0], ff.p[1], ff.p[2], ff.yaw, ff.pitch, ff.s),
-              wire ? wireCol : ff.c, 0, 0.10 + ff.burst * 0.10, ff.ph, procFish ? 1 : 0);
+              wire ? wireCol : ff.c, 0, 0.10 + ff.burst * 0.10, ff.ph, procFish ? 1 : 0,
+              wire ? 0 : ff.trop, ff.patC, ff.patF);
           }
           device.queue.writeBuffer(mUB, 0, mData);
 
