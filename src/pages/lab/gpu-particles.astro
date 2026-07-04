@@ -18,12 +18,8 @@ import Base from '../../layouts/Base.astro';
   <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
 
   <div class="lab-ctl mono">
-    <label>粒子数
-      <select id="lab-count">
-        <option value="65536">65,536</option>
-        <option value="262144" selected>262,144</option>
-        <option value="1048576">1,048,576</option>
-      </select>
+    <label>粒子数 <input id="lab-count" type="range" min="12" max="22" step="1" value="18" />
+      <b id="lab-count-v" style="display:inline-block; min-width:74px;">262,144</b>
     </label>
     <label>引力 <input id="lab-grav" type="range" min="-2" max="7" step="0.1" value="3" /></label>
     <label>湍流 <input id="lab-turb" type="range" min="0" max="3" step="0.05" value="1.2" /></label>
