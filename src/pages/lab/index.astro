@@ -14,6 +14,7 @@ const demos = [
   { href: '/lab/radiance/', sw: '--c-ai', name: 'Radiance Cascades GI', desc: '级联辐射度 2D 全局光照：画光源画墙，当帧收敛的软阴影', tag: 'WebGPU', live: true },
   { href: '/lab/meshlet/', sw: '--c-engine', name: 'Nanite-like Meshlet', desc: 'GPU 驱动剔除 + compute 软光栅可见性缓冲，可冻结剔除相机', tag: 'WebGPU', live: true },
   { href: '/lab/megalights/', sw: '--c-render', name: 'MegaLights（数千动态光源）', desc: 'ReSTIR 时空蓄水池重采样 + 追踪阴影，对照暴力全采样看开销差异', tag: 'WebGPU', live: true },
+  { href: '/lab/pipeline/', sw: '--c-render', name: '现代渲染管线（Nanite × MegaLights）', desc: 'Nanite 可见性缓冲 → G-buffer → ReSTIR 多光源着色 + 屏幕空间阴影', tag: 'WebGPU', live: true },
 ];
 ---
 <Base title="实验室" desc="手撸图形学实验：GPU 粒子、路径追踪、GI、GPU 驱动管线">
