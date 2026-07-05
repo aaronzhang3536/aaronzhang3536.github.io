@@ -1,0 +1,73 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="IPC 布料（无穿透保证）" desc="Incremental Potential Contact：屏障势能 + 保守 CCD 线搜索，数学保证永不穿模的离线布料模拟">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">IPC 布料（无穿透保证）</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--play);"></span>
+    <span>Incremental Potential Contact</span>
+    <span>CPU 离线求解 · 非实时</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud"></div>
+  </div>
+  <p class="mono" id="ip-stat" style="max-width:800px; font-size:13px; font-weight:600;"></p>
+
+  <div class="lab-ctl mono">
+    <label>场景
+      <select id="ip-scene">
+        <option value="two" selected>双层跌落</option>
+        <option value="three">三层堆叠</option>
+        <option value="fold">对折横杆</option>
+      </select>
+    </label>
+    <label>网格
+      <select id="ip-res">
+        <option value="16">16×16</option>
+        <option value="20" selected>20×20</option>
+        <option value="26">26×26</option>
+      </select>
+    </label>
+    <label>厚度 d̂
+      <select id="ip-dhat">
+        <option value="3">3 mm</option>
+        <option value="6" selected>6 mm</option>
+        <option value="10">10 mm</option>
+      </select>
+    </label>
+    <label>步长
+      <select id="ip-h">
+        <option value="2">2 ms</option>
+        <option value="4" selected>4 ms</option>
+        <option value="8">8 ms</option>
+      </select>
+    </label>
+    <label>迭代/步 <input id="ip-iters" type="range" min="40" max="400" step="20" value="160" /></label>
+    <button type="button" class="pie-btn primary" id="ip-run">▶ 运行</button>
+    <button type="button" class="pie-btn" id="ip-step">单步</button>
+    <button type="button" class="pie-btn" id="ip-reset">重置</button>
+    <label><input id="ip-contacts" type="checkbox" checked /> 接触点</label>
+    <label><input id="ip-wire" type="checkbox" /> 线框</label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    这是布料试验场那个问题的终极答案：XPBD 再怎么调都可能穿模，而这里的
+    穿透在数学上不可能发生。原理是 IPC（<i>Incremental Potential Contact</i>,
+    Li et al. 2020）：把接触写成对数<b>屏障势能</b>——两层布距离逼近 0 时
+    能量趋于无穷；再配合<b>保守 CCD 步长钳制</b>——能量下降的每一小步，
+    位移都被限制在当前最小间距的一半以内，任何中间状态都无法越过对方。
+    保证不依赖收敛质量，即使迭代提前截断也不会穿。代价是每个时间步都要
+    做一次带线搜索的能量最小化（预条件梯度下降），所以它是慢动作的：
+    左上角 HUD 里的 <b>d_min</b> 就是全局最小间距，盯着它——永远大于 0，
+    两层布之间那条缝就是 d̂ 撑出来的"布料厚度"。红点是活跃接触对。
+    拖拽旋转视角，滚轮推拉。
+  </p>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/ipc-cloth.js';
+</script>
