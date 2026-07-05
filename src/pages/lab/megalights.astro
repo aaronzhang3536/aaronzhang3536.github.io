@@ -1,0 +1,69 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="MegaLights（数千动态光源）" desc="ReSTIR 时空蓄水池重采样 + 追踪阴影：数千盏动态带阴影光源实时直接光照，UE5.5 MegaLights 的技术内核">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">MegaLights（数千动态光源）</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-render);"></span>
+    <span>WebGPU · ReSTIR DI</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>模式
+      <select id="ml-mode">
+        <option value="0">参考·暴力（全采样）</option>
+        <option value="1">单样本 RIS（有噪）</option>
+        <option value="2">+ 时域复用</option>
+        <option value="3" selected>完整 ReSTIR</option>
+      </select>
+    </label>
+    <label>灯数
+      <select id="ml-lights">
+        <option value="256">256</option>
+        <option value="1024" selected>1,024</option>
+        <option value="4096">4,096</option>
+      </select>
+    </label>
+    <label>候选 M <input id="ml-cand" type="range" min="1" max="32" step="1" value="16" /></label>
+    <label>空域半径 <input id="ml-spatr" type="range" min="4" max="40" step="2" value="20" /></label>
+    <label><input id="ml-shadow" type="checkbox" checked /> 阴影</label>
+    <label>视图
+      <select id="ml-view">
+        <option value="0" selected>最终画面</option>
+        <option value="1">选中光源 ID</option>
+        <option value="2">阴影因子</option>
+        <option value="3">法线</option>
+      </select>
+    </label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    一千多盏彩色光源在柱林间游动，每一盏都投射真实阴影。天真做法是每像素
+    遍历所有灯、各追一条阴影线——切到<b>「参考·暴力」</b>看帧率随灯数崩塌。
+    MegaLights（UE5.5）的做法是 <b>ReSTIR</b>：每像素每帧只从 M 个随机候选里
+    按贡献做重要性重采样（RIS）选出<b>一盏</b>灯、追<b>一条</b>阴影线，再靠
+    <b>时域</b>（重投影上一帧的蓄水池）和<b>空域</b>（借用邻域像素的蓄水池，
+    在自己的着色点上重估权重）复用，把单样本的噪声抹平。切「单样本 RIS」
+    看未复用的原始噪点，再逐级加上时域、空域，同一盏灯数下画面越来越干净
+    而开销几乎不变——这就是为什么它能扛住几千盏动态阴影光源。拖拽旋转视角。
+    （此处为有偏时空 ReSTIR，阴影用解析 ray-box 追踪而非硬件光追。）
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码（RIS + 时空复用）</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/megalights.js';
+</script>
