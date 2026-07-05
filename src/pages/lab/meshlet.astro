@@ -1,0 +1,55 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="Nanite-like Meshlet" desc="GPU 驱动渲染：meshlet 剔除 + compute 软件光栅化可见性缓冲，CPU 不知道画了什么">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">Nanite-like Meshlet</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-engine);"></span>
+    <span>WebGPU · GPU 驱动管线</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>视图
+      <select id="me-view">
+        <option value="0" selected>着色</option>
+        <option value="1">Meshlet 彩色</option>
+        <option value="2">三角形彩色</option>
+        <option value="3">深度</option>
+      </select>
+    </label>
+    <label><input id="me-freeze" type="checkbox" /> 冻结剔除相机</label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    九个环面纽结、29 万三角形、2304 个 meshlet（每个 128 三角形），
+    整条渲染管线没有一次传统 draw call：compute 先对每个 meshlet 做
+    <b>视锥球测试 + meshopt 式背面锥测试</b>，把幸存者 atomic 压实进
+    可见表并写好 indirect 参数；第二个 compute pass 按可见表逐 meshlet
+    分工作组<b>软件光栅化</b>——每线程一个三角形，逐像素做重心测试，用
+    <code>atomicMax(深度«19 | ID)</code> 打包写进可见性缓冲（这正是
+    Nanite 软光栅的核心技巧，只是它用 64 位原子）；最后全屏 pass 从 ID
+    反查三角形重建法线着色。CPU 从头到尾不知道画了多少东西——左上角的
+    数字全部是从 GPU 回读的。<b>试试勾选「冻结剔除相机」再拖动视角</b>：
+    剔除还停留在橙色线框那个视锥上，转到侧面就能看到视锥外的世界真的
+    没有被渲染——这就是 GPU 驱动渲染在每一帧偷偷做的事。
+    切「Meshlet 彩色」视图能看到集群的划分。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码（剔除与软光栅）</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/meshlet.js';
+</script>
