@@ -1,0 +1,67 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="现代渲染管线（Nanite × MegaLights）" desc="Nanite 可见性缓冲 + G-buffer 提取 + MegaLights ReSTIR 多光源着色 + 屏幕空间阴影，UE5 现代管线的缩影">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">现代渲染管线</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-render);"></span>
+    <span>Nanite × MegaLights</span>
+    <span>裸 API，无框架</span>
+  </div>
+
+  <div class="lab-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>灯数
+      <select id="pl-lights">
+        <option value="256">256</option>
+        <option value="1024" selected>1,024</option>
+        <option value="2048">2,048</option>
+      </select>
+    </label>
+    <label>候选 M <input id="pl-cand" type="range" min="4" max="32" step="1" value="16" /></label>
+    <label><input id="pl-shadow" type="checkbox" checked /> 屏幕空间阴影</label>
+    <label>视图
+      <select id="pl-view">
+        <option value="0" selected>最终画面</option>
+        <option value="1">无阴影</option>
+        <option value="2">Meshlet</option>
+        <option value="3">LOD 层级</option>
+        <option value="4">选中光源</option>
+        <option value="5">法线</option>
+      </select>
+    </label>
+    <label><input id="pl-freeze" type="checkbox" /> 冻结剔除</label>
+  </div>
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    实验室最硬的两块拼成一张完整的现代渲染图——这正是 UE5 的组合方式。一片
+    数百个纽结的 <b>Nanite</b> 场景（全分辨率等效上千万三角形，靠实例化 + LOD
+    每帧只光栅化一小部分）先经 GPU 剔除 + 软件光栅写出<b>可见性缓冲</b>；一个
+    提取 pass 从中解码，用<b>射线-平面求交</b>重建每像素精确的世界位置、法线、
+    反照率——一张干净的 G-buffer。然后 <b>MegaLights</b> 接手：上千盏动态彩色
+    光源用 ReSTIR 时空蓄水池重采样着色，每像素每帧只选一盏灯、追一条<b>屏幕
+    空间阴影</b>线（沿阴影线在位置缓冲里查遮挡）。几何阶段产出可见性/G-buffer、
+    着色阶段做多光源直接光照——两者天然串联。切「Meshlet / LOD 层级」看 Nanite
+    的集群与分级，切「无阴影」看阴影贡献，勾「冻结剔除」再转视角看视锥外的世界。
+  </p>
+  <p style="max-width:800px; color:var(--ink2); font-size:12.5px; opacity:0.75;">
+    诚实边界：阴影为屏幕空间步进（漏屏幕外遮挡物），非 UE5 的硬件光追 / BVH；
+    LOD 为简化版整体切换、ReSTIR 为有偏时空版——均从两个母实验继承。
+  </p>
+
+  <details style="max-width:800px;">
+    <summary class="mono" style="cursor:pointer; color:var(--ink2);">WGSL 源码（G-buffer 提取 + 屏幕空间阴影）</summary>
+    <pre class="mono" id="lab-wgsl" style="border:1px solid var(--line); background:var(--surface); padding:14px 16px; overflow-x:auto; font-size:12px; line-height:1.6;"></pre>
+  </details>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/pipeline.js';
+</script>
