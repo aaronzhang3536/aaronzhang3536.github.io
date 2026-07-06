@@ -26,6 +26,7 @@
     --c-tool:   #cfa23a;          /* 级联3 · 工具 */
     --c-ai:     #9d86d9;          /* 异步轨 · AI 与认知 */
     --c-life:   #cf7fa0;          /* 异步轨 · 音乐与生活 */
+    --c-base:   #4fa9a0;          /* 异步轨 · 基础知识 */
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -56,6 +57,7 @@
       --c-tool:   #a07a14;
       --c-ai:     #7a5cb8;
       --c-life:   #b05578;
+      --c-base:   #2f8a80;
     }
   }
   :root[data-theme="dark"] {
@@ -71,7 +73,7 @@
     --bgimg: 0.22;
     --play: #4fbd58; --play-dim: rgba(79,189,88,0.14);
     --c-render: #d96a60; --c-engine: #58aa72; --c-char: #6b99d8; --c-tool: #cfa23a;
-    --c-ai: #9d86d9; --c-life: #cf7fa0;
+    --c-ai: #9d86d9; --c-life: #cf7fa0; --c-base: #4fa9a0;
   }
   :root[data-theme="light"] {
     --bg: #eceff1; --grid: rgba(40,60,80,0.08);
@@ -86,7 +88,7 @@
     --bgimg: 0.15;
     --play: #2e8a3d; --play-dim: rgba(46,138,61,0.12);
     --c-render: #bd4a41; --c-engine: #2f7f4c; --c-char: #3a6cb2; --c-tool: #a07a14;
-    --c-ai: #7a5cb8; --c-life: #b05578;
+    --c-ai: #7a5cb8; --c-life: #b05578; --c-base: #2f8a80;
   }
 
   /* ---- WIREFRAME 视图模式：token 级覆盖 ---- */
@@ -110,6 +112,7 @@
     --c-render: transparent; --c-engine: transparent;
     --c-char: transparent;   --c-tool: transparent;
     --c-ai: transparent;     --c-life: transparent;
+    --c-base: transparent;
   }
   body.vm-wire .sw,
   body.vm-wire .seg,

@@ -14,12 +14,12 @@ for (const p of posts) if (p.data.sub) subCounts[p.data.sub] = (subCounts[p.data
 const ueTotal = (counts['UE 剖析'] || 0) || 1;
 const pct = (s: string) => (((subCounts[s] || 0) / ueTotal) * 100).toFixed(1);
 const ms = (s: string) => (((subCounts[s] || 0) / ueTotal) * 16.67).toFixed(1);
-const ASYNCS: [string, string][] = [['读渲染', '--accent'], ['AI 与认知', '--c-ai'], ['音乐与生活', '--c-life']];
+const ASYNCS: [string, string][] = [['读渲染', '--accent'], ['基础知识', '--c-base'], ['AI 与认知', '--c-ai'], ['音乐与生活', '--c-life']];
 const asyncTotal = ASYNCS.reduce((t, a) => t + (counts[a[0]] || 0), 0) || 1;
 const apct = (c: string) => (((counts[c] || 0) / asyncTotal) * 100).toFixed(1);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life', '基础知识': '--c-base',
 };
 const SUB_SW: Record<string, string> = {
   '渲染': '--c-render', '角色': '--c-char', '几何': '--c-engine', '系统': '--c-tool',

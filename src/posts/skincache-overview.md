@@ -153,7 +153,7 @@ TangentBufferUAV[2 * VertexIndex + 1] = TangentZ;
 
 | 文档 | 内容 |
 |------|------|
-| [SkinCache_RecomputeTangents.md](SkinCache_RecomputeTangents.md) | 运行时切线重算机制 |
+| [GPU Skin Cache：Recompute Tangents](/posts/skincache-recompute-tangents/) | 运行时切线重算机制 |
 
 ---
 

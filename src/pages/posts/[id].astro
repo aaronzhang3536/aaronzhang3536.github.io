@@ -23,7 +23,7 @@ const { Content, headings } = await render(post);
 const toc = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life', '基础知识': '--c-base',
 };
 const SUB_SW: Record<string, string> = {
   '渲染': '--c-render', '角色': '--c-char', '几何': '--c-engine', '系统': '--c-tool',

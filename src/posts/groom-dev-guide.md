@@ -78,10 +78,6 @@ Groom 资产体系：
 | **Blender** | .abc (Alembic) | ⭐⭐⭐ |
 | **3ds Max** | .abc (Alembic) | ⭐⭐⭐ |
 
-#### XGen 制作流程（推荐）
-
-> 详细制作流程请参考：[XGen毛发制作规范.md](XGen毛发制作规范.md)（美术文档）
-
 #### 毛发属性要求
 
 ```cpp
@@ -902,10 +898,6 @@ void SetupGroomCulling(UGroomComponent* GroomComp, EDetailMode DetailMode)
 
 #### 性能相关设置
 
-> 📘 **详细的性能配置请参考**：[Groom_性能配置指南.md](Groom_性能配置指南.md)
->
-> 包含完整的角色等级配置代码、LOD 参数详解、物理模拟优化、平台适配、Scalability 设置等。
-
 **快速参考**：
 
 | 设置项 | 主角 | Boss | NPC | 小兵 |
@@ -918,8 +910,6 @@ void SetupGroomCulling(UGroomComponent* GroomComp, EDetailMode DetailMode)
 ---
 
 ## 9. 性能优化
-
-> 📘 **完整的性能优化指南请参考**：[Groom_性能配置指南.md](Groom_性能配置指南.md)
 
 ### 9.1 优化要点速查
 
@@ -944,8 +934,6 @@ void SetupGroomCulling(UGroomComponent* GroomComp, EDetailMode DetailMode)
 ---
 
 ## 10. 平台适配
-
-> 📘 **完整的平台配置和 Scalability 设置请参考**：[Groom_性能配置指南.md](Groom_性能配置指南.md)
 
 ### 10.1 平台支持矩阵
 

@@ -9,7 +9,7 @@ tags: [MegaLights, 蒙特卡洛]
 
 > 在大量光源场景中，通过 Reservoir Importance Sampling (RIS) 以极低开销选取少量光源，结合时域引导和光追验证，得到无偏的直接光照估计。
 
-> 📖 **前置知识**：本文涉及 PDF、重要性采样、RIS、ReSTIR 等概念。如不熟悉，建议先阅读 [蒙特卡洛与重要性采样基础](蒙特卡洛与重要性采样基础.md)。
+> 📖 **前置知识**：本文涉及 PDF、重要性采样、RIS、ReSTIR 等概念。如不熟悉，建议先阅读 [蒙特卡洛与重要性采样基础](/posts/montecarlo-importance-sampling/)。
 
 ---
 

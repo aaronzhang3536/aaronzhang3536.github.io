@@ -9,7 +9,7 @@ tags: [MegaLights, 性能优化]
 
 > 基于 MegaLights 完整逻辑、渲染管线技术详解、蒙特卡洛估计三份文档的综合性能分析。聚焦性能瓶颈定位、实用调参建议和优化方案。
 
-> 📖 前置文档：[MegaLights完整逻辑](MegaLights完整逻辑.md) | [MegaLights渲染管线技术详解](MegaLights渲染管线技术详解.md) | [MegaLights蒙特卡洛估计](MegaLights蒙特卡洛估计.md)
+> 📖 前置文档：[MegaLights完整逻辑](/posts/megalights-complete-logic/) | [MegaLights渲染管线技术详解](/posts/megalights-pipeline/) | [MegaLights蒙特卡洛估计](/posts/megalights-montecarlo/)
 
 ---
 
