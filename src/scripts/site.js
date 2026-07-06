@@ -285,7 +285,7 @@
           rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 7, ph: Math.random() * 6.28
         });
       } else if (wxMode === 'snow') {
-        n = Math.min(Math.round(area / 11000), 180);
+        n = Math.min(Math.round(area / 7000), 340);
         for (i = 0; i < n; i++) wxParts.push({
           x: Math.random() * wxW, y: Math.random() * wxH,
           spd: 35 + Math.random() * 55, size: 1 + Math.random() * 2,
@@ -309,19 +309,19 @@
         var petals = ['--c-render', '--c-ai', '--c-life', '--accent', '--c-tool']
           .map(function (k) { return tok(k, '--accent'); });
         wxMeadow = [];
-        var nB = Math.min(Math.round(wxW / 9), 220);
+        var nB = Math.min(Math.round(wxW / 6), 320);
         for (var bi = 0; bi < nB; bi++) {
-          var isF = Math.random() < 0.14;
+          var isF = Math.random() < 0.16;
           wxMeadow.push({
             x: Math.random() * wxW,
-            h: 14 + Math.random() * (isF ? 30 : 42),
+            h: 16 + Math.random() * (isF ? 34 : 48),
             g: 0,
-            rate: 1 / (40 + Math.random() * 100),
+            rate: 1 / (12 + Math.random() * 24),
             ph: Math.random() * 6.28,
             sw: 0.6 + Math.random() * 0.8,
             f: isF ? petals[Math.floor(Math.random() * petals.length)] : null,
             c: grassCol,
-            a: 0.45 + Math.random() * 0.4
+            a: 0.62 + Math.random() * 0.35
           });
         }
       }
@@ -617,7 +617,7 @@
             var tipX = bl.x + bend, tipY = wxH - hgt;
             gm.strokeStyle = bl.c;
             gm.globalAlpha = bl.a;
-            gm.lineWidth = 1.4;
+            gm.lineWidth = 1.8;
             gm.beginPath();
             gm.moveTo(bl.x, wxH + 1);
             gm.quadraticCurveTo(bl.x + bend * 0.3, wxH - hgt * 0.55, tipX, tipY);
@@ -768,7 +768,7 @@
             p.y += p.spd * dt;
             p.x += (wxWind * 0.4 + Math.sin(wxT * 0.9 + p.ph) * p.amp) * dt;
             if (p.y > wxH - 2 - accAt(p.x)) {
-              accAdd(p.x, 0.45 + p.size * 0.22, wxH);
+              accAdd(p.x, (0.45 + p.size * 0.22) * 7, wxH * 0.16);
               p.y = -6; p.x = Math.random() * wxW;
             }
             if (p.x > wxW + 6) p.x = -6;
@@ -778,7 +778,7 @@
             ctx.fill();
           }
           for (var si = 1; si < wxAccumN - 1; si++) {
-            wxAccum[si] += ((wxAccum[si - 1] + wxAccum[si + 1]) / 2 - wxAccum[si]) * 0.03;
+            wxAccum[si] += ((wxAccum[si - 1] + wxAccum[si + 1]) / 2 - wxAccum[si]) * 0.02;
           }
           drawAccum(wxColors.snow, 0.9);
         } else if (wxMode === 'sand') {
@@ -789,8 +789,8 @@
             p.x += (p.spd + wxWind * 0.5) * dt;
             p.y += Math.sin(wxT * 3 + p.ph) * 26 * dt + 8 * dt;
             if (p.x > wxW + 8) { p.x = -8; p.y = Math.random() * wxH; }
-            if (p.y > wxH - 24 - accAt(p.x) && Math.random() < dt * 1.5) {
-              accAdd(p.x, 0.4, wxH);
+            if (p.y > wxH - 24 - accAt(p.x) && Math.random() < dt * 5) {
+              accAdd(p.x, 2.2, wxH * 0.18);
               p.y = Math.random() * wxH * 0.6;
               p.x = -8;
             }
@@ -801,7 +801,7 @@
           for (var di = wxAccumN - 2; di >= 0; di--) {
             var mv = wxAccum[di] * 0.006;
             wxAccum[di] -= mv;
-            wxAccum[di + 1] = Math.min(wxH, wxAccum[di + 1] + mv);
+            wxAccum[di + 1] = Math.min(wxH * 0.2, wxAccum[di + 1] + mv);
           }
           drawAccum(wxColors.sand, 0.85);
           ctx.globalAlpha = 1;
