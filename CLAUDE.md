@@ -39,6 +39,25 @@ mins: 12
 
 Commit and push to `master` — the workflow builds and deploys. Homepage list, series counts, category pages, archive, and RSS all derive from the collection automatically.
 
+## Ship & deploy flow (发布流程)
+
+Every change — post, UI, or lab experiment — follows the same **build → verify → commit → deploy → confirm** loop. Never assume a push succeeded; always poll the deploy to completion and curl the live URL.
+
+1. **Build.** `npx astro build` must pass. This is the real gate: front-matter schema violations and broken imports fail here, not at runtime.
+2. **Verify before commit**, scaled to what changed:
+   - `src/scripts/site.js` — run BOTH `node --check src/scripts/site.js` and `node scripts/eval-smoke.cjs src/scripts/site.js` (see Architecture; the smoke test catches runtime ReferenceErrors a syntax check can't).
+   - Any `src/scripts/lab/*.js` WebGPU experiment — syntax-check, then **drive it in real headless Chromium** against a live `npx astro preview`, never ship a shader you only eyeballed. Command shape (Edge/Chrome):
+     `msedge --headless=new --enable-unsafe-webgpu --enable-features=Vulkan --enable-logging=stderr --v=0 --virtual-time-budget=9000 --dump-dom <preview-url>` then grep the stderr log for `tint` / `validation` / `INFO:CONSOLE` errors; swap `--dump-dom` for `--screenshot=out.png` to eyeball the render and read the HUD. Each lab page honors a `?view=` / `?mode=` / `?lights=` query-param override so a specific state can be screenshotted headlessly. WGSL gotchas that recur: `auto` layout strips any binding a shader declares but never reads (trim it or the bind group 400s); `self` is a reserved word; a fragment stage caps at 8 storage buffers unless you request `maxStorageBuffersPerShaderStage`.
+   - Pure content (`src/posts/*.md`) — the build is enough.
+3. **Commit.** Branch is `master`. End every commit message with the trailer `Co-Authored-By: Claude <noreply@anthropic.com>`.
+4. **Push & wait.** `git push origin master` triggers `.github/workflows/deploy.yml` (`withastro/action`). Poll the run rather than trusting the push:
+   `curl -s "https://api.github.com/repos/aaronzhang3536/aaronzhang3536.github.io/actions/runs?per_page=1"` → require `status == "completed"` && `conclusion == "success"` on the **new** head SHA (guard against reading the previous run). The deploy step flakes intermittently (~1 in 6); the workflow carries a `continue-on-error` retry, but if a whole run fails, re-trigger with an empty commit (`git commit --allow-empty -m …`) — don't assume it self-heals.
+5. **Confirm live.** `curl` the deployed URL and grep for a marker unique to the change (an element id, a string) before declaring done.
+
+## Lab (`src/pages/lab/` + `src/scripts/lab/`)
+
+Raw-WebGPU graphics/physics/architecture experiments, each a standalone `*.astro` page + `*.js` module registered in `src/pages/lab/index.astro`'s `demos` array (`live: true` to surface it). All are bare WGSL, no framework. They share conventions: a `#lab-cv` canvas + `#lab-hud` readout, timestamp-query GPU timing, a `?`-query-param override for headless capture, and pointer-drag orbit / wheel zoom. When editing one, re-verify per step 2 above.
+
 ## Content red line
 
 Never publish documents originating from company project directories (ProjectTK, tk-demo, …) or anything containing project class/asset names (`TK*`, `BP_Monster*`, …) without the owner's explicit per-file approval. Pure engine-mechanism analyses and public-material writeups are OK.

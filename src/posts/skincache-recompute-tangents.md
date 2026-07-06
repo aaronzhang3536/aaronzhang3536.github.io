@@ -9,7 +9,7 @@ tags: [SkinCache, 切线]
 
 > GPU 蒙皮缓存的切线重算机制
 >
-> 前置知识：[SkinCache_概述.md](SkinCache_概述.md)
+> 前置知识：[GPU Skin Cache 概述](/posts/skincache-overview/)
 
 ---
 

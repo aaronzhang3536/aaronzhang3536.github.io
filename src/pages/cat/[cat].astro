@@ -3,7 +3,7 @@ import Base from '../../layouts/Base.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
-  const cats = ['UE 剖析', '读渲染', 'AI 与认知', '音乐与生活'];
+  const cats = ['UE 剖析', '读渲染', 'AI 与认知', '音乐与生活', '基础知识'];
   return cats.map((cat) => ({ params: { cat } }));
 }
 
@@ -12,7 +12,7 @@ const posts = (await getCollection('posts', (p) => p.data.cat === cat))
   .sort((a, b) => +b.data.date - +a.data.date);
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 const CAT_SW: Record<string, string> = {
-  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life',
+  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life', '基础知识': '--c-base',
 };
 const SUB_SW: Record<string, string> = {
   '渲染': '--c-render', '角色': '--c-char', '几何': '--c-engine', '系统': '--c-tool',

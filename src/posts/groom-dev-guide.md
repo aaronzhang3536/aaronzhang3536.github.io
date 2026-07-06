@@ -80,7 +80,7 @@ Groom 资产体系：
 
 #### XGen 制作流程（推荐）
 
-> 详细制作流程请参考：[XGen毛发制作规范.md](XGen毛发制作规范.md)（美术文档）
+> 详细制作流程另见团队内部《XGen 毛发制作规范》美术文档（未公开）。
 
 #### 毛发属性要求
 
@@ -902,7 +902,7 @@ void SetupGroomCulling(UGroomComponent* GroomComp, EDetailMode DetailMode)
 
 #### 性能相关设置
 
-> 📘 **详细的性能配置请参考**：[Groom_性能配置指南.md](Groom_性能配置指南.md)
+> 📘 **详细的性能配置请参考**：《Groom 性能配置指南》（团队内部文档，未公开）
 >
 > 包含完整的角色等级配置代码、LOD 参数详解、物理模拟优化、平台适配、Scalability 设置等。
 
@@ -919,7 +919,7 @@ void SetupGroomCulling(UGroomComponent* GroomComp, EDetailMode DetailMode)
 
 ## 9. 性能优化
 
-> 📘 **完整的性能优化指南请参考**：[Groom_性能配置指南.md](Groom_性能配置指南.md)
+> 📘 **完整的性能优化指南请参考**：《Groom 性能配置指南》（团队内部文档，未公开）
 
 ### 9.1 优化要点速查
 
@@ -945,7 +945,7 @@ void SetupGroomCulling(UGroomComponent* GroomComp, EDetailMode DetailMode)
 
 ## 10. 平台适配
 
-> 📘 **完整的平台配置和 Scalability 设置请参考**：[Groom_性能配置指南.md](Groom_性能配置指南.md)
+> 📘 **完整的平台配置和 Scalability 设置请参考**：《Groom 性能配置指南》（团队内部文档，未公开）
 
 ### 10.1 平台支持矩阵
 
@@ -1071,4 +1071,4 @@ r.HairStrands.BindingDebug 1
 - **2026-01-19**：将 DCC 示例从 Houdini 改为 XGen，精简代码示例
 - **2026-01-19**：补充 CV 数量建议、多帧导入说明、绑定原理和 RBF 插值
 - **2026-01-19**：补充 Cards 纹理布局详解（4种布局的通道定义和选择建议）
-- **2026-01-19**：将性能相关设置提取到独立文档 [Groom_性能配置指南.md](Groom_性能配置指南.md)
+- **2026-01-19**：将性能相关设置提取到独立文档 《Groom 性能配置指南》（团队内部文档，未公开）
