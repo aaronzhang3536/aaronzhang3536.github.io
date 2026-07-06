@@ -253,8 +253,12 @@
       ['rain', 'snow', 'sand', 'wind', 'haze', 'bolt'].forEach(function (k) {
         wxColors[k] = cs.getPropertyValue('--wx-' + k).trim();
       });
-      wxColors.critter = cs.getPropertyValue('--ink2').trim() || '#7f8d9a';
-      wxColors.critterEye = cs.getPropertyValue('--accent').trim() || '#ff8a1e';
+      var wire = document.body.classList.contains('vm-wire');
+      var wcol = cs.getPropertyValue('--wire').trim() || '#52c8e6';
+      var pageBg = cs.getPropertyValue('--bg').trim() || '#101418';
+      wxColors.cat = wire
+        ? { body: wcol, stripe: wcol, belly: wcol, ear: wcol, eye: wcol, pupil: pageBg, scaredEye: wcol, wake: wcol }
+        : { body: '#e0863a', stripe: '#b26020', belly: '#f3ead6', ear: '#e79bb0', eye: '#74b352', pupil: '#241d17', scaredEye: '#ffd23e', wake: wxColors.rain || '#9ebad6' };
     }
 
     /* ---------- 底部小动物（一只散步的小猫，会被光标惊到跑开） ---------- */
@@ -268,69 +272,119 @@
     function wxDrawCritter(dt) {
       var c = wxCritter, g = wxCtx;
       if (!c) return;
-      var footY = wxH - 1 - accAt(c.x);   /* 站在积累/地面之上 */
-      /* 受惊：光标靠近就朝反方向加速逃跑，随后慢慢平复 */
-      var dx = c.x - wxMX, near = Math.hypot(dx, footY - 26 - wxMY);
+      /* 雨/雷暴积水漫上来时浮起来游泳，而不是被淹 */
+      var water = (wxMode === 'rain' || wxMode === 'storm') ? wxWet : 0;
+      var swimming = water > 7;
+      var footY = swimming ? (wxH - 3 - water) : (wxH - 1 - accAt(c.x));
+      /* 受惊：光标靠近就朝反方向加速逃离 */
+      var dx = c.x - wxMX, near = Math.hypot(dx, footY - 18 - wxMY);
       if (wxMX > -9000 && near < 130) { c.scared = 1; c.dir = dx >= 0 ? 1 : -1; }
       else c.scared = Math.max(0, c.scared - dt * 0.7);
-      /* 目标速度：受惊狂奔 / 偶尔停下蹲坐 / 常态漫步 */
+      /* 目标速度：受惊狂奔 / 游泳 / 漫步 / 蹲坐 */
       var target;
-      if (c.scared > 0.05) { target = 150; c.pause = 0; }
-      else if (c.pause > 0) { c.pause -= dt; target = 0; if (Math.random() < 0.002) c.pause = 0; }
-      else { target = 26; if (Math.random() < 0.004) c.pause = 1.2 + Math.random() * 2.5; }
+      if (c.scared > 0.05) { target = swimming ? 95 : 150; c.pause = 0; }
+      else if (!swimming && c.pause > 0) { c.pause -= dt; target = 0; if (Math.random() < 0.002) c.pause = 0; }
+      else { target = swimming ? 42 : 26; if (!swimming && Math.random() < 0.004) c.pause = 1.2 + Math.random() * 2.5; }
       c.spd += (target - c.spd) * Math.min(1, dt * 6);
       c.x += c.dir * c.spd * dt;
       var m = 26;
       if (c.x < m) { c.x = m; c.dir = 1; } else if (c.x > wxW - m) { c.x = wxW - m; c.dir = -1; }
       if (c.spd > 4 && Math.random() < 0.002) c.dir *= -1;   /* 偶尔自己转身 */
-      c.walk += c.spd * dt * 0.12;
+      c.walk += c.spd * dt * (swimming ? 0.16 : 0.12);
 
-      var sitting = c.spd < 6;
-      var lift = c.spd > 60 ? 2.5 : 0;                       /* 奔跑时身体微跃 */
-      g.save();
-      g.translate(c.x, footY + Math.sin(c.walk * 2) * (sitting ? 0 : 0.8) - lift);
-      g.scale(c.dir, 1);
-      g.globalAlpha = 0.9;
-      g.fillStyle = wxColors.critter || '#7f8d9a';
-      g.strokeStyle = wxColors.critter || '#7f8d9a';
-      g.lineWidth = 3.4; g.lineCap = 'round';
-      /* 腿：前后各两条，行走时正弦摆动；蹲坐时收起 */
-      if (!sitting) {
-        var sw = Math.sin(c.walk) * 4, sw2 = Math.cos(c.walk) * 4;
-        g.beginPath();
-        g.moveTo(-7, -6); g.lineTo(-7 + sw, 0);
-        g.moveTo(-3, -6); g.lineTo(-3 - sw, 0);
-        g.moveTo(7, -6); g.lineTo(7 + sw2, 0);
-        g.moveTo(11, -6); g.lineTo(11 - sw2, 0);
-        g.stroke();
-      } else {
-        g.beginPath();
-        g.moveTo(-6, -6); g.lineTo(-6, 0);
-        g.moveTo(10, -7); g.lineTo(10, 0);
-        g.stroke();
+      var mode = swimming ? 'swim' : (c.spd < 6 ? 'sit' : 'walk');
+      var bob = swimming ? Math.sin(wxT * 3) * 1.6 : (mode === 'walk' ? Math.sin(c.walk * 2) * 0.8 : 0);
+      var lift = (!swimming && c.spd > 60) ? 2.5 : 0;
+
+      /* 游泳尾迹：身后扩散水波 */
+      if (swimming) {
+        g.save();
+        g.strokeStyle = (wxColors.cat && wxColors.cat.wake) || '#9ebad6';
+        var ph = (wxT * 12) % 8;
+        for (var wI = 0; wI < 2; wI++) {
+          var rr = 6 + wI * 8 + ph;
+          g.globalAlpha = 0.32 * (1 - ph / 8);
+          g.lineWidth = 1;
+          g.beginPath(); g.ellipse(c.x - c.dir * 7, footY + 1, rr, rr * 0.3, 0, 0, 6.2832); g.stroke();
+        }
+        g.restore();
+        g.globalAlpha = 1;
       }
-      /* 身体 */
-      g.beginPath();
-      g.ellipse(1, sitting ? -10 : -11, 11, sitting ? 8 : 6.5, 0, 0, 6.2832);
-      g.fill();
-      /* 尾巴：随时间摆动 */
-      var tw = Math.sin(wxT * 3 + (sitting ? 0 : c.walk)) * 6;
-      g.beginPath();
-      g.moveTo(-10, sitting ? -12 : -12);
-      g.quadraticCurveTo(-22, -18 + tw, -18, -30 + tw);
-      g.lineWidth = 3.2; g.stroke();
-      /* 头 + 耳朵 */
-      var hx = 13, hy = sitting ? -20 : -18;
-      g.beginPath(); g.arc(hx, hy, 6, 0, 6.2832); g.fill();
-      g.beginPath();
-      g.moveTo(hx - 4, hy - 4); g.lineTo(hx - 6, hy - 10); g.lineTo(hx - 0.5, hy - 6);
-      g.moveTo(hx + 3, hy - 5); g.lineTo(hx + 5, hy - 11); g.lineTo(hx + 7, hy - 4);
-      g.closePath(); g.fill();
-      /* 眼睛：受惊时点亮 */
-      g.fillStyle = c.scared > 0.05 ? (wxColors.critterEye || '#ff8a1e') : (wxColors.critter || '#7f8d9a');
-      g.beginPath(); g.arc(hx + 4, hy - 1, 1.3, 0, 6.2832); g.fill();
+
+      g.save();
+      g.translate(c.x, footY + bob - lift);
+      g.scale(c.dir, 1);
+      drawCat(g, mode, c);
       g.restore();
       g.globalAlpha = 1;
+    }
+
+    /* 画一只橘猫（本地坐标：脚在 y=0，朝 +x） */
+    function drawCat(g, mode, c) {
+      var cat = wxColors.cat || { body: '#e0863a', stripe: '#b26020', belly: '#f3ead6', ear: '#e79bb0', eye: '#74b352', pupil: '#241d17', scaredEye: '#ffd23e' };
+      g.lineCap = 'round'; g.lineJoin = 'round'; g.globalAlpha = 0.95;
+
+      if (mode === 'swim') {
+        var pad = Math.sin(c.walk * 3) * 3;              /* 划水的前爪 */
+        g.strokeStyle = cat.body; g.lineWidth = 3;
+        g.beginPath(); g.moveTo(7, -3); g.lineTo(12, pad); g.stroke();
+        g.beginPath(); g.moveTo(4, -3); g.lineTo(9, -pad); g.stroke();
+        g.fillStyle = cat.body; g.beginPath(); g.ellipse(1, -5, 11, 5.5, 0, 0, 6.2832); g.fill();
+        g.strokeStyle = cat.stripe; g.lineWidth = 1.6;
+        for (var s = 0; s < 3; s++) { g.beginPath(); g.moveTo(-6 + s * 5, -9); g.lineTo(-6 + s * 5, -5); g.stroke(); }
+        var tw = Math.sin(wxT * 4) * 5;                  /* 尾巴翘出水面 */
+        g.strokeStyle = cat.body; g.lineWidth = 3;
+        g.beginPath(); g.moveTo(-9, -5); g.quadraticCurveTo(-18, -7 + tw, -15, -15 + tw); g.stroke();
+        drawCatHead(g, 13, -13, cat, c);
+        return;
+      }
+
+      var sit = mode === 'sit';
+      g.strokeStyle = cat.body; g.lineWidth = 3.4;       /* 腿 */
+      if (!sit) {
+        var l1 = Math.sin(c.walk) * 4, l2 = Math.cos(c.walk) * 4;
+        g.beginPath();
+        g.moveTo(-7, -6); g.lineTo(-7 + l1, 0);
+        g.moveTo(-3, -6); g.lineTo(-3 - l1, 0);
+        g.moveTo(7, -6); g.lineTo(7 + l2, 0);
+        g.moveTo(11, -6); g.lineTo(11 - l2, 0);
+        g.stroke();
+      } else {
+        g.beginPath(); g.moveTo(-6, -6); g.lineTo(-6, 0); g.moveTo(10, -7); g.lineTo(10, 0); g.stroke();
+      }
+      g.fillStyle = cat.body; g.beginPath(); g.ellipse(1, sit ? -10 : -11, 11, sit ? 8 : 6.5, 0, 0, 6.2832); g.fill();
+      g.fillStyle = cat.belly; g.beginPath(); g.ellipse(3, sit ? -7 : -9, 6, sit ? 4.5 : 3.2, 0, 0, 6.2832); g.fill();
+      g.strokeStyle = cat.stripe; g.lineWidth = 1.8;     /* 背部条纹 */
+      for (var s2 = 0; s2 < 4; s2++) { var bx = -6 + s2 * 4.2; g.beginPath(); g.moveTo(bx, sit ? -17 : -16.5); g.lineTo(bx + 1, sit ? -13 : -13.5); g.stroke(); }
+      var tw2 = Math.sin(wxT * 3 + (sit ? 0 : c.walk)) * 6;   /* 尾巴 + 深色尾尖 */
+      g.strokeStyle = cat.body; g.lineWidth = 3.2;
+      g.beginPath(); g.moveTo(-10, -12); g.quadraticCurveTo(-22, -18 + tw2, -18, -29 + tw2); g.stroke();
+      g.strokeStyle = cat.stripe; g.lineWidth = 3.2;
+      g.beginPath(); g.moveTo(-18.5, -26 + tw2); g.lineTo(-18, -29 + tw2); g.stroke();
+      drawCatHead(g, 13, sit ? -20 : -18, cat, c);
+    }
+
+    function drawCatHead(g, hx, hy, cat, c) {
+      g.fillStyle = cat.body;                            /* 耳朵外橘 */
+      g.beginPath();
+      g.moveTo(hx - 4, hy - 4); g.lineTo(hx - 6.5, hy - 11); g.lineTo(hx - 0.5, hy - 6.5); g.closePath();
+      g.moveTo(hx + 3, hy - 5); g.lineTo(hx + 5.5, hy - 11.5); g.lineTo(hx + 7.5, hy - 4); g.closePath();
+      g.fill();
+      g.fillStyle = cat.ear;                             /* 内耳粉 */
+      g.beginPath();
+      g.moveTo(hx - 4, hy - 5); g.lineTo(hx - 5.3, hy - 9.5); g.lineTo(hx - 2, hy - 6.5); g.closePath();
+      g.moveTo(hx + 4, hy - 5.5); g.lineTo(hx + 5.3, hy - 10); g.lineTo(hx + 6.5, hy - 5); g.closePath();
+      g.fill();
+      g.fillStyle = cat.body; g.beginPath(); g.arc(hx, hy, 6.3, 0, 6.2832); g.fill();   /* 头 */
+      g.fillStyle = cat.belly; g.beginPath(); g.ellipse(hx + 2, hy + 2, 3.6, 2.8, 0, 0, 6.2832); g.fill();   /* 口鼻 */
+      var wide = c.scared > 0.05;                        /* 眼睛（受惊瞪大） */
+      g.fillStyle = wide ? (cat.scaredEye || '#ffd23e') : cat.eye;
+      g.beginPath(); g.arc(hx + 3.6, hy - 1, wide ? 2 : 1.5, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(hx - 0.4, hy - 1, wide ? 1.7 : 1.3, 0, 6.2832); g.fill();
+      g.fillStyle = cat.pupil;                           /* 瞳孔 */
+      g.beginPath(); g.arc(hx + 3.8, hy - 1, 0.7, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(hx - 0.2, hy - 1, 0.6, 0, 6.2832); g.fill();
+      g.fillStyle = cat.ear; g.beginPath(); g.arc(hx + 2.5, hy + 2.5, 1, 0, 6.2832); g.fill();   /* 鼻子粉 */
     }
     function wxResize() {
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
