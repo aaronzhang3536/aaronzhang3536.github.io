@@ -220,6 +220,9 @@
     var ACC_W = 6, ACC_CAP = 64;   /* 积累到约小草高度(px)就封顶，不再增长 */
     var wxAccum = null, wxAccumN = 0, wxWet = 0, wxRipples = [];
     var wxMeadow = null;   /* 晴天草地 */
+    /* 鼠标交互：雨雪被推开、小草被拨开、小动物躲避 */
+    var wxMX = -9999, wxMY = -9999;
+    var wxCritter = null;  /* 底部走动的小动物 */
     function accIdx(x) { return Math.max(0, Math.min(wxAccumN - 1, Math.round(x / ACC_W))); }
     function accAt(x) { return wxAccum ? wxAccum[accIdx(x)] : 0; }
     function accAdd(x, amt, cap) {
@@ -250,6 +253,84 @@
       ['rain', 'snow', 'sand', 'wind', 'haze', 'bolt'].forEach(function (k) {
         wxColors[k] = cs.getPropertyValue('--wx-' + k).trim();
       });
+      wxColors.critter = cs.getPropertyValue('--ink2').trim() || '#7f8d9a';
+      wxColors.critterEye = cs.getPropertyValue('--accent').trim() || '#ff8a1e';
+    }
+
+    /* ---------- 底部小动物（一只散步的小猫，会被光标惊到跑开） ---------- */
+    function makeCritter() {
+      return {
+        x: Math.random() * (wxW || 1000),
+        dir: Math.random() < 0.5 ? 1 : -1,
+        spd: 0, walk: 0, pause: 1 + Math.random() * 2, scared: 0
+      };
+    }
+    function wxDrawCritter(dt) {
+      var c = wxCritter, g = wxCtx;
+      if (!c) return;
+      var footY = wxH - 1 - accAt(c.x);   /* 站在积累/地面之上 */
+      /* 受惊：光标靠近就朝反方向加速逃跑，随后慢慢平复 */
+      var dx = c.x - wxMX, near = Math.hypot(dx, footY - 26 - wxMY);
+      if (wxMX > -9000 && near < 130) { c.scared = 1; c.dir = dx >= 0 ? 1 : -1; }
+      else c.scared = Math.max(0, c.scared - dt * 0.7);
+      /* 目标速度：受惊狂奔 / 偶尔停下蹲坐 / 常态漫步 */
+      var target;
+      if (c.scared > 0.05) { target = 150; c.pause = 0; }
+      else if (c.pause > 0) { c.pause -= dt; target = 0; if (Math.random() < 0.002) c.pause = 0; }
+      else { target = 26; if (Math.random() < 0.004) c.pause = 1.2 + Math.random() * 2.5; }
+      c.spd += (target - c.spd) * Math.min(1, dt * 6);
+      c.x += c.dir * c.spd * dt;
+      var m = 26;
+      if (c.x < m) { c.x = m; c.dir = 1; } else if (c.x > wxW - m) { c.x = wxW - m; c.dir = -1; }
+      if (c.spd > 4 && Math.random() < 0.002) c.dir *= -1;   /* 偶尔自己转身 */
+      c.walk += c.spd * dt * 0.12;
+
+      var sitting = c.spd < 6;
+      var lift = c.spd > 60 ? 2.5 : 0;                       /* 奔跑时身体微跃 */
+      g.save();
+      g.translate(c.x, footY + Math.sin(c.walk * 2) * (sitting ? 0 : 0.8) - lift);
+      g.scale(c.dir, 1);
+      g.globalAlpha = 0.9;
+      g.fillStyle = wxColors.critter || '#7f8d9a';
+      g.strokeStyle = wxColors.critter || '#7f8d9a';
+      g.lineWidth = 3.4; g.lineCap = 'round';
+      /* 腿：前后各两条，行走时正弦摆动；蹲坐时收起 */
+      if (!sitting) {
+        var sw = Math.sin(c.walk) * 4, sw2 = Math.cos(c.walk) * 4;
+        g.beginPath();
+        g.moveTo(-7, -6); g.lineTo(-7 + sw, 0);
+        g.moveTo(-3, -6); g.lineTo(-3 - sw, 0);
+        g.moveTo(7, -6); g.lineTo(7 + sw2, 0);
+        g.moveTo(11, -6); g.lineTo(11 - sw2, 0);
+        g.stroke();
+      } else {
+        g.beginPath();
+        g.moveTo(-6, -6); g.lineTo(-6, 0);
+        g.moveTo(10, -7); g.lineTo(10, 0);
+        g.stroke();
+      }
+      /* 身体 */
+      g.beginPath();
+      g.ellipse(1, sitting ? -10 : -11, 11, sitting ? 8 : 6.5, 0, 0, 6.2832);
+      g.fill();
+      /* 尾巴：随时间摆动 */
+      var tw = Math.sin(wxT * 3 + (sitting ? 0 : c.walk)) * 6;
+      g.beginPath();
+      g.moveTo(-10, sitting ? -12 : -12);
+      g.quadraticCurveTo(-22, -18 + tw, -18, -30 + tw);
+      g.lineWidth = 3.2; g.stroke();
+      /* 头 + 耳朵 */
+      var hx = 13, hy = sitting ? -20 : -18;
+      g.beginPath(); g.arc(hx, hy, 6, 0, 6.2832); g.fill();
+      g.beginPath();
+      g.moveTo(hx - 4, hy - 4); g.lineTo(hx - 6, hy - 10); g.lineTo(hx - 0.5, hy - 6);
+      g.moveTo(hx + 3, hy - 5); g.lineTo(hx + 5, hy - 11); g.lineTo(hx + 7, hy - 4);
+      g.closePath(); g.fill();
+      /* 眼睛：受惊时点亮 */
+      g.fillStyle = c.scared > 0.05 ? (wxColors.critterEye || '#ff8a1e') : (wxColors.critter || '#7f8d9a');
+      g.beginPath(); g.arc(hx + 4, hy - 1, 1.3, 0, 6.2832); g.fill();
+      g.restore();
+      g.globalAlpha = 1;
     }
     function wxResize() {
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -591,8 +672,11 @@
       wxFlashEl.setAttribute('aria-hidden', 'true');
       document.body.appendChild(wxFlashEl);
       window.addEventListener('resize', wxResize);
+      document.addEventListener('mousemove', function (e) { wxMX = e.clientX; wxMY = e.clientY; });
+      document.documentElement.addEventListener('mouseleave', function () { wxMX = -9999; wxMY = -9999; });
       wxResize();
       wxRefreshColors();
+      wxCritter = makeCritter();
       var storedWx = null;
       try { storedWx = localStorage.getItem('yzzn-wx'); } catch (err) {}
       setWeather(storedWx && wxLoadMap.hasOwnProperty(storedWx) ? storedWx : 'rain', true);
@@ -615,6 +699,11 @@
             var hgt = bl.h * bl.g;
             if (hgt < 2) continue;
             var bend = (Math.sin(wxT * bl.sw + bl.ph) * 3 + breeze * 6) * (hgt / 40);
+            /* 光标拨草：靠近的草叶朝远离光标方向弯折 */
+            if (wxMX > -9000) {
+              var gdx = bl.x - wxMX, gd = Math.hypot(gdx, (wxH - hgt * 0.5) - wxMY);
+              if (gd < 90) bend += (gdx >= 0 ? 1 : -1) * (1 - gd / 90) * 20 * (hgt / 40);
+            }
             var tipX = bl.x + bend, tipY = wxH - hgt;
             gm.strokeStyle = bl.c;
             gm.globalAlpha = bl.a;
@@ -642,6 +731,7 @@
             }
           }
           gm.globalAlpha = 1;
+          wxDrawCritter(dt);
           return;
         }
 
@@ -662,6 +752,12 @@
           for (i = 0; i < wxParts.length; i++) {
             p = wxParts[i];
             p.x += wxWind * 1.2 * dt; p.y += p.spd * dt;
+            if (wxMX > -9000) {   /* 光标附近雨丝被拨向两侧 */
+              var rdx = p.x - wxMX, rdy = p.y - wxMY;
+              if (Math.abs(rdx) < 70 && Math.abs(rdy) < 70) {
+                p.x += (rdx >= 0 ? 1 : -1) * (1 - Math.abs(rdx) / 70) * 90 * dt;
+              }
+            }
             var floorY = wxH - 3 - wxWet;
             if (p.y > floorY) {
               wxWet = Math.min(ACC_CAP, wxWet + (wxMode === 'storm' ? 0.014 : 0.006));
@@ -768,6 +864,10 @@
             p = wxParts[i];
             p.y += p.spd * dt;
             p.x += (wxWind * 0.4 + Math.sin(wxT * 0.9 + p.ph) * p.amp) * dt;
+            if (wxMX > -9000) {   /* 光标推开雪花 */
+              var sdx = p.x - wxMX, sdy = p.y - wxMY, sd = Math.hypot(sdx, sdy);
+              if (sd < 85) { var sf = (1 - sd / 85) * 130 * dt / (sd || 1); p.x += sdx * sf; p.y += sdy * sf; }
+            }
             if (p.y > wxH - 2 - accAt(p.x)) {
               accAdd(p.x, (0.45 + p.size * 0.22) * 7, ACC_CAP);
               p.y = -6; p.x = Math.random() * wxW;
@@ -807,6 +907,7 @@
           drawAccum(wxColors.sand, 0.85);
           ctx.globalAlpha = 1;
         }
+        wxDrawCritter(dt);
       })(0);
     }
 
