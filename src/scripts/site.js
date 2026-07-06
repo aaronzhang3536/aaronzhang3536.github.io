@@ -217,7 +217,8 @@
     var wxW = 0, wxH = 0, wxWind = 0, wxT = 0, wxColors = {}, wxColorTick = 0;
     var bolts = null, boltAge = 0, nextBolt = 0;
     /* 底部积累：雪堆 / 沙丘用高度场，雨用积水系数 + 涟漪 */
-    var ACC_W = 6, wxAccum = null, wxAccumN = 0, wxWet = 0, wxRipples = [];
+    var ACC_W = 6, ACC_CAP = 64;   /* 积累到约小草高度(px)就封顶，不再增长 */
+    var wxAccum = null, wxAccumN = 0, wxWet = 0, wxRipples = [];
     var wxMeadow = null;   /* 晴天草地 */
     function accIdx(x) { return Math.max(0, Math.min(wxAccumN - 1, Math.round(x / ACC_W))); }
     function accAt(x) { return wxAccum ? wxAccum[accIdx(x)] : 0; }
@@ -663,7 +664,7 @@
             p.x += wxWind * 1.2 * dt; p.y += p.spd * dt;
             var floorY = wxH - 3 - wxWet;
             if (p.y > floorY) {
-              wxWet = Math.min(wxH, wxWet + (wxMode === 'storm' ? 0.014 : 0.006));
+              wxWet = Math.min(ACC_CAP, wxWet + (wxMode === 'storm' ? 0.014 : 0.006));
               if (wxRipples.length < 28 && Math.random() < 0.25) {
                 wxRipples.push({ x: p.x, y: floorY, r: 1.5, a: 0.5 });
               }
@@ -768,7 +769,7 @@
             p.y += p.spd * dt;
             p.x += (wxWind * 0.4 + Math.sin(wxT * 0.9 + p.ph) * p.amp) * dt;
             if (p.y > wxH - 2 - accAt(p.x)) {
-              accAdd(p.x, (0.45 + p.size * 0.22) * 7, wxH * 0.16);
+              accAdd(p.x, (0.45 + p.size * 0.22) * 7, ACC_CAP);
               p.y = -6; p.x = Math.random() * wxW;
             }
             if (p.x > wxW + 6) p.x = -6;
@@ -790,7 +791,7 @@
             p.y += Math.sin(wxT * 3 + p.ph) * 26 * dt + 8 * dt;
             if (p.x > wxW + 8) { p.x = -8; p.y = Math.random() * wxH; }
             if (p.y > wxH - 24 - accAt(p.x) && Math.random() < dt * 5) {
-              accAdd(p.x, 2.2, wxH * 0.18);
+              accAdd(p.x, 2.2, ACC_CAP);
               p.y = Math.random() * wxH * 0.6;
               p.x = -8;
             }
@@ -801,7 +802,7 @@
           for (var di = wxAccumN - 2; di >= 0; di--) {
             var mv = wxAccum[di] * 0.006;
             wxAccum[di] -= mv;
-            wxAccum[di + 1] = Math.min(wxH * 0.2, wxAccum[di + 1] + mv);
+            wxAccum[di + 1] = Math.min(ACC_CAP, wxAccum[di + 1] + mv);
           }
           drawAccum(wxColors.sand, 0.85);
           ctx.globalAlpha = 1;
