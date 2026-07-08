@@ -1,0 +1,44 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="观音神课·三十二卦" desc="观世音菩萨感应灵课（俗称观音32卦）：掷五钱起卦，三十二卦签诗与断语">
+<main class="wrap reader">
+  <a class="back mono" href="/shu/">← 术数</a>
+  <h1 class="rd-title">观音神课 · 三十二卦</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-char);"></span>
+    <span>观世音菩萨感应灵课 · 掷五钱起卦（阴阳五枚，成三十二卦）</span>
+  </div>
+
+  <p style="max-width:800px; color:var(--ink2); font-size:14.5px;">
+    观音神课共三十二课，是六爻之简法。相传玄奘西行时得观世音菩萨授之以趋吉避凶。
+    法用铜钱五枚，净手静心、默念所问之事，两手合十连摇数下，顺手排作一行 ——
+    五枚各分阴阳，恰成 <span class="mono">2⁵ = 32</span> 卦之一。
+  </p>
+
+  <div class="shu-panel">
+    <div id="gy-coins" class="gy-coins" aria-hidden="true"></div>
+    <div class="shu-tabs mono" style="margin:0;">
+      <button type="button" class="pie-btn primary" id="gy-cast">掷五钱起卦</button>
+      <label class="xlr-typewrap">报数
+        <input id="gy-num" type="number" min="1" max="32" placeholder="1–32" style="width:82px;" />
+      </label>
+      <button type="button" class="pie-btn" id="gy-go-num">报数起卦</button>
+    </div>
+    <p class="mono hint2">心中默念所问，点「掷五钱」摇卦；或直接报一个 1–32 的数起卦。</p>
+  </div>
+
+  <div id="gy-out" hidden>
+    <div id="gy-result" class="shu-card"></div>
+  </div>
+  <div id="gy-history" class="xlr-hisbox" hidden></div>
+
+  <p class="mono" style="max-width:800px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
+    签诗与断语依民间常见传本整理，各流派用字略有出入；掷卦在本地随机运算，不上传任何数据。结论仅供文化研究与娱乐。
+  </p>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/shu/guanyin.js';
+</script>

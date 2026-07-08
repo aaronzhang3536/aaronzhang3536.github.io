@@ -415,6 +415,22 @@
     background: var(--surface); padding: 18px 22px; margin-top: 14px;
   }
   .shu-h { font-size: 13px; letter-spacing: 0.25em; color: var(--ink2); margin: 30px 0 8px; }
+  /* 观音神课·三十二卦 */
+  .gy-coins { display: flex; gap: 12px; width: 100%; margin: 2px 0 4px; }
+  .gy-coin {
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 2px solid var(--line); background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    font: 700 13px/1 "JetBrains Mono", Consolas, ui-monospace, monospace;
+    color: var(--ink2); transition: transform .18s, background .18s, color .18s, border-color .18s;
+  }
+  .gy-coin.yang { background: color-mix(in srgb, var(--accent) 22%, var(--surface2)); border-color: var(--accent); color: var(--accent); }
+  .gy-coin.spin { transform: rotateY(180deg) scale(.88); }
+  .gy-duan { display: flex; flex-wrap: wrap; gap: 7px 9px; margin: 12px 0 4px; }
+  .gy-duan span {
+    font-size: 12px; color: var(--ink2);
+    border: 1px solid var(--line); background: var(--surface2); padding: 3px 9px;
+  }
   /* 小六壬 */
   .xlr-wheel {
     display: grid; grid-template-columns: repeat(3, 1fr);
