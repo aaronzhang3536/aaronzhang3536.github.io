@@ -187,10 +187,11 @@ import Base from '../../layouts/Base.astro';
   <!-- ⑦ 单音旋律 -->
   <section class="uke-panel" data-p="melody" hidden>
     <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
-      拨单音认识指板：四线谱每列一个音，数字=第几品（·=不弹这根弦），最上面一行是 1 弦(A)。
-      跟着亮块用拇指或食指拨。
+      拨单音认识指板：四条线就是四根弦（自上而下 A · E · C · G），圆圈里的数字=按第几品（0=空弦），
+      音符之间的距离就是时值长短，竖线是小节线。跟着橙色播放头用拇指或食指拨。
     </p>
     <div id="mel-list" class="uke-presets mono"></div>
+    <div class="mono" id="mel-meta" style="font-size:12px; color:var(--ink2); margin-bottom:8px;"></div>
     <div class="shu-panel">
       <label>速度
         <input id="mel-bpm" type="range" min="40" max="140" value="80" style="width:150px;" />
@@ -198,7 +199,10 @@ import Base from '../../layouts/Base.astro';
       </label>
       <button type="button" class="pie-btn primary" id="mel-start">▶ 播放</button>
     </div>
-    <div id="mel-tab" class="uke-meltab"></div>
+    <div class="uke-melwrap">
+      <div id="mel-gut"></div>
+      <div id="mel-scroll" class="uke-melscroll"><div id="mel-tab"></div></div>
+    </div>
   </section>
 
   <!-- ⑧ 和弦听辨 -->
