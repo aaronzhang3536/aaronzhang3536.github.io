@@ -16,6 +16,7 @@
       snow:  SVG + '<path d="M8 1.8v12.4M2.6 4.9l10.8 6.2M13.4 4.9 2.6 11.1"/></svg>',
       sand:  SVG + '<path d="M1.6 4.6c2.4-1.6 4.8 1.6 7.2 0 1.2-.8 2.4-1 3.6-.4M1.6 8.2c2.4-1.6 4.8 1.6 7.2 0 1.2-.8 2.4-1 3.6-.4M1.6 11.8c2.4-1.6 4.8 1.6 7.2 0"/><circle cx="13.6" cy="8.6" r=".7" fill="currentColor" stroke="none"/><circle cx="12.6" cy="12.2" r=".7" fill="currentColor" stroke="none"/></svg>',
       clear: SVG + SUN + '</svg>',
+      auto:  SVG + '<circle cx="8" cy="10.2" r="1.3" fill="currentColor" stroke="none"/><path d="M5.4 7.6a3.7 3.7 0 0 1 5.2 0M3.2 5.4a6.8 6.8 0 0 1 9.6 0"/></svg>',
       off:   SVG + SUN + '<path d="M2 14 14 2"/></svg>',
       snd:   SVG + '<path d="M2.5 6v4h2.8L9 13V3L5.3 6z"/><path d="M10.8 5.5a3.4 3.4 0 0 1 0 5M12.6 3.8a5.8 5.8 0 0 1 0 8.4"/></svg>',
       sndoff: SVG + '<path d="M2.5 6v4h2.8L9 13V3L5.3 6z"/><path d="M11 6.5l3 3M14 6.5l-3 3"/></svg>'
@@ -84,7 +85,7 @@
       cmd.value = '';
       if (v.indexOf('weather') === 0) {
         var wm = v.slice(7).trim();
-        if (!wm) echo.textContent = '用法：weather rain | storm | wind | snow | sand | clear';
+        if (!wm) echo.textContent = '用法：weather auto | rain | storm | wind | snow | sand | clear（auto=实时天气）';
         else setWeather(wm, false);
         return;
       }
@@ -143,7 +144,7 @@
         case 'sound on': if (!sndOn) sndToggle(); echo.textContent = '环境音已开启。'; break;
         case 'sound off': if (sndOn) sndToggle(); echo.textContent = '环境音已关闭。'; break;
         case 'stat fps': echo.textContent = '60.2 FPS — 16.61 ms（稳如老狗）'; break;
-        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather rain|storm|… | bg on|off|next|<秒> | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
+        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather auto|rain|… | bg on|off|next|<秒> | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
         case 'quit':
           if (pieMode) exitPie(false);
           else echo.textContent = '想得美。写完这周的博客再走。';
@@ -210,8 +211,8 @@
     /* ---------- 天气系统 ---------- */
     var wxLoad = 0;
     var wxLoadMap = { clear: 0, rain: 0.7, wind: 0.4, snow: 0.4, sand: 1.6, storm: 3.0 };
-    var wxNames = { clear: '晴（特效关闭）', rain: '小雨', wind: '大风', snow: '降雪', sand: '沙尘暴', storm: '雷暴' };
-    var wxOrder = ['rain', 'storm', 'wind', 'snow', 'sand', 'clear'];
+    var wxNames = { auto: '实时（跟随本地天气）', clear: '晴（特效关闭）', rain: '小雨', wind: '大风', snow: '降雪', sand: '沙尘暴', storm: '雷暴' };
+    var wxOrder = ['auto', 'rain', 'storm', 'wind', 'snow', 'sand', 'clear'];
     var wxMode = 'clear', wxParts = [], wxLeaves = [];
     var wxCvs = null, wxCtx = null, wxFlashEl = null;
     var wxW = 0, wxH = 0, wxWind = 0, wxT = 0, wxColors = {}, wxColorTick = 0;
@@ -485,32 +486,151 @@
       }
       return arr;
     }
+    /* ---------- 实时天气（Open-Meteo，免费无 key；定位：浏览器 → IP → 北京）
+       仅在「实时」档发起请求，结果缓存 20 分钟；失败时保持当前效果，可手动切换。 ---------- */
+    var WX_LIVE_TTL = 20 * 60 * 1000;
+    var wxSel = 'rain', wxLiveInfo = null, wxLiveTimer = null;
+    var WMO_DESC = [
+      [0, '晴'], [1, '基本晴'], [2, '多云'], [3, '阴'], [45, '雾'], [48, '雾凇'],
+      [51, '毛毛雨'], [56, '冻毛毛雨'], [61, '小雨'], [63, '中雨'], [65, '大雨'], [66, '冻雨'],
+      [71, '小雪'], [73, '中雪'], [75, '大雪'], [77, '米雪'],
+      [80, '阵雨'], [82, '强阵雨'], [85, '阵雪'],
+      [95, '雷暴'], [96, '雷暴伴冰雹']
+    ];
+    function wmoDesc(code) {
+      var d = '——';
+      for (var i = 0; i < WMO_DESC.length; i++) if (code >= WMO_DESC[i][0]) d = WMO_DESC[i][1];
+      return d;
+    }
+    function wmoToMode(code, windKmh) {
+      if (code >= 95) return 'storm';
+      if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
+      if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rain';
+      if (windKmh >= 38) return 'wind';               /* 6 级以上大风 */
+      return 'clear';                                  /* 沙尘 WMO 现报不含，保留手动档 */
+    }
+    function wxFetchJSON(url, ms) {
+      return new Promise(function (resolve, reject) {
+        var ctl = window.AbortController ? new AbortController() : null;
+        var to = setTimeout(function () { if (ctl) ctl.abort(); reject(new Error('timeout')); }, ms);
+        fetch(url, ctl ? { signal: ctl.signal } : undefined).then(function (r) {
+          clearTimeout(to);
+          if (!r.ok) { reject(new Error('http ' + r.status)); return; }
+          r.json().then(resolve, reject);
+        }, function (e) { clearTimeout(to); reject(e); });
+      });
+    }
+    function wxLocate() {
+      return new Promise(function (resolve) {
+        var done = false;
+        function ok(lat, lon, name) { if (!done) { done = true; resolve({ lat: lat, lon: lon, name: name }); } }
+        if (navigator.geolocation) {
+          try {
+            navigator.geolocation.getCurrentPosition(function (p) {
+              ok(p.coords.latitude, p.coords.longitude, null);
+            }, function () {}, { timeout: 3200, maximumAge: 600000 });
+          } catch (e) {}
+        }
+        setTimeout(function () {                       /* 定位拿不到就走 IP，再不行用默认坐标 */
+          if (done) return;
+          wxFetchJSON('https://ipwho.is/', 5000).then(function (j) {
+            if (j && typeof j.latitude === 'number') ok(j.latitude, j.longitude, j.city || null);
+            else ok(39.904, 116.407, '北京');
+          }, function () { ok(39.904, 116.407, '北京'); });
+        }, 3400);
+      });
+    }
+    function wxPlaceName(lat, lon) {
+      return wxFetchJSON('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' + lat +
+        '&longitude=' + lon + '&localityLanguage=zh', 5000)
+        .then(function (j) { return (j && (j.city || j.locality || j.principalSubdivision)) || '本地'; },
+          function () { return '本地'; });
+    }
+    function wxApplyLive(info, fromCache) {
+      if (wxSel !== 'auto') return;
+      wxLiveInfo = info;
+      setVisual(wmoToMode(info.code, info.wind));
+      var label = '实时天气：' + (info.name || '本地') + ' ' + wmoDesc(info.code) + ' ' + info.temp + '°C' +
+        (fromCache ? '（缓存）' : '') + '（点击切换）';
+      btnWx.title = label;
+      btnWx.setAttribute('aria-label', label);
+    }
+    function wxRefreshLive(force, quiet) {
+      var cached = null;
+      try { cached = JSON.parse(localStorage.getItem('yzzn-wx-live') || 'null'); } catch (e) { cached = null; }
+      if (cached && typeof cached.code === 'number') wxApplyLive(cached, true);
+      if (!force && cached && typeof cached.t === 'number' && Date.now() - cached.t < WX_LIVE_TTL) return;
+      wxLocate().then(function (pos) {
+        var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + pos.lat.toFixed(3) +
+          '&longitude=' + pos.lon.toFixed(3) + '&current=temperature_2m,weather_code,wind_speed_10m';
+        wxFetchJSON(url, 6000).then(function (j) {
+          var cur = j && j.current;
+          if (!cur || typeof cur.weather_code !== 'number') return;
+          var info = {
+            t: Date.now(), name: pos.name,
+            temp: Math.round(cur.temperature_2m), code: cur.weather_code,
+            wind: Math.round(cur.wind_speed_10m || 0)
+          };
+          var finish = function () {
+            try { localStorage.setItem('yzzn-wx-live', JSON.stringify(info)); } catch (e) {}
+            wxApplyLive(info, false);
+            if (!quiet && wxSel === 'auto') {
+              echo.textContent = '实时天气：' + (info.name || '本地') + ' ' + wmoDesc(info.code) + ' ' +
+                info.temp + '°C → ' + wxNames[wxMode];
+            }
+          };
+          if (info.name) finish();
+          else wxPlaceName(pos.lat, pos.lon).then(function (n) { info.name = n; finish(); });
+        }, function () {
+          if (wxSel === 'auto' && !wxLiveInfo) {
+            echo.textContent = '实时天气获取失败（网络不可达），已保持当前效果，可手动切换。';
+          }
+        });
+      });
+    }
+    function setVisual(m) {
+      wxMode = m;
+      wxLoad = wxLoadMap[m];
+      bolts = null; wxFlashEl.style.opacity = '0';
+      nextBolt = performance.now() + 2500;
+      wxBuild();
+      wxRefreshColors();
+      sndSet(m);
+    }
     function setWeather(m, silent) {
-      if (!(m in wxLoadMap)) {
-        echo.textContent = "未知天气 '" + m + "'。可选：rain storm wind snow sand clear";
+      if (m !== 'auto' && !(m in wxLoadMap)) {
+        echo.textContent = "未知天气 '" + m + "'。可选：auto rain storm wind snow sand clear";
         return;
       }
       if (reduced) {
         echo.textContent = '系统开启了「减少动态效果」，天气特效已停用。';
         return;
       }
-      wxMode = m;
+      wxSel = m;
       try { localStorage.setItem('yzzn-wx', m); } catch (err) {}
-      wxLoad = wxLoadMap[m];
-      bolts = null; wxFlashEl.style.opacity = '0';
-      nextBolt = performance.now() + 2500;
-      wxBuild();
-      wxRefreshColors();
+      if (wxLiveTimer) { clearInterval(wxLiveTimer); wxLiveTimer = null; }
       btnWx.innerHTML = icons[m];
+      if (m === 'auto') {
+        var wl0 = '实时天气获取中…（点击切换）';
+        btnWx.title = wl0; btnWx.setAttribute('aria-label', wl0);
+        if (!silent) echo.textContent = '天气切换：实时（跟随本地天气）';
+        wxRefreshLive(false, silent);
+        wxLiveTimer = setInterval(function () { wxRefreshLive(true, true); }, WX_LIVE_TTL);
+        return;
+      }
+      wxLiveInfo = null;
+      setVisual(m);
       var wl = '天气：' + wxNames[m] + '（点击切换）';
       btnWx.title = wl;
       btnWx.setAttribute('aria-label', wl);
-      sndSet(m);
       if (!silent) echo.textContent = '天气切换：' + wxNames[m];
     }
     btnWx.addEventListener('click', function () {
-      var next = wxOrder[(wxOrder.indexOf(wxMode) + 1) % wxOrder.length];
+      var next = wxOrder[(wxOrder.indexOf(wxSel) + 1) % wxOrder.length];
       setWeather(next, true);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && wxSel === 'auto' && !reduced) wxRefreshLive(false, true);
     });
 
     /* ---------- 天气环境音（WebAudio 合成，无音频文件） ---------- */
@@ -733,7 +853,7 @@
       wxCritter = makeCritter();
       var storedWx = null;
       try { storedWx = localStorage.getItem('yzzn-wx'); } catch (err) {}
-      setWeather(storedWx && wxLoadMap.hasOwnProperty(storedWx) ? storedWx : 'rain', true);
+      setWeather(storedWx && (storedWx === 'auto' || wxLoadMap.hasOwnProperty(storedWx)) ? storedWx : 'rain', true);
 
       var wxPrev = 0;
       (function wxLoop(ts) {
@@ -1032,8 +1152,8 @@
       bp: 'TeaBreak', zh: '茶歇 · 烘焙光照',
       start: function (stage) {
         hudSuspend = true;
-        var prevWx = wxMode;
-        if (!reduced && wxMode !== 'rain') setWeather('rain', true);
+        var prevWx = wxSel;
+        if (!reduced && wxMode !== 'rain') setVisual('rain');   /* 只切视觉，不覆盖用户的天气偏好 */
         stage.innerHTML =
           '<div class="pie-panel">' +
             '<h3 id="tea-h">Building Lighting…</h3>' +
@@ -1125,7 +1245,7 @@
           if (timer) clearInterval(timer);
           stopRainSound();
           document.title = SITE_TITLE0;
-          if (!reduced && wxMode !== prevWx) setWeather(prevWx, true);
+          if (!reduced && (wxSel !== prevWx || wxMode !== prevWx)) setWeather(prevWx, true);
         };
       }
     };
