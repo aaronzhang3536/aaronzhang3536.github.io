@@ -102,7 +102,7 @@ function chordSVG(chord, big) {
   const gw = SW - padX * 2, gh = SH - padTop - padBot;
   const sx = (i) => padX + (gw * i) / (nStr - 1);
   const fy = (f) => padTop + (gh * f) / nFret;
-  let s = '<svg viewBox="0 0 ' + SW + ' ' + SH + '" class="uke-diagram" role="img" aria-label="' + chord.name + ' 和弦指法">';
+  let s = '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + ' ' + SH + '" class="uke-diagram" role="img" aria-label="' + chord.name + ' 和弦指法">';
   /* 品丝 */
   for (let f = 0; f <= nFret; f++) {
     const w = f === 0 ? (big ? 3.4 : 2.6) : 1;
@@ -255,18 +255,169 @@ function beatDots(local, per, isCount) {
   $('uke-beats').innerHTML = dots.join('');
 }
 
+/* ---------- 调音器：标准音 + 麦克风 ---------- */
+function tone(freq) {
+  const ctx = ac();
+  const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine'; o.frequency.value = freq;
+  o2.type = 'triangle'; o2.frequency.value = freq; o2.detune.value = 3;
+  const t = ctx.currentTime;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.32, t + 0.04);
+  g.gain.setValueAtTime(0.32, t + 2.1);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
+  o.connect(g); o2.connect(g); g.connect(master);
+  o.start(t); o2.start(t); o.stop(t + 2.9); o2.stop(t + 2.9);
+}
+let mic = { on: false, stream: null, analyser: null, buf: null, raf: null };
+function autoCorrelate(buf, sr) {
+  let SIZE = buf.length, rms = 0;
+  for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+  if (Math.sqrt(rms / SIZE) < 0.01) return -1;
+  let r1 = 0, r2 = SIZE - 1;
+  for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < 0.2) { r1 = i; break; }
+  for (let i = 1; i < SIZE / 2; i++) if (Math.abs(buf[SIZE - i]) < 0.2) { r2 = SIZE - i; break; }
+  const b = buf.slice(r1, r2); SIZE = b.length;
+  if (SIZE < 8) return -1;
+  const c = new Array(SIZE).fill(0);
+  for (let i = 0; i < SIZE; i++) for (let j = 0; j < SIZE - i; j++) c[i] += b[j] * b[j + i];
+  let d = 0; while (d < SIZE - 1 && c[d] > c[d + 1]) d++;
+  let maxval = -1, T0 = -1;
+  for (let i = d; i < SIZE; i++) if (c[i] > maxval) { maxval = c[i]; T0 = i; }
+  const x1 = c[T0 - 1] || 0, x2 = c[T0], x3 = c[T0 + 1] || 0;
+  const a = (x1 + x3 - 2 * x2) / 2, bb = (x3 - x1) / 2;
+  if (a) T0 = T0 - bb / (2 * a);
+  return sr / T0;
+}
+function nearestString(freq) {
+  let best = TUNING[0], bestC = 1e9;
+  TUNING.forEach((s) => {
+    let f = freq;
+    while (f < s.freq / 1.4142) f *= 2;
+    while (f > s.freq * 1.4142) f /= 2;
+    const cents = 1200 * Math.log2(f / s.freq);
+    if (Math.abs(cents) < Math.abs(bestC)) { bestC = cents; best = s; }
+  });
+  return { s: best, cents: bestC };
+}
+async function micToggle() {
+  if (mic.on) { stopMic(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $('uke-micnote').textContent = '此浏览器不支持麦克风调音'; return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } });
+    const ctx = ac();
+    const an = ctx.createAnalyser(); an.fftSize = 2048;
+    ctx.createMediaStreamSource(stream).connect(an);
+    mic = { on: true, stream, analyser: an, buf: new Float32Array(an.fftSize), raf: null };
+    $('uke-mic').textContent = '■ 停止麦克风';
+    $('uke-micnote').textContent = '拨响一根弦，对照指针微调弦钮';
+    micLoop();
+  } catch (e) {
+    $('uke-micnote').textContent = '未获得麦克风权限';
+  }
+}
+function stopMic() {
+  if (!mic.on) return;
+  mic.on = false;
+  if (mic.raf) cancelAnimationFrame(mic.raf);
+  if (mic.stream) mic.stream.getTracks().forEach((t) => t.stop());
+  const b = $('uke-mic'); if (b) b.textContent = '🎤 用麦克风调音';
+  const box = $('uke-tunerbox'); if (box) box.classList.remove('intune');
+  if ($('uke-tunernote')) $('uke-tunernote').textContent = '—';
+  if ($('uke-tunercents')) $('uke-tunercents').textContent = '';
+  if ($('uke-needle')) $('uke-needle').style.transform = 'translateX(-50%) rotate(0deg)';
+}
+function micLoop() {
+  if (!mic.on) return;
+  const ctx = ac();
+  mic.analyser.getFloatTimeDomainData(mic.buf);
+  const f = autoCorrelate(mic.buf, ctx.sampleRate);
+  if (f > 60 && f < 1200) {
+    const r = nearestString(f);
+    $('uke-tunernote').textContent = r.s.name;
+    const good = Math.abs(r.cents) < 5;
+    $('uke-tunercents').textContent = good ? '✓ 准了' :
+      (Math.round(Math.abs(r.cents)) + ' 音分 · ' + (r.cents > 0 ? '偏高，松一点' : '偏低，紧一点'));
+    const deg = Math.max(-45, Math.min(45, r.cents / 50 * 45));
+    $('uke-needle').style.transform = 'translateX(-50%) rotate(' + deg + 'deg)';
+    $('uke-tunerbox').classList.toggle('intune', good);
+  }
+  mic.raf = requestAnimationFrame(micLoop);
+}
+
+/* ---------- 入门·跟我扫弦（单和弦超慢速） ---------- */
+let beg = { on: false, timer: null, next: 0, beat: 0 };
+function begBpm() { return Math.max(30, Math.min(120, parseInt($('beg-bpm').value, 10) || 50)); }
+function begStart() {
+  const ctx = ac(); beg.on = true; beg.beat = 0; beg.next = ctx.currentTime + 0.25;
+  $('beg-start').textContent = '■ 停止'; begSched();
+}
+function begStop() {
+  beg.on = false; if (beg.timer) clearTimeout(beg.timer);
+  const b = $('beg-start'); if (b) b.textContent = '▶ 开始跟练';
+  if ($('beg-prompt')) $('beg-prompt').textContent = '';
+  if ($('beg-arrow')) $('beg-arrow').classList.remove('hit');
+}
+function begSched() {
+  const ctx = ac(); const spb = 60 / begBpm();
+  while (beg.next < ctx.currentTime + 0.12) { begBeat(beg.beat, beg.next); beg.beat++; beg.next += spb; }
+  if (beg.on) beg.timer = setTimeout(begSched, 25);
+}
+function begBeat(beat, when) {
+  const ctx = ac();
+  const inCount = beat < 4, local = inCount ? beat : (beat - 4) % 4;
+  click(when, local === 0);
+  const chord = CHORDS.find((c) => c.name === $('beg-chord').value) || CHORDS[0];
+  if (!inCount && $('beg-demo').checked) strum(chord, 'down', when);
+  const delay = Math.max(0, (when - ctx.currentTime) * 1000);
+  setTimeout(() => {
+    if (!beg.on) return;
+    if (inCount) { $('beg-prompt').textContent = '预备 ' + (4 - local); }
+    else {
+      $('beg-prompt').textContent = String(local + 1);
+      const a = $('beg-arrow'); a.classList.add('hit'); setTimeout(() => a.classList.remove('hit'), 130);
+    }
+  }, delay);
+}
+
+/* ---------- 标签页 ---------- */
+function setupTabs() {
+  const tabs = document.querySelectorAll('.uke-tab');
+  tabs.forEach((tab) => tab.addEventListener('click', () => {
+    tabs.forEach((t) => t.classList.remove('on'));
+    tab.classList.add('on');
+    const p = tab.getAttribute('data-p');
+    document.querySelectorAll('.uke-panel').forEach((pan) => { pan.hidden = pan.getAttribute('data-p') !== p; });
+    if (p !== 'tune') stopMic();
+    if (p !== 'start') begStop();
+    if (p !== 'trainer' && trainer.on) stopTrainer();
+  }));
+}
+
 function init() {
   if (!$('uke-lib')) return;
+  setupTabs();
   renderLibrary();
   showCurrent(current);
   renderSelected();
   beatDots(-1, bpc(), false);
+  /* 调音 */
+  document.querySelectorAll('.uke-ref').forEach((b) => b.addEventListener('click', () => tone(parseFloat(b.getAttribute('data-f')))));
+  if ($('uke-mic')) $('uke-mic').addEventListener('click', micToggle);
+  /* 入门 */
+  if ($('beg-cdiagram')) $('beg-cdiagram').innerHTML = chordSVG(CHORDS.find((c) => c.name === 'C'), true);
+  if ($('beg-first')) $('beg-first').addEventListener('click', () => strum(CHORDS.find((c) => c.name === 'C'), 'down'));
+  if ($('beg-chord')) $('beg-chord').innerHTML = ['C', 'Am', 'F'].map((n) => '<option>' + n + '</option>').join('');
+  if ($('beg-bpm')) { $('beg-bpmv').textContent = begBpm(); $('beg-bpm').addEventListener('input', () => { $('beg-bpmv').textContent = begBpm(); }); }
+  if ($('beg-start')) $('beg-start').addEventListener('click', () => { beg.on ? begStop() : begStart(); });
+  /* 换和弦训练 */
   $('uke-bpm').addEventListener('input', () => { $('uke-bpmv').textContent = bpm(); });
   $('uke-bpc').addEventListener('change', () => beatDots(-1, bpc(), false));
   $('uke-bpmv').textContent = bpm();
   $('uke-start').addEventListener('click', () => { trainer.on ? stopTrainer() : startTrainer(); });
   $('uke-clear').addEventListener('click', () => { selected.length = 0; syncChips(); renderSelected(); });
-  /* 常用套路一键装入 */
   document.querySelectorAll('.uke-preset').forEach((b) => {
     b.addEventListener('click', () => {
       selected.length = 0;
