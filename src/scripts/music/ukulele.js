@@ -681,7 +681,6 @@ function melStart() {
   mel.next += cnt * spb;
   $('mel-start').textContent = '■ 停止';
   melRun();
-  if (!melFollowRaf) melFollowRaf = requestAnimationFrame(melFollow);
 }
 function melRun() {
   if (!mel.on) return;
@@ -698,28 +697,29 @@ function melRun() {
 }
 function melStop() {
   mel.on = false; if (mel.timer) { clearTimeout(mel.timer); mel.timer = null; }
-  if (melFollowRaf) { cancelAnimationFrame(melFollowRaf); melFollowRaf = null; }
   const b = $('mel-start'); if (b) b.textContent = '▶ 播放';
-  document.querySelectorAll('#mel-tab .mn.on').forEach((el) => el.classList.remove('on'));
+  if (melCur >= 0 && melNodes[melCur]) melNodes[melCur].classList.remove('on');
+  melCur = -1;
 }
-let melPos = [], melPhX = -20, melFollowRaf = null;
+/* 跟随策略：不用逐帧写 scrollLeft（每帧强制布局、且 lerp 永不收敛导致持续重绘卡顿），
+   改为每个音符触发一次原生平滑滚动；用户手动滚动时暂停跟随 1.8s */
+let melPos = [], melPhX = -20, melNodes = [], melCur = -1, melHoldUntil = 0;
 function melHi(i) {
-  document.querySelectorAll('#mel-tab .mn').forEach((el, k) => el.classList.toggle('on', k === i));
+  if (melCur >= 0 && melNodes[melCur]) melNodes[melCur].classList.remove('on');
+  if (i >= 0 && melNodes[i]) melNodes[i].classList.add('on');
+  melCur = i;
   const ph = document.getElementById('mel-ph');
   if (ph && i >= 0 && melPos[i] != null) {
     melPhX = melPos[i] + 11;
     ph.setAttribute('transform', 'translate(' + melPhX + ',0)');
+    if (mel.on && performance.now() > melHoldUntil) {
+      const box = $('mel-scroll');
+      if (box) {
+        const target = Math.max(0, Math.min(melPhX - box.clientWidth * 0.35, box.scrollWidth - box.clientWidth));
+        if (Math.abs(target - box.scrollLeft) > 4) box.scrollTo({ left: target, behavior: 'smooth' });
+      }
+    }
   }
-}
-/* 播放头跟随：平滑滚动让当前音保持在视口前 1/3 处 */
-function melFollow() {
-  if (!mel.on) { melFollowRaf = null; return; }
-  const box = $('mel-scroll');
-  if (box) {
-    const target = Math.max(0, melPhX - box.clientWidth * 0.35);
-    box.scrollLeft += (target - box.scrollLeft) * 0.12;
-  }
-  melFollowRaf = requestAnimationFrame(melFollow);
 }
 function renderMelody() {
   document.querySelectorAll('#mel-list .uke-patbtn').forEach((b, i) => b.classList.toggle('on', i === melIdx));
@@ -753,8 +753,10 @@ function renderMelody() {
   });
   svg += '</svg>';
   $('mel-tab').innerHTML = svg;
+  melNodes = Array.prototype.slice.call($('mel-tab').querySelectorAll('.mn'));
+  melCur = -1;
   /* 点音符试听 */
-  $('mel-tab').querySelectorAll('.mn').forEach((g) => {
+  melNodes.forEach((g) => {
     g.addEventListener('click', () => {
       const i = parseInt(g.getAttribute('data-i'), 10);
       const n = m.notes[i];
@@ -917,6 +919,10 @@ function init() {
     renderMelody();
     $('mel-bpm').addEventListener('input', () => { $('mel-bpmv').textContent = melBpm(); });
     $('mel-start').addEventListener('click', () => { mel.on ? melStop() : melStart(); });
+    /* 用户手动滚动谱面时，暂停自动跟随，避免打架 */
+    ['wheel', 'pointerdown', 'touchstart'].forEach((evt) => {
+      $('mel-scroll').addEventListener(evt, () => { melHoldUntil = performance.now() + 1800; }, { passive: true });
+    });
   }
   /* 和弦听辨 */
   if ($('ear-btns')) {

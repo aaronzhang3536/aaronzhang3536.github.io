@@ -542,7 +542,12 @@
   #mel-gut { flex: none; border-right: 1px solid var(--line); background: var(--surface2); }
   #mel-gut svg { display: block; }
   #mel-gut .glbl { fill: var(--ink2); font: 700 12px "JetBrains Mono", Consolas, monospace; text-anchor: middle; }
-  .uke-melscroll { overflow-x: auto; flex: 1; }
+  .uke-melscroll {
+    overflow-x: auto; flex: 1;
+    overscroll-behavior-x: contain;   /* 滚到头不把整页拖走 */
+    contain: content;                 /* 谱面重绘隔离在容器内 */
+    scrollbar-width: thin;
+  }
   #mel-tab svg { display: block; }
   #mel-svg .str { stroke: color-mix(in srgb, var(--ink2) 50%, transparent); stroke-width: 1; }
   #mel-svg .bar { stroke: color-mix(in srgb, var(--line) 90%, transparent); stroke-width: 1; }
