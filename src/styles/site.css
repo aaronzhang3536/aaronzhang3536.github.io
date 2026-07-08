@@ -513,6 +513,63 @@
   .uke-begarrow { font-size: 60px; line-height: 1; color: var(--ink2); transition: transform .06s, color .06s; }
   .uke-begarrow.hit { color: var(--c-life); transform: scale(1.28); }
   .uke-begprompt { font-size: 22px; color: var(--accent); min-height: 26px; letter-spacing: .2em; }
+  /* 节奏型 */
+  .uke-patbtn.on { border-color: var(--c-life); color: var(--c-life); }
+  .uke-patrow { display: flex; gap: 8px; margin: 12px 0 6px; flex-wrap: wrap; }
+  .uke-slot {
+    width: 42px; height: 50px; display: flex; align-items: center; justify-content: center;
+    font-size: 25px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    transition: transform .06s, border-color .06s, background .06s;
+  }
+  .uke-slot.rest { color: var(--ink2); opacity: .55; }
+  .uke-slot.beat { border-bottom: 3px solid var(--line); }
+  .uke-slot.on { border-color: var(--c-life); color: var(--c-life); transform: scale(1.12); background: color-mix(in srgb, var(--c-life) 12%, var(--surface)); }
+  .uke-slot.count { border-color: var(--accent); color: var(--accent); }
+  /* 弹唱曲库 */
+  .uke-songchord { display: flex; flex-direction: column; align-items: center; gap: 2px; border: 1px solid var(--line); background: var(--surface); padding: 6px 8px 4px; }
+  .uke-songchord i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--ink); }
+  .uke-lyrics {
+    max-width: 820px; max-height: 240px; overflow: auto; margin-top: 14px;
+    border: 1px solid var(--line); background: var(--surface); padding: 14px 16px;
+    display: flex; flex-wrap: wrap; gap: 8px 4px; line-height: 1.35;
+  }
+  .uke-lyrics .seg { padding: 3px 7px; border: 1px solid transparent; display: inline-flex; flex-direction: column; align-items: center; font-size: 15px; color: var(--ink); }
+  .uke-lyrics .seg i { font-style: normal; font-size: 10.5px; color: var(--ink2); }
+  .uke-lyrics .seg.on { border-color: var(--c-life); background: color-mix(in srgb, var(--c-life) 14%, var(--surface)); }
+  .uke-lyrics .seg.on i { color: var(--c-life); font-weight: 700; }
+  /* 单音旋律 TAB */
+  .uke-meltab {
+    display: flex; overflow-x: auto; max-width: 820px; margin-top: 14px;
+    border: 1px solid var(--line); background: var(--surface); padding: 12px 10px;
+  }
+  .uke-meltab .lbl, .uke-meltab .col { display: flex; flex-direction: column; flex: none; }
+  .uke-meltab .lbl i, .uke-meltab .col i {
+    height: 26px; width: 34px; display: flex; align-items: center; justify-content: center;
+    font-style: normal; font-size: 13px; color: var(--ink);
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  }
+  .uke-meltab .lbl i { width: 26px; color: var(--ink2); }
+  .uke-meltab .lbl b, .uke-meltab .col b { height: 24px; font-size: 11px; color: var(--ink2); display: flex; align-items: center; justify-content: center; font-weight: 400; }
+  .uke-meltab .col i { color: color-mix(in srgb, var(--ink2) 55%, transparent); }
+  .uke-meltab .col i:not(:empty) { color: var(--ink); }
+  .uke-meltab .col.on { background: color-mix(in srgb, var(--c-life) 10%, transparent); }
+  .uke-meltab .col.on i { color: var(--c-life); font-weight: 700; }
+  /* 和弦听辨 */
+  .uke-earbtn { min-width: 66px; font-size: 17px; padding: 13px 20px; }
+  .uke-earbtn.good { border-color: var(--good); color: var(--good); }
+  .uke-earbtn.bad { border-color: var(--c-render); color: var(--c-render); }
+  /* 7 天计划 */
+  .uke-planprog { max-width: 820px; height: 10px; border: 1px solid var(--line); background: var(--surface2); margin: 8px 0 2px; }
+  .uke-planprog i { display: block; height: 100%; background: var(--c-life); width: 0; transition: width .25s; }
+  .uke-plangrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; max-width: 820px; margin-top: 14px; }
+  .uke-planday { border: 1px solid var(--line); background: var(--surface); padding: 12px 14px; }
+  .uke-planday.done { border-color: var(--good); }
+  .uke-planday .pd-h { font-size: 12px; color: var(--ink2); margin-bottom: 8px; }
+  .uke-planday .pd-h b { color: var(--ink); font-size: 13px; }
+  .uke-planday .pd-h .ok { color: var(--good); margin-left: 6px; }
+  .pd-t { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--ink2); padding: 3px 0; cursor: pointer; }
+  .pd-t input { margin-top: 2px; accent-color: var(--c-life); flex: none; }
+  .pd-t input:checked + span { color: var(--ink); text-decoration: line-through; text-decoration-color: var(--c-life); }
   /* 小六壬 */
   .xlr-wheel {
     display: grid; grid-template-columns: repeat(3, 1fr);

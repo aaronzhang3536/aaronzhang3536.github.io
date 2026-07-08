@@ -72,16 +72,17 @@ function pluck(freq, when, gain) {
   src.start(when || ctx.currentTime);
 }
 function noteFreq(string, fret) { return TUNING[string].freq * Math.pow(2, fret / 12); }
-function strum(chord, dir, when) {
+function strum(chord, dir, when, gain) {
   const ctx = ac();
   const t0 = (when || ctx.currentTime) + 0.01;
   const order = dir === 'up' ? [3, 2, 1, 0] : [0, 1, 2, 3];
   order.forEach((s, i) => {
     const f = chord.frets[s];
     if (f < 0) return;
-    pluck(noteFreq(s, f), t0 + i * 0.03, 0.5);
+    pluck(noteFreq(s, f), t0 + i * (dir === 'up' ? 0.02 : 0.03), gain == null ? 0.5 : gain);
   });
 }
+const chordByName = (n) => CHORDS.find((c) => c.name === n);
 function click(when, accent) {
   const ctx = ac();
   const o = ctx.createOscillator(), g = ctx.createGain();
@@ -382,6 +383,324 @@ function begBeat(beat, when) {
   }, delay);
 }
 
+/* ---------- 通用：音频前瞻循环器 ---------- */
+function makeLooper(tick, interval) {
+  const L = { on: false, i: 0, next: 0, timer: null };
+  L.start = function () { const ctx = ac(); L.on = true; L.i = 0; L.next = ctx.currentTime + 0.2; run(); };
+  L.stop = function () { L.on = false; if (L.timer) { clearTimeout(L.timer); L.timer = null; } };
+  function run() {
+    const ctx = ac();
+    while (L.next < ctx.currentTime + 0.12) { tick(L.i, L.next); L.i++; L.next += interval(); }
+    if (L.on) L.timer = setTimeout(run, 25);
+  }
+  return L;
+}
+function uiAt(when, fn) { const ctx = ac(); setTimeout(fn, Math.max(0, (when - ctx.currentTime) * 1000)); }
+/* 切音「恰」声：短噪声经带通 */
+let noiseBuf = null;
+function chnk(when) {
+  const ctx = ac();
+  if (!noiseBuf) {
+    noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.08), ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  }
+  const src = ctx.createBufferSource(); src.buffer = noiseBuf;
+  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.8;
+  const g = ctx.createGain(); g.gain.value = 0.5;
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start(when || ctx.currentTime);
+}
+
+/* ---------- 扫弦节奏型（8 个八分槽位；D 下扫 U 上扫 X 切音） ---------- */
+const PATTERNS = [
+  { name: '四分下扫', slots: ['D', '', 'D', '', 'D', '', 'D', ''], hint: '最基础：每拍一个下扫，手腕放松像甩水' },
+  { name: '八分扫弦', slots: ['D', 'U', 'D', 'U', 'D', 'U', 'D', 'U'], hint: '下上交替：下扫踩在拍点上，上扫在半拍，手腕匀速摆动不停' },
+  { name: '民谣万能型', slots: ['D', '', 'D', 'U', '', 'U', 'D', 'U'], hint: '口诀「下、下上、上下上」——先慢速念口诀再扫，会了这个能弹一半的歌' },
+  { name: '慢摇抒情', slots: ['D', '', '', 'U', '', 'U', 'D', ''], hint: '留白多，适合慢歌；空拍时手继续虚挥保持节奏' },
+  { name: '切音型', slots: ['D', '', 'X', 'U', '', 'U', 'X', 'U'], hint: 'X=切音：扫完立刻用右手掌侧面捂住琴弦发出「恰」' },
+  { name: '华尔兹 3/4', slots: ['D', '', 'U', '', 'U', ''], hint: '三拍子「蹦-恰-恰」，生日快乐就用它' },
+];
+let patIdx = 2;
+function patBpm() { return Math.max(30, Math.min(140, parseInt($('pat-bpm').value, 10) || 60)); }
+const patLoop = makeLooper(patTick, () => 30 / patBpm());
+function patTick(i, when) {
+  const p = PATTERNS[patIdx], n = p.slots.length;
+  const inCount = i < n, s = i % n, onBeat = s % 2 === 0;
+  if (onBeat) click(when, s === 0);
+  if (!inCount) {
+    const ch = chordByName($('pat-chord').value) || CHORDS[0];
+    const slot = p.slots[s];
+    if (slot === 'D') strum(ch, 'down', when, 0.5);
+    else if (slot === 'U') strum(ch, 'up', when, 0.3);
+    else if (slot === 'X') chnk(when);
+  }
+  uiAt(when, () => {
+    if (!patLoop.on) return;
+    $('pat-count').textContent = inCount ? '预备 ' + Math.ceil((n - s) / 2) : '';
+    document.querySelectorAll('#pat-row .uke-slot').forEach((el, k) => {
+      el.classList.toggle('on', !inCount && k === s);
+      el.classList.toggle('count', inCount && k === s);
+    });
+  });
+}
+function renderPatterns() {
+  $('pat-list').innerHTML = PATTERNS.map((p, i) =>
+    '<button type="button" class="pie-btn uke-patbtn' + (i === patIdx ? ' on' : '') + '" data-i="' + i + '">' + p.name + '</button>').join('');
+  $('pat-list').querySelectorAll('.uke-patbtn').forEach((b) => b.addEventListener('click', () => {
+    patStop(); patIdx = parseInt(b.getAttribute('data-i'), 10);
+    $('pat-list').querySelectorAll('.uke-patbtn').forEach((x, i) => x.classList.toggle('on', i === patIdx));
+    renderPatRow();
+  }));
+  renderPatRow();
+}
+function renderPatRow() {
+  const p = PATTERNS[patIdx];
+  const SYM = { D: '↓', U: '↑', X: '✕', '': '·' };
+  $('pat-row').innerHTML = p.slots.map((s, i) =>
+    '<span class="uke-slot' + (i % 2 === 0 ? ' beat' : '') + (s === '' ? ' rest' : '') + '">' + SYM[s] + '</span>').join('');
+  $('pat-hint').textContent = p.hint;
+}
+function patStop() {
+  patLoop.stop();
+  const b = $('pat-start'); if (b) b.textContent = '▶ 开始';
+  if ($('pat-count')) $('pat-count').textContent = '';
+  document.querySelectorAll('#pat-row .uke-slot').forEach((el) => el.classList.remove('on', 'count'));
+}
+
+/* ---------- 弹唱曲库（公版/传统曲目，简化编配） ---------- */
+const SONGS = [
+  { name: '小星星', key: 'C', bpm: 70, bpb: 4, step: 2, chords: ['C', 'F', 'G7'], seg: [
+    ['C', '一闪'], ['C', '一闪'], ['F', '亮晶'], ['C', '晶～'],
+    ['F', '满天'], ['C', '都是'], ['G7', '小星'], ['C', '星～'],
+    ['C', '挂在'], ['F', '天空'], ['C', '放光'], ['G7', '明～'],
+    ['C', '好像'], ['F', '许多'], ['C', '小眼'], ['G7', '睛～'],
+    ['C', '一闪'], ['C', '一闪'], ['F', '亮晶'], ['C', '晶～'],
+    ['F', '满天'], ['C', '都是'], ['G7', '小星'], ['C', '星～'],
+  ] },
+  { name: '两只老虎', key: 'C', bpm: 84, bpb: 4, step: 2, chords: ['C', 'F', 'G7'], seg: [
+    ['C', '两只'], ['C', '老虎'], ['C', '两只'], ['C', '老虎'],
+    ['C', '跑得'], ['C', '快～'], ['C', '跑得'], ['C', '快～'],
+    ['F', '一只没'], ['C', '有眼睛'], ['F', '一只没'], ['C', '有尾巴'],
+    ['G7', '真奇'], ['C', '怪～'], ['G7', '真奇'], ['C', '怪～'],
+  ] },
+  { name: '送别', key: 'C', bpm: 66, bpb: 4, step: 2, chords: ['C', 'F', 'G7', 'Am'], seg: [
+    ['C', '长亭'], ['C', '外～'], ['F', '古道'], ['C', '边～'],
+    ['C', '芳草'], ['Am', '碧连'], ['G7', '天～'], ['G7', '～～'],
+    ['C', '晚风'], ['C', '拂柳'], ['F', '笛声'], ['G7', '残～'],
+    ['C', '夕阳'], ['G7', '山外'], ['C', '山～'], ['C', '～～'],
+    ['F', '天之'], ['C', '涯～'], ['F', '地之'], ['C', '角～'],
+    ['C', '知交'], ['Am', '半零'], ['G7', '落～'], ['G7', '～～'],
+    ['C', '一壶'], ['C', '浊酒'], ['F', '尽余'], ['G7', '欢～'],
+    ['C', '今宵'], ['G7', '别梦'], ['C', '寒～'], ['C', '～～'],
+  ] },
+  { name: '生日快乐', key: 'C', bpm: 78, bpb: 3, step: 3, chords: ['C', 'F', 'G7'], seg: [
+    ['C', '祝你生日'], ['G7', '快乐～'], ['G7', '祝你生日'], ['C', '快乐～'],
+    ['C', '祝你生日'], ['F', '快乐～'], ['C', '祝你'], ['G7', '生日'], ['C', '快乐～'],
+  ] },
+];
+let songIdx = 0, songSegStarts = [], songTotal = 0;
+function songData() { return SONGS[songIdx]; }
+function songBpm() { return Math.max(40, Math.min(140, parseInt($('song-bpm').value, 10) || songData().bpm)); }
+function songPrep() {
+  const s = songData(); songSegStarts = []; let acc = 0;
+  s.seg.forEach((seg) => { songSegStarts.push(acc); acc += seg[2] || s.step; });
+  songTotal = acc;
+}
+function segAt(beat) { let k = 0; for (let i = 0; i < songSegStarts.length; i++) if (songSegStarts[i] <= beat) k = i; return k; }
+const songLoop = makeLooper(songTick, () => 60 / songBpm());
+function songTick(i, when) {
+  const s = songData(), cnt = s.bpb || 4;
+  if (i < cnt) {
+    click(when, i === 0);
+    uiAt(when, () => { if (songLoop.on) $('song-count').textContent = '预备 ' + (cnt - i); });
+    return;
+  }
+  const beat = (i - cnt) % songTotal;
+  const segI = segAt(beat);
+  const isStart = songSegStarts[segI] === beat;
+  click(when, isStart);
+  if (isStart && $('song-demo').checked) strum(chordByName(s.seg[segI][0]) || CHORDS[0], 'down', when, 0.5);
+  uiAt(when, () => {
+    if (!songLoop.on) return;
+    $('song-count').textContent = '';
+    if (isStart) songShowSeg(segI);
+  });
+}
+function songShowSeg(k) {
+  const s = songData();
+  const spans = document.querySelectorAll('#song-lyrics .seg');
+  spans.forEach((el, i) => el.classList.toggle('on', i === k));
+  if (spans[k] && spans[k].scrollIntoView) spans[k].scrollIntoView({ block: 'nearest' });
+  $('song-nowname').textContent = s.seg[k][0];
+  let nx = '';
+  for (let i = k + 1; i < s.seg.length; i++) if (s.seg[i][0] !== s.seg[k][0]) { nx = s.seg[i][0]; break; }
+  if (!nx) for (let i = 0; i < s.seg.length; i++) if (s.seg[i][0] !== s.seg[k][0]) { nx = s.seg[i][0]; break; }
+  $('song-nextname').textContent = nx ? '下一个　' + nx : '全曲同一和弦';
+  $('song-nowdiagram').innerHTML = chordSVG(chordByName(s.seg[k][0]) || CHORDS[0], true);
+}
+function loadSong() {
+  const s = songData();
+  songPrep();
+  document.querySelectorAll('#song-list .uke-patbtn').forEach((b, i) => b.classList.toggle('on', i === songIdx));
+  $('song-bpm').value = s.bpm; $('song-bpmv').textContent = s.bpm;
+  $('song-meta').innerHTML = '调式 ' + s.key + ' · ' + (s.bpb || 4) + ' 拍子 · 用到 ' +
+    s.chords.map((c) => '<b>' + c + '</b>').join(' ') + ' · 简化编配';
+  $('song-chords').innerHTML = s.chords.map((n) =>
+    '<span class="uke-songchord">' + chordSVG(chordByName(n), false) + '<i class="mono">' + n + '</i></span>').join('');
+  $('song-lyrics').innerHTML = s.seg.map((seg) =>
+    '<span class="seg"><i class="mono">' + seg[0] + '</i>' + seg[1] + '</span>').join('');
+  songShowSeg(0);
+}
+function renderSongs() {
+  $('song-list').innerHTML = SONGS.map((s, i) =>
+    '<button type="button" class="pie-btn uke-patbtn' + (i === songIdx ? ' on' : '') + '" data-i="' + i + '">' + s.name + '</button>').join('');
+  $('song-list').querySelectorAll('.uke-patbtn').forEach((b) => b.addEventListener('click', () => {
+    songStop(); songIdx = parseInt(b.getAttribute('data-i'), 10); loadSong();
+  }));
+  loadSong();
+}
+function songStop() {
+  songLoop.stop();
+  const b = $('song-start'); if (b) b.textContent = '▶ 播放伴奏';
+  if ($('song-count')) $('song-count').textContent = '';
+}
+
+/* ---------- 单音旋律 TAB（弦序 0=G 1=C 2=E 3=A；[弦,品,拍,字]） ---------- */
+const MELODIES = [
+  { name: '小星星（旋律）', bpm: 80, notes: [
+    [1, 0, 1, '一'], [1, 0, 1, '闪'], [2, 3, 1, '一'], [2, 3, 1, '闪'], [3, 0, 1, '亮'], [3, 0, 1, '晶'], [2, 3, 2, '晶'],
+    [2, 1, 1, '满'], [2, 1, 1, '天'], [2, 0, 1, '都'], [2, 0, 1, '是'], [1, 2, 1, '小'], [1, 2, 1, '星'], [1, 0, 2, '星'],
+    [2, 3, 1, '挂'], [2, 3, 1, '在'], [2, 1, 1, '天'], [2, 1, 1, '空'], [2, 0, 1, '放'], [2, 0, 1, '光'], [1, 2, 2, '明'],
+    [2, 3, 1, '好'], [2, 3, 1, '像'], [2, 1, 1, '许'], [2, 1, 1, '多'], [2, 0, 1, '小'], [2, 0, 1, '眼'], [1, 2, 2, '睛'],
+    [1, 0, 1, '一'], [1, 0, 1, '闪'], [2, 3, 1, '一'], [2, 3, 1, '闪'], [3, 0, 1, '亮'], [3, 0, 1, '晶'], [2, 3, 2, '晶'],
+    [2, 1, 1, '满'], [2, 1, 1, '天'], [2, 0, 1, '都'], [2, 0, 1, '是'], [1, 2, 1, '小'], [1, 2, 1, '星'], [1, 0, 2, '星'],
+  ] },
+  { name: '欢乐颂（旋律）', bpm: 92, notes: [
+    [2, 0, 1], [2, 0, 1], [2, 1, 1], [2, 3, 1], [2, 3, 1], [2, 1, 1], [2, 0, 1], [1, 2, 1],
+    [1, 0, 1], [1, 0, 1], [1, 2, 1], [2, 0, 1], [2, 0, 1.5], [1, 2, 0.5], [1, 2, 2],
+    [2, 0, 1], [2, 0, 1], [2, 1, 1], [2, 3, 1], [2, 3, 1], [2, 1, 1], [2, 0, 1], [1, 2, 1],
+    [1, 0, 1], [1, 0, 1], [1, 2, 1], [2, 0, 1], [1, 2, 1.5], [1, 0, 0.5], [1, 0, 2],
+  ] },
+];
+let melIdx = 0;
+const mel = { on: false, idx: 0, next: 0, timer: null };
+function melBpm() { return Math.max(40, Math.min(140, parseInt($('mel-bpm').value, 10) || MELODIES[melIdx].bpm)); }
+function melStart() {
+  const ctx = ac(), spb = 60 / melBpm();
+  mel.on = true; mel.idx = 0; mel.next = ctx.currentTime + 0.2;
+  for (let k = 0; k < 4; k++) click(mel.next + k * spb, k === 0);
+  mel.next += 4 * spb;
+  $('mel-start').textContent = '■ 停止';
+  melRun();
+}
+function melRun() {
+  if (!mel.on) return;
+  const ctx = ac(), spb = 60 / melBpm();
+  const notes = MELODIES[melIdx].notes;
+  while (mel.next < ctx.currentTime + 0.15) {
+    if (mel.idx >= notes.length) { mel.idx = 0; mel.next += spb; continue; }
+    const n = notes[mel.idx], at = mel.next, ii = mel.idx;
+    pluck(noteFreq(n[0], n[1]), at, 0.6);
+    uiAt(at, () => { if (mel.on) melHi(ii); });
+    mel.next += n[2] * spb; mel.idx++;
+  }
+  mel.timer = setTimeout(melRun, 25);
+}
+function melStop() {
+  mel.on = false; if (mel.timer) { clearTimeout(mel.timer); mel.timer = null; }
+  const b = $('mel-start'); if (b) b.textContent = '▶ 播放';
+  document.querySelectorAll('#mel-tab .col.on').forEach((el) => el.classList.remove('on'));
+}
+function melHi(i) {
+  const cols = document.querySelectorAll('#mel-tab .col');
+  cols.forEach((el, k) => el.classList.toggle('on', k === i));
+  if (cols[i] && cols[i].scrollIntoView) cols[i].scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+function renderMelody() {
+  document.querySelectorAll('#mel-list .uke-patbtn').forEach((b, i) => b.classList.toggle('on', i === melIdx));
+  const m = MELODIES[melIdx];
+  $('mel-bpm').value = m.bpm; $('mel-bpmv').textContent = m.bpm;
+  const ROWS = [3, 2, 1, 0], LBL = ['A', 'E', 'C', 'G'];
+  $('mel-tab').innerHTML =
+    '<span class="lbl mono">' + LBL.map((l) => '<i>' + l + '</i>').join('') + '<b>弦</b></span>' +
+    m.notes.map((n) =>
+      '<span class="col mono">' + ROWS.map((r) => '<i>' + (n[0] === r ? n[1] : '·') + '</i>').join('') +
+      '<b>' + (n[3] || '') + '</b></span>').join('');
+}
+
+/* ---------- 和弦听辨（练耳小游戏） ---------- */
+const EAR_LEVELS = [
+  { name: '入门 · 2 个', set: ['C', 'F'] },
+  { name: '初级 · 3 个', set: ['C', 'F', 'G'] },
+  { name: '进阶 · 4 个', set: ['C', 'F', 'G', 'Am'] },
+  { name: '挑战 · 6 个', set: ['C', 'F', 'G', 'Am', 'Dm', 'Em'] },
+];
+let earLv = 0, earAns = null, earScore = 0, earStreak = 0, earLock = false, earBest = 0;
+try { earBest = parseInt(localStorage.getItem('yzzn-uke-ear') || '0', 10) || 0; } catch (e) {}
+function earNew() {
+  const set = EAR_LEVELS[earLv].set;
+  earAns = set[Math.floor(Math.random() * set.length)];
+  earLock = false;
+  $('ear-btns').querySelectorAll('.uke-earbtn').forEach((b) => b.classList.remove('good', 'bad'));
+  $('ear-msg').textContent = '听！这是哪个和弦？';
+  strum(chordByName(earAns), 'down');
+}
+function renderEarBtns() {
+  $('ear-btns').innerHTML = EAR_LEVELS[earLv].set.map((n) =>
+    '<button type="button" class="pie-btn uke-earbtn" data-n="' + n + '">' + n + '</button>').join('');
+  $('ear-btns').querySelectorAll('.uke-earbtn').forEach((b) => b.addEventListener('click', () => earGuess(b)));
+}
+function earGuess(btn) {
+  if (earLock || !earAns) return;
+  const n = btn.getAttribute('data-n');
+  if (n === earAns) {
+    earLock = true; btn.classList.add('good');
+    earScore++; earStreak++;
+    if (earStreak > earBest) { earBest = earStreak; try { localStorage.setItem('yzzn-uke-ear', String(earBest)); } catch (e) {} }
+    $('ear-msg').textContent = '✓ 答对了，是 ' + earAns + '！';
+    setTimeout(() => { if ($('ear-btns')) earNew(); }, 950);
+  } else {
+    btn.classList.add('bad'); earStreak = 0;
+    $('ear-msg').textContent = '不是 ' + n + '，再听一次';
+    strum(chordByName(earAns), 'down');
+  }
+  earStat();
+}
+function earStat() { $('ear-stat').textContent = '答对 ' + earScore + ' · 连对 ' + earStreak + ' · 最佳连对 ' + earBest; }
+
+/* ---------- 7 天入门计划（进度存本地） ---------- */
+const PLAN = [
+  { d: '第 1 天', title: '把琴调准 + 认识它', tasks: ['用「① 调音」把四根弦全部调准', '记住四根弦名 G · C · E · A', '右手拇指逐根空弦拨 20 下，听音色'] },
+  { d: '第 2 天', title: '第一个和弦 C', tasks: ['按响 C 和弦，四根弦都清晰不闷', '「② 入门第一课」跟练下扫 3 分钟', 'C 按下-放开-再按下，重复 20 次'] },
+  { d: '第 3 天', title: '第二个和弦 Am + 互换', tasks: ['按响 Am（比 C 只多动一根手指）', 'C ⇄ Am 慢速互换 20 次', '「⑤ 换和弦训练」C-Am · 50BPM · 2 分钟'] },
+  { d: '第 4 天', title: '节奏型：八分扫弦', tasks: ['「③ 节奏型」跟练八分扫弦 2 分钟', 'C 和弦配八分扫弦 2 分钟', 'Am 和弦配八分扫弦 2 分钟'] },
+  { d: '第 5 天', title: '新和弦 F 和 G7', tasks: ['按响 F（两根手指）', '按响 G7（三根手指，慢慢来）', '「⑤ 换和弦训练」C-F、C-G7 各 2 分钟'] },
+  { d: '第 6 天', title: '民谣万能节奏型', tasks: ['「③ 节奏型」慢速跟练「下、下上、上下上」', '边念口诀边扫，连续 10 遍不断', '配 C 和弦完整扫 10 遍'] },
+  { d: '第 7 天', title: '第一首歌！', tasks: ['「⑥ 弹唱曲库」开小星星伴奏跟弹', '不看图能按出 C、F、G7', '完整弹完一遍，给自己录一段 🎉'] },
+];
+let planState = {};
+try { planState = JSON.parse(localStorage.getItem('yzzn-uke-plan') || '{}') || {}; } catch (e) { planState = {}; }
+function planSave() { try { localStorage.setItem('yzzn-uke-plan', JSON.stringify(planState)); } catch (e) {} }
+function renderPlan() {
+  const total = PLAN.reduce((t, d) => t + d.tasks.length, 0);
+  const done = Object.keys(planState).filter((k) => planState[k]).length;
+  $('plan-prog').innerHTML = '<i style="width:' + Math.round((done / total) * 100) + '%"></i>';
+  $('plan-progtext').textContent = done + ' / ' + total + ' 项完成' + (done >= total ? '　🎉 一周入门达成！' : '');
+  $('plan-list').innerHTML = PLAN.map((d, di) => {
+    const dayDone = d.tasks.every((_, ti) => planState[di + '-' + ti]);
+    return '<div class="uke-planday' + (dayDone ? ' done' : '') + '">' +
+      '<div class="pd-h mono">' + d.d + '　<b>' + d.title + '</b>' + (dayDone ? '<span class="ok">✓</span>' : '') + '</div>' +
+      d.tasks.map((t, ti) => {
+        const k = di + '-' + ti;
+        return '<label class="pd-t"><input type="checkbox" data-k="' + k + '"' + (planState[k] ? ' checked' : '') + '/><span>' + t + '</span></label>';
+      }).join('') + '</div>';
+  }).join('');
+  $('plan-list').querySelectorAll('input[type=checkbox]').forEach((cb) => cb.addEventListener('change', () => {
+    planState[cb.getAttribute('data-k')] = cb.checked; planSave(); renderPlan();
+  }));
+}
+
 /* ---------- 标签页 ---------- */
 function setupTabs() {
   const tabs = document.querySelectorAll('.uke-tab');
@@ -393,6 +712,9 @@ function setupTabs() {
     if (p !== 'tune') stopMic();
     if (p !== 'start') begStop();
     if (p !== 'trainer' && trainer.on) stopTrainer();
+    if (p !== 'rhythm') patStop();
+    if (p !== 'songs') songStop();
+    if (p !== 'melody') melStop();
   }));
 }
 
@@ -425,5 +747,52 @@ function init() {
       syncChips(); renderSelected();
     });
   });
+  /* 节奏型 */
+  if ($('pat-list')) {
+    $('pat-chord').innerHTML = ['C', 'Am', 'F', 'G', 'G7', 'Em'].map((n) => '<option>' + n + '</option>').join('');
+    renderPatterns();
+    $('pat-bpm').addEventListener('input', () => { $('pat-bpmv').textContent = patBpm(); });
+    $('pat-start').addEventListener('click', () => {
+      if (patLoop.on) { patStop(); } else { patLoop.start(); $('pat-start').textContent = '■ 停止'; }
+    });
+  }
+  /* 弹唱曲库 */
+  if ($('song-list')) {
+    renderSongs();
+    $('song-bpm').addEventListener('input', () => { $('song-bpmv').textContent = songBpm(); });
+    $('song-start').addEventListener('click', () => {
+      if (songLoop.on) { songStop(); } else { songPrep(); songLoop.start(); $('song-start').textContent = '■ 停止'; }
+    });
+  }
+  /* 单音旋律 */
+  if ($('mel-list')) {
+    $('mel-list').innerHTML = MELODIES.map((m, i) =>
+      '<button type="button" class="pie-btn uke-patbtn' + (i === melIdx ? ' on' : '') + '" data-i="' + i + '">' + m.name + '</button>').join('');
+    $('mel-list').querySelectorAll('.uke-patbtn').forEach((b) => b.addEventListener('click', () => {
+      melStop(); melIdx = parseInt(b.getAttribute('data-i'), 10); renderMelody();
+    }));
+    renderMelody();
+    $('mel-bpm').addEventListener('input', () => { $('mel-bpmv').textContent = melBpm(); });
+    $('mel-start').addEventListener('click', () => { mel.on ? melStop() : melStart(); });
+  }
+  /* 和弦听辨 */
+  if ($('ear-btns')) {
+    $('ear-lvs').innerHTML = EAR_LEVELS.map((l, i) =>
+      '<button type="button" class="pie-btn uke-patbtn' + (i === earLv ? ' on' : '') + '" data-i="' + i + '">' + l.name + '</button>').join('');
+    $('ear-lvs').querySelectorAll('.uke-patbtn').forEach((b) => b.addEventListener('click', () => {
+      earLv = parseInt(b.getAttribute('data-i'), 10); earAns = null;
+      $('ear-lvs').querySelectorAll('.uke-patbtn').forEach((x, i) => x.classList.toggle('on', i === earLv));
+      renderEarBtns();
+      $('ear-msg').textContent = '点「播放和弦」开始';
+    }));
+    renderEarBtns();
+    earStat();
+    $('ear-play').addEventListener('click', () => { (!earAns || earLock) ? earNew() : strum(chordByName(earAns), 'down'); });
+  }
+  /* 7 天计划 */
+  if ($('plan-list')) {
+    renderPlan();
+    $('plan-reset').addEventListener('click', () => { planState = {}; planSave(); renderPlan(); });
+  }
 }
 init();
