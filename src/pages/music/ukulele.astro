@@ -1,68 +1,139 @@
 ---
 import Base from '../../layouts/Base.astro';
 ---
-<Base title="尤克里里练习台" desc="尤克里里和弦图、拨弦音色合成与换和弦节拍训练，全部在本地运行">
+<Base title="尤克里里练习台" desc="尤克里里从零开始：调音器、入门第一课、和弦图与换和弦节拍训练，全部本地运行">
 <main class="wrap reader">
   <a class="back mono" href="/music/">← 音乐</a>
   <h1 class="rd-title">尤克里里练习台</h1>
   <div class="meta mono">
     <span class="sw" style="background:var(--c-life);"></span>
-    <span>高音 G 定弦 GCEA · 和弦图 · 拨弦合成 · 换和弦训练</span>
+    <span>从零开始 · 调音 → 入门 → 和弦 → 换和弦</span>
   </div>
 
   <p style="max-width:820px; color:var(--ink2); font-size:14.5px;">
-    音色用 Karplus-Strong 算法实时合成 —— 一段白噪声在延迟线里反复低通反馈，就长出拨弦的泛音与衰减，
-    不用任何采样、零外链。点和弦听声、看指法，再用下面的节拍训练器练「一分钟换和弦」。
+    纯新手就从左边第一个标签开始，一步步来：先把琴<b>调准</b>，再学<b>第一个和弦</b>和<b>下扫</b>，
+    熟了再进「和弦库」和「换和弦训练」。声音都在浏览器里实时合成，不加载任何音频文件。
   </p>
 
-  <h2 class="uke-h mono">和弦库<span>　点一下：听声 · 看大图 · 加入训练序列</span></h2>
-  <div id="uke-lib" class="uke-lib"></div>
-  <div id="uke-now" class="uke-now"></div>
-
-  <h2 class="uke-h mono">换和弦训练<span>　在节拍内切换和弦，先跟示范再自己弹</span></h2>
-  <div class="uke-presets mono">
-    <span style="color:var(--ink2);">常用套路：</span>
-    <button type="button" class="uke-preset pie-btn" data-set="C,Am,F,G">C–Am–F–G</button>
-    <button type="button" class="uke-preset pie-btn" data-set="C,G,Am,F">C–G–Am–F</button>
-    <button type="button" class="uke-preset pie-btn" data-set="C,F">C ⇄ F</button>
-    <button type="button" class="uke-preset pie-btn" data-set="G,D,Em,C">G–D–Em–C</button>
-    <button type="button" class="uke-preset pie-btn" data-set="Am,Dm,G7,C">Am–Dm–G7–C</button>
-  </div>
-  <div id="uke-selected" class="uke-selected"></div>
-
-  <div class="shu-panel">
-    <label>速度
-      <input id="uke-bpm" type="range" min="40" max="160" value="60" style="width:150px;" />
-      <b class="mono" style="color:var(--ink);"><span id="uke-bpmv">60</span> BPM</b>
-    </label>
-    <label>每和弦
-      <select id="uke-bpc" class="mono">
-        <option value="2">2</option>
-        <option value="4" selected>4</option>
-        <option value="6">6</option>
-        <option value="8">8</option>
-      </select> 拍
-    </label>
-    <label class="mono"><input type="checkbox" id="uke-demo" checked /> 示范扫弦</label>
-    <button type="button" class="pie-btn primary" id="uke-start">▶ 开始训练</button>
-    <button type="button" class="pie-btn" id="uke-clear">清空</button>
-    <p class="mono hint2" id="uke-hint"></p>
+  <div class="shu-tabs uke-tabs mono">
+    <button type="button" class="uke-tab pie-btn on" data-p="tune">① 调音</button>
+    <button type="button" class="uke-tab pie-btn" data-p="start">② 入门第一课</button>
+    <button type="button" class="uke-tab pie-btn" data-p="chords">③ 和弦库</button>
+    <button type="button" class="uke-tab pie-btn" data-p="trainer">④ 换和弦训练</button>
   </div>
 
-  <div id="uke-stage" class="uke-stage">
-    <div class="uke-count mono" id="uke-count"></div>
-    <div class="uke-stagemain">
-      <div id="uke-nowbig" class="uke-bigwrap"></div>
-      <div class="uke-stagetext">
-        <b id="uke-nowname">—</b>
-        <span class="mono" id="uke-nextname">下一个　—</span>
-        <div class="uke-beats" id="uke-beats"></div>
+  <!-- ① 调音 -->
+  <section class="uke-panel" data-p="tune">
+    <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
+      抱好琴，面对你从上到下四根弦是 <b>G · C · E · A</b>；最下面最细的是 1 弦(A)。
+      点下面的标准音，拧弦钮把每根弦调到和它一样高；或点「麦克风调音」，拨弦看指针。
+    </p>
+    <div class="uke-refrow">
+      <button type="button" class="uke-ref pie-btn" data-f="392.00">4 弦 · G<small>高音</small></button>
+      <button type="button" class="uke-ref pie-btn" data-f="261.63">3 弦 · C</button>
+      <button type="button" class="uke-ref pie-btn" data-f="329.63">2 弦 · E</button>
+      <button type="button" class="uke-ref pie-btn" data-f="440.00">1 弦 · A</button>
+    </div>
+    <div id="uke-tunerbox" class="uke-tunerbox">
+      <div class="uke-tnote" id="uke-tunernote">—</div>
+      <div class="uke-gauge"><i class="uke-center"></i><span class="uke-needle" id="uke-needle"></span></div>
+      <div class="uke-tcents mono" id="uke-tunercents"></div>
+      <button type="button" class="pie-btn primary" id="uke-mic">🎤 用麦克风调音</button>
+      <div class="mono uke-micnote" id="uke-micnote">拨响一根弦，指针居中偏绿即准</div>
+    </div>
+  </section>
+
+  <!-- ② 入门 -->
+  <section class="uke-panel" data-p="start" hidden>
+    <h3 class="uke-step">① 认识四根弦</h3>
+    <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
+      从上到下依次 G · C · E · A。特别的是：最上面的 4 弦 G 是「高音 G」，比 3 弦 C 还高 ——
+      这叫回旋定弦（re-entrant），也是尤克里里叮叮当当独特音色的来源。
+    </p>
+
+    <h3 class="uke-step">② 你的第一个和弦：C</h3>
+    <div class="uke-firstc">
+      <div id="beg-cdiagram" class="uke-bigwrap"></div>
+      <div style="max-width:520px;">
+        <p style="color:var(--ink2); font-size:13.5px;">
+          只用一根手指：左手<b style="color:var(--ink);">无名指</b>按住最下面 <b style="color:var(--ink);">1 弦（A 弦）第 3 品</b>，
+          其余三根弦完全放开（空弦）。右手拇指从上往下轻轻扫过四根弦 —— 这就是 C 和弦。
+        </p>
+        <button type="button" class="pie-btn primary" id="beg-first">🔊 听听 C 和弦</button>
       </div>
     </div>
-  </div>
+
+    <h3 class="uke-step">③ 跟我扫弦（超慢速）</h3>
+    <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
+      练琴第一步不是换和弦，而是「稳稳地按拍下扫」。按住 C 不动，跟着节拍，每响一下、箭头一亮，就下扫一次。
+    </p>
+    <div class="shu-panel">
+      <label>和弦 <select id="beg-chord" class="mono"></select></label>
+      <label>速度
+        <input id="beg-bpm" type="range" min="30" max="90" value="50" style="width:130px;" />
+        <b class="mono" style="color:var(--ink);"><span id="beg-bpmv">50</span> BPM</b>
+      </label>
+      <label class="mono"><input type="checkbox" id="beg-demo" checked /> 示范声</label>
+      <button type="button" class="pie-btn primary" id="beg-start">▶ 开始跟练</button>
+    </div>
+    <div class="uke-begstage">
+      <div class="uke-begarrow" id="beg-arrow">↓</div>
+      <div class="uke-begprompt mono" id="beg-prompt"></div>
+      <div class="mono" style="color:var(--ink2); font-size:12px;">箭头亮起 = 手腕放松，拇指从上往下扫过四弦</div>
+    </div>
+  </section>
+
+  <!-- ③ 和弦库 -->
+  <section class="uke-panel" data-p="chords" hidden>
+    <p style="max-width:820px; color:var(--ink2); font-size:13px; margin-top:4px;">点一下：听声 · 看大图 · 加入下一步的训练序列。</p>
+    <div id="uke-lib" class="uke-lib"></div>
+    <div id="uke-now" class="uke-now"></div>
+  </section>
+
+  <!-- ④ 换和弦训练 -->
+  <section class="uke-panel" data-p="trainer" hidden>
+    <div class="uke-presets mono">
+      <span style="color:var(--ink2);">常用套路：</span>
+      <button type="button" class="uke-preset pie-btn" data-set="C,Am,F,G">C–Am–F–G</button>
+      <button type="button" class="uke-preset pie-btn" data-set="C,G,Am,F">C–G–Am–F</button>
+      <button type="button" class="uke-preset pie-btn" data-set="C,F">C ⇄ F</button>
+      <button type="button" class="uke-preset pie-btn" data-set="G,D,Em,C">G–D–Em–C</button>
+      <button type="button" class="uke-preset pie-btn" data-set="Am,Dm,G7,C">Am–Dm–G7–C</button>
+    </div>
+    <div id="uke-selected" class="uke-selected"></div>
+    <div class="shu-panel">
+      <label>速度
+        <input id="uke-bpm" type="range" min="40" max="160" value="60" style="width:150px;" />
+        <b class="mono" style="color:var(--ink);"><span id="uke-bpmv">60</span> BPM</b>
+      </label>
+      <label>每和弦
+        <select id="uke-bpc" class="mono">
+          <option value="2">2</option>
+          <option value="4" selected>4</option>
+          <option value="6">6</option>
+          <option value="8">8</option>
+        </select> 拍
+      </label>
+      <label class="mono"><input type="checkbox" id="uke-demo" checked /> 示范扫弦</label>
+      <button type="button" class="pie-btn primary" id="uke-start">▶ 开始训练</button>
+      <button type="button" class="pie-btn" id="uke-clear">清空</button>
+      <p class="mono hint2" id="uke-hint"></p>
+    </div>
+    <div id="uke-stage" class="uke-stage">
+      <div class="uke-count mono" id="uke-count"></div>
+      <div class="uke-stagemain">
+        <div id="uke-nowbig" class="uke-bigwrap"></div>
+        <div class="uke-stagetext">
+          <b id="uke-nowname">—</b>
+          <span class="mono" id="uke-nextname">下一个　—</span>
+          <div class="uke-beats" id="uke-beats"></div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <p class="mono" style="max-width:820px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
-    指法取常见把位，同一和弦各有多种按法；声音与节拍全部在本地实时合成，不加载任何音频文件。
+    指法取常见把位，同一和弦各有多种按法；声音与节拍全部在本地实时合成，麦克风调音的音频不离开你的浏览器。
   </p>
 </main>
 </Base>
