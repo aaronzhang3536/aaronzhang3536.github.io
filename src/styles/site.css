@@ -17,6 +17,11 @@
     --wx-haze: rgba(178, 140, 78, 0.05);
     --wx-wind: rgba(140, 155, 170, 0.4);
     --wx-bolt: #cfe2ff;
+    --wx-cloud: rgba(168, 188, 208, 0.11);
+    --wx-star: rgba(228, 238, 250, 0.85);
+    --wx-moon: rgba(226, 234, 244, 0.92);
+    --wx-mist: rgba(168, 188, 208, 0.5);
+    --wx-sun: rgba(255, 190, 90, 0.5);
     --bgimg: 0.22;
     --play: #4fbd58;              /* UE PIE 播放绿 */
     --play-dim: rgba(79, 189, 88, 0.14);
@@ -48,6 +53,11 @@
       --wx-haze: rgba(196, 158, 96, 0.07);
       --wx-wind: rgba(96, 112, 128, 0.38);
       --wx-bolt: #7fa8d8;
+      --wx-cloud: rgba(96, 116, 136, 0.13);
+      --wx-star: rgba(70, 95, 130, 0.55);
+      --wx-moon: rgba(140, 158, 180, 0.9);
+      --wx-mist: rgba(120, 140, 160, 0.45);
+      --wx-sun: rgba(235, 150, 40, 0.4);
       --bgimg: 0.15;
       --play: #2e8a3d;
       --play-dim: rgba(46, 138, 61, 0.12);
@@ -70,6 +80,8 @@
     --wx-rain: rgba(158,186,214,0.42); --wx-snow: rgba(224,232,240,0.8);
     --wx-sand: rgba(198,160,92,0.55); --wx-haze: rgba(178,140,78,0.05);
     --wx-wind: rgba(140,155,170,0.4); --wx-bolt: #cfe2ff;
+    --wx-cloud: rgba(168,188,208,0.11); --wx-star: rgba(228,238,250,0.85);
+    --wx-moon: rgba(226,234,244,0.92); --wx-mist: rgba(168,188,208,0.5); --wx-sun: rgba(255,190,90,0.5);
     --bgimg: 0.22;
     --play: #4fbd58; --play-dim: rgba(79,189,88,0.14);
     --c-render: #d96a60; --c-engine: #58aa72; --c-char: #6b99d8; --c-tool: #cfa23a;
@@ -85,6 +97,8 @@
     --wx-rain: rgba(66,98,130,0.4); --wx-snow: rgba(130,148,168,0.65);
     --wx-sand: rgba(150,112,48,0.45); --wx-haze: rgba(196,158,96,0.07);
     --wx-wind: rgba(96,112,128,0.38); --wx-bolt: #7fa8d8;
+    --wx-cloud: rgba(96,116,136,0.13); --wx-star: rgba(70,95,130,0.55);
+    --wx-moon: rgba(140,158,180,0.9); --wx-mist: rgba(120,140,160,0.45); --wx-sun: rgba(235,150,40,0.4);
     --bgimg: 0.15;
     --play: #2e8a3d; --play-dim: rgba(46,138,61,0.12);
     --c-render: #bd4a41; --c-engine: #2f7f4c; --c-char: #3a6cb2; --c-tool: #a07a14;
@@ -106,6 +120,8 @@
     --wx-rain: rgba(82,200,230,0.35); --wx-snow: rgba(82,200,230,0.5);
     --wx-sand: rgba(82,200,230,0.3); --wx-haze: rgba(82,200,230,0.03);
     --wx-wind: rgba(82,200,230,0.35); --wx-bolt: #52c8e6;
+    --wx-cloud: rgba(82,200,230,0.07); --wx-star: rgba(82,200,230,0.55);
+    --wx-moon: rgba(82,200,230,0.5); --wx-mist: rgba(82,200,230,0.1); --wx-sun: rgba(82,200,230,0.22);
     --bgimg: 0;                    /* 线框模式：纯几何，无贴图 */
     --play: var(--wire); --play-dim: rgba(82,200,230,0.1);
     --good: var(--wire);

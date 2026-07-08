@@ -16,6 +16,8 @@
       snow:  SVG + '<path d="M8 1.8v12.4M2.6 4.9l10.8 6.2M13.4 4.9 2.6 11.1"/></svg>',
       sand:  SVG + '<path d="M1.6 4.6c2.4-1.6 4.8 1.6 7.2 0 1.2-.8 2.4-1 3.6-.4M1.6 8.2c2.4-1.6 4.8 1.6 7.2 0 1.2-.8 2.4-1 3.6-.4M1.6 11.8c2.4-1.6 4.8 1.6 7.2 0"/><circle cx="13.6" cy="8.6" r=".7" fill="currentColor" stroke="none"/><circle cx="12.6" cy="12.2" r=".7" fill="currentColor" stroke="none"/></svg>',
       clear: SVG + SUN + '</svg>',
+      cloudy: SVG + CLOUD + '</svg>',
+      fog:   SVG + '<path d="M2.2 5.4h11.6M3.4 8.2h9.2M2.2 11h11.6M4.8 13.6h6.4"/></svg>',
       auto:  SVG + '<circle cx="8" cy="10.2" r="1.3" fill="currentColor" stroke="none"/><path d="M5.4 7.6a3.7 3.7 0 0 1 5.2 0M3.2 5.4a6.8 6.8 0 0 1 9.6 0"/></svg>',
       off:   SVG + SUN + '<path d="M2 14 14 2"/></svg>',
       snd:   SVG + '<path d="M2.5 6v4h2.8L9 13V3L5.3 6z"/><path d="M10.8 5.5a3.4 3.4 0 0 1 0 5M12.6 3.8a5.8 5.8 0 0 1 0 8.4"/></svg>',
@@ -85,7 +87,7 @@
       cmd.value = '';
       if (v.indexOf('weather') === 0) {
         var wm = v.slice(7).trim();
-        if (!wm) echo.textContent = '用法：weather auto | rain | storm | wind | snow | sand | clear（auto=实时天气）';
+        if (!wm) echo.textContent = '用法：weather auto | rain | storm | wind | snow | sand | cloudy | fog | clear（auto=实时天气）';
         else setWeather(wm, false);
         return;
       }
@@ -210,9 +212,13 @@
 
     /* ---------- 天气系统 ---------- */
     var wxLoad = 0;
-    var wxLoadMap = { clear: 0, rain: 0.7, wind: 0.4, snow: 0.4, sand: 1.6, storm: 3.0 };
-    var wxNames = { auto: '实时（跟随本地天气）', clear: '晴（特效关闭）', rain: '小雨', wind: '大风', snow: '降雪', sand: '沙尘暴', storm: '雷暴' };
-    var wxOrder = ['auto', 'rain', 'storm', 'wind', 'snow', 'sand', 'clear'];
+    var wxLoadMap = { clear: 0, rain: 0.7, wind: 0.4, snow: 0.4, sand: 1.6, storm: 3.0, cloudy: 0.25, fog: 0.45 };
+    var wxNames = { auto: '实时（跟随本地天气）', clear: '晴', rain: '小雨', wind: '大风', snow: '降雪', sand: '沙尘暴', storm: '雷暴', cloudy: '多云', fog: '雾' };
+    var wxOrder = ['auto', 'rain', 'storm', 'wind', 'snow', 'sand', 'cloudy', 'fog', 'clear'];
+    /* 天空叠加层：云量(0..1)/昼夜/近地雾（手动模式按默认+本地时钟，实时模式由 API 驱动） */
+    var wxClouds = [], wxStars = [];
+    var wxCloudDensity = 0.12, wxNight = false, wxMist = 0;
+    var OVERLAY_DEF = { clear: 0.12, cloudy: 0.78, fog: 0.4, rain: 0.55, storm: 0.92, wind: 0.3, snow: 0.55, sand: 0 };
     var wxMode = 'clear', wxParts = [], wxLeaves = [];
     var wxCvs = null, wxCtx = null, wxFlashEl = null;
     var wxW = 0, wxH = 0, wxWind = 0, wxT = 0, wxColors = {}, wxColorTick = 0;
@@ -247,11 +253,113 @@
       g.fill();
       g.globalAlpha = 1;
     }
+    /* ---------- 天空叠加层：星/月/日晕/云/近地雾 ---------- */
+    function skyBuild() {
+      wxClouds = []; wxStars = [];
+      if (wxCloudDensity >= 0.05 && wxMode !== 'sand') {
+        var n = Math.round((wxW / 300) * (0.6 + wxCloudDensity * 2.4));
+        for (var i = 0; i < n; i++) {
+          var pn = 4 + Math.floor(Math.random() * 3), puffs = [];
+          for (var p = 0; p < pn; p++) {
+            puffs.push([(p - pn / 2) * 26 + (Math.random() - 0.5) * 16,
+              (Math.random() - 0.5) * 12 - Math.abs(p - pn / 2) * 4,
+              20 + Math.random() * 20]);
+          }
+          wxClouds.push({
+            x: Math.random() * (wxW + 400) - 200,
+            y: 26 + Math.random() * (wxH * 0.38),
+            s: 0.7 + Math.random() * 1.2,
+            spd: 5 + Math.random() * 9,
+            puffs: puffs,
+            a: (0.45 + Math.random() * 0.5) * (0.55 + 0.45 * wxCloudDensity)
+          });
+        }
+      }
+      if (wxNight && wxMode !== 'sand') {
+        var sn = Math.round(wxW * wxH / 16000);
+        for (var k = 0; k < sn; k++) {
+          wxStars.push({ x: Math.random() * wxW, y: Math.random() * wxH * 0.72,
+            r: 0.5 + Math.random() * 1.1, ph: Math.random() * 6.28, sp: 0.5 + Math.random() * 1.5 });
+        }
+      }
+    }
+    function drawSky(dt) {
+      if (wxMode === 'sand') return;
+      var g = wxCtx;
+      var dim = 1 - wxCloudDensity * 0.85;   /* 云越厚，星月日越淡 */
+      if (wxNight && wxStars.length) {
+        g.fillStyle = wxColors.star;
+        for (var i = 0; i < wxStars.length; i++) {
+          var st = wxStars[i];
+          var a = (0.3 + 0.7 * Math.abs(Math.sin(wxT * st.sp + st.ph))) * dim;
+          if (a < 0.04) continue;
+          g.globalAlpha = a;
+          g.beginPath(); g.arc(st.x, st.y, st.r, 0, 6.2832); g.fill();
+        }
+        g.globalAlpha = 1;
+      }
+      if (wxNight && dim > 0.15) {
+        /* 残月：主圆 + destination-out 咬掉一块（此时画布上只有星星，安全） */
+        var mx = wxW * 0.82, my = wxH * 0.16;
+        g.save();
+        g.globalAlpha = 0.9 * dim;
+        g.fillStyle = wxColors.moon;
+        g.beginPath(); g.arc(mx, my, 24, 0, 6.2832); g.fill();
+        g.globalCompositeOperation = 'destination-out';
+        g.beginPath(); g.arc(mx + 10, my - 7, 21, 0, 6.2832); g.fill();
+        g.restore();
+        g.globalAlpha = 1;
+      } else if (!wxNight && dim > 0.3 && (wxMode === 'clear' || wxMode === 'cloudy')) {
+        /* 白天：柔和日晕 */
+        var sx = wxW * 0.8, sy = wxH * 0.14;
+        var grad = g.createRadialGradient(sx, sy, 6, sx, sy, 130);
+        grad.addColorStop(0, wxColors.sun);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        g.globalAlpha = 0.5 * dim;
+        g.fillStyle = grad;
+        g.fillRect(sx - 130, sy - 130, 260, 260);
+        g.globalAlpha = 1;
+      }
+      if (wxClouds.length) {
+        g.fillStyle = wxColors.cloud;
+        for (var c = 0; c < wxClouds.length; c++) {
+          var cl = wxClouds[c];
+          cl.x += (cl.spd + wxWind * 0.06) * dt;
+          if (cl.x - 200 > wxW) { cl.x = -240; cl.y = 26 + Math.random() * (wxH * 0.38); }
+          g.globalAlpha = cl.a;
+          g.beginPath();
+          for (var p2 = 0; p2 < cl.puffs.length; p2++) {
+            var pf = cl.puffs[p2];
+            g.moveTo(cl.x + (pf[0] + pf[2]) * cl.s, cl.y + pf[1] * cl.s);
+            g.arc(cl.x + pf[0] * cl.s, cl.y + pf[1] * cl.s, pf[2] * cl.s, 0, 6.2832);
+          }
+          g.fill();
+        }
+        g.globalAlpha = 1;
+      }
+    }
+    function drawMist(dt) {
+      if (wxMist <= 0.02) return;
+      var g = wxCtx;
+      g.fillStyle = wxColors.mist;
+      g.globalAlpha = 0.22 * wxMist;
+      g.fillRect(0, wxH - 90, wxW, 90);            /* 底部整体雾带 */
+      for (var i = 0; i < 3; i++) {                 /* 漂移的雾条 */
+        var w2 = wxW + 640;
+        var mxp = ((wxT * (8 + i * 5) + i * 500) % w2) - 320;
+        g.globalAlpha = 0.10 * wxMist;
+        g.beginPath();
+        g.ellipse(mxp, wxH - 58 - i * 40, 300, 24 + i * 6, 0, 0, 6.2832);
+        g.fill();
+      }
+      g.globalAlpha = 1;
+    }
+
     var btnWx = document.getElementById('btn-wx');
 
     function wxRefreshColors() {
       var cs = getComputedStyle(document.body);
-      ['rain', 'snow', 'sand', 'wind', 'haze', 'bolt'].forEach(function (k) {
+      ['rain', 'snow', 'sand', 'wind', 'haze', 'bolt', 'cloud', 'star', 'moon', 'mist', 'sun'].forEach(function (k) {
         wxColors[k] = cs.getPropertyValue('--wx-' + k).trim();
       });
       var wire = document.body.classList.contains('vm-wire');
@@ -462,6 +570,7 @@
           });
         }
       }
+      skyBuild();
     }
     function makeBoltPath() {
       var x = wxW * (0.1 + Math.random() * 0.8), y = 0;
@@ -502,11 +611,13 @@
       for (var i = 0; i < WMO_DESC.length; i++) if (code >= WMO_DESC[i][0]) d = WMO_DESC[i][1];
       return d;
     }
-    function wmoToMode(code, windKmh) {
+    function wmoToMode(code, windKmh, cloudPct) {
       if (code >= 95) return 'storm';
       if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
       if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rain';
+      if (code === 45 || code === 48) return 'fog';
       if (windKmh >= 38) return 'wind';               /* 6 级以上大风 */
+      if (code === 2 || code === 3 || (cloudPct != null && cloudPct >= 55)) return 'cloudy';
       return 'clear';                                  /* 沙尘 WMO 现报不含，保留手动档 */
     }
     function wxFetchJSON(url, ms) {
@@ -549,8 +660,19 @@
     function wxApplyLive(info, fromCache) {
       if (wxSel !== 'auto') return;
       wxLiveInfo = info;
-      setVisual(wmoToMode(info.code, info.wind));
+      var mode = wmoToMode(info.code, info.wind, info.cloud);
+      /* 叠加层由真实数据驱动：云量 / 昼夜 / 湿度→近地雾 */
+      wxNight = info.day === 0;
+      wxCloudDensity = (typeof info.cloud === 'number') ? info.cloud / 100
+        : (OVERLAY_DEF[mode] != null ? OVERLAY_DEF[mode] : 0);
+      wxMist = mode === 'fog' ? 1
+        : ((typeof info.hum === 'number' && info.hum >= 88 && (mode === 'clear' || mode === 'cloudy'))
+          ? Math.min(1, (info.hum - 88) / 12) : 0);
+      setVisual(mode, true);
       var label = '实时天气：' + (info.name || '本地') + ' ' + wmoDesc(info.code) + ' ' + info.temp + '°C' +
+        (typeof info.hum === 'number' ? ' · 湿度' + info.hum + '%' : '') +
+        (typeof info.cloud === 'number' ? ' · 云量' + info.cloud + '%' : '') +
+        (info.day != null ? (info.day === 0 ? ' · 夜' : ' · 昼') : '') +
         (fromCache ? '（缓存）' : '') + '（点击切换）';
       btnWx.title = label;
       btnWx.setAttribute('aria-label', label);
@@ -562,14 +684,18 @@
       if (!force && cached && typeof cached.t === 'number' && Date.now() - cached.t < WX_LIVE_TTL) return;
       wxLocate().then(function (pos) {
         var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + pos.lat.toFixed(3) +
-          '&longitude=' + pos.lon.toFixed(3) + '&current=temperature_2m,weather_code,wind_speed_10m';
+          '&longitude=' + pos.lon.toFixed(3) +
+          '&current=temperature_2m,weather_code,wind_speed_10m,is_day,relative_humidity_2m,cloud_cover';
         wxFetchJSON(url, 6000).then(function (j) {
           var cur = j && j.current;
           if (!cur || typeof cur.weather_code !== 'number') return;
           var info = {
             t: Date.now(), name: pos.name,
             temp: Math.round(cur.temperature_2m), code: cur.weather_code,
-            wind: Math.round(cur.wind_speed_10m || 0)
+            wind: Math.round(cur.wind_speed_10m || 0),
+            day: (typeof cur.is_day === 'number') ? cur.is_day : null,
+            hum: (typeof cur.relative_humidity_2m === 'number') ? Math.round(cur.relative_humidity_2m) : null,
+            cloud: (typeof cur.cloud_cover === 'number') ? Math.round(cur.cloud_cover) : null
           };
           var finish = function () {
             try { localStorage.setItem('yzzn-wx-live', JSON.stringify(info)); } catch (e) {}
@@ -588,8 +714,14 @@
         });
       });
     }
-    function setVisual(m) {
+    function setVisual(m, keepOverlay) {
       wxMode = m;
+      if (!keepOverlay) {   /* 手动模式：按模式默认云量 + 本地时钟昼夜 */
+        wxCloudDensity = OVERLAY_DEF[m] != null ? OVERLAY_DEF[m] : 0;
+        var hh = new Date().getHours();
+        wxNight = (hh >= 19 || hh < 6);
+        wxMist = m === 'fog' ? 1 : 0;
+      }
       wxLoad = wxLoadMap[m];
       bolts = null; wxFlashEl.style.opacity = '0';
       nextBolt = performance.now() + 2500;
@@ -599,7 +731,7 @@
     }
     function setWeather(m, silent) {
       if (m !== 'auto' && !(m in wxLoadMap)) {
-        echo.textContent = "未知天气 '" + m + "'。可选：auto rain storm wind snow sand clear";
+        echo.textContent = "未知天气 '" + m + "'。可选：auto rain storm wind snow sand cloudy fog clear";
         return;
       }
       if (reduced) {
@@ -665,7 +797,7 @@
     /* 每种天气一套合成配方：噪声源 + 滤波 + 缓慢 LFO */
     function sndBuild(mode) {
       sndStop();
-      if (mode === 'clear' || !sndOn) return;
+      if (mode === 'clear' || mode === 'cloudy' || mode === 'fog' || !sndOn) return;
       var ctx = sndCtx();
       var master = ctx.createGain();
       master.gain.value = 0;
@@ -863,8 +995,9 @@
         wxT += dt;
         if (++wxColorTick % 45 === 0) wxRefreshColors();  /* 跟随主题/视图模式换色 */
         wxCtx.clearRect(0, 0, wxW, wxH);
-        if (wxMode === 'clear') {
-          if (!wxMeadow) return;
+        drawSky(dt);
+        if (wxMode === 'clear' || wxMode === 'cloudy' || wxMode === 'fog') {
+          if (wxMode !== 'clear' || !wxMeadow) { drawMist(dt); wxDrawCritter(dt); return; }
           var gm = wxCtx;
           var breeze = Math.sin(wxT * 0.4) * 0.6 + Math.sin(wxT * 1.7) * 0.2;
           for (var mi = 0; mi < wxMeadow.length; mi++) {
@@ -905,6 +1038,7 @@
             }
           }
           gm.globalAlpha = 1;
+          drawMist(dt);
           wxDrawCritter(dt);
           return;
         }
@@ -1081,6 +1215,7 @@
           drawAccum(wxColors.sand, 0.85);
           ctx.globalAlpha = 1;
         }
+        drawMist(dt);
         wxDrawCritter(dt);
       })(0);
     }
