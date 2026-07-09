@@ -1,151 +1,171 @@
 ---
 import Base from '../../layouts/Base.astro';
 ---
-<Base title="英语学习中心" desc="生词本（SM-2 间隔重复）、听写拼写、TTS 发音，以及可选的 AI 讲解与口语陪练；数据全存本地">
-<main class="wrap reader">
+<Base title="英语学习中心" desc="生词本（SM-2 间隔重复）、听写拼写、真人发音，以及可选的 AI 词源讲解与口语陪练；数据全存本地">
+<main class="wrap reader enx">
   <a class="back mono" href="/lang/">← 外语</a>
   <h1 class="rd-title">英语学习中心</h1>
   <div class="meta mono">
     <span class="sw" style="background:var(--c-ai);"></span>
-    <span>间隔重复 · 听写 · 发音 · AI 讲解与陪练（可选）</span>
+    <span>间隔重复 · 真人发音 · 听写 · AI 词源讲解与陪练（可选）</span>
   </div>
-
-  <p style="max-width:820px; color:var(--ink2); font-size:14.5px;">
-    每天从「① 今日复习」开始：算法（SM-2 间隔重复）决定哪些词该复习，你只管答「认识 / 模糊 / 忘了」。
-    生词、进度、AI Key 全部只存在你自己的浏览器里，本站没有服务器。
+  <p class="enx-sub">
+    每天从「今日复习」开始，算法决定复习什么，你只管作答。生词、进度、AI Key 全部只存在你自己的浏览器里。
   </p>
 
-  <div class="shu-tabs uke-tabs mono">
-    <button type="button" class="uke-tab pie-btn on" data-p="rev">① 今日复习</button>
-    <button type="button" class="uke-tab pie-btn" data-p="book">② 生词本</button>
-    <button type="button" class="uke-tab pie-btn" data-p="dict">③ 听写拼写</button>
-    <button type="button" class="uke-tab pie-btn" data-p="ai">④ 词典 & AI</button>
-    <button type="button" class="uke-tab pie-btn" data-p="chat">⑤ AI 对话</button>
-    <button type="button" class="uke-tab pie-btn" data-p="set">⑥ 设置</button>
+  <div class="enx-app">
+    <nav class="enx-side mono" aria-label="学习模块">
+      <button type="button" class="on" data-p="rev"><i class="sw" style="background:var(--c-ai);"></i>今日复习<em id="nav-due"></em></button>
+      <button type="button" data-p="book"><i class="sw" style="background:var(--c-base);"></i>生词本</button>
+      <button type="button" data-p="dict"><i class="sw" style="background:var(--c-char);"></i>听写拼写</button>
+      <button type="button" data-p="ai"><i class="sw" style="background:var(--c-tool);"></i>词典 · AI 讲解</button>
+      <button type="button" data-p="chat"><i class="sw" style="background:var(--c-life);"></i>口语陪练</button>
+      <button type="button" data-p="set"><i class="sw" style="background:var(--ink2);"></i>设置</button>
+    </nav>
+
+    <div class="enx-main">
+      <!-- 今日复习 -->
+      <section class="enx-panel" data-p="rev">
+        <div class="enx-stats">
+          <div class="enx-tile hot"><b id="st-due">0</b><span>待复习</span></div>
+          <div class="enx-tile good"><b id="st-today">0</b><span>今日已复习</span></div>
+          <div class="enx-tile"><b id="st-streak">0</b><span>连续天数</span></div>
+          <div class="enx-tile"><b id="st-total">0</b><span>生词总量</span></div>
+        </div>
+        <div class="enx-prog"><i id="rev-prog"></i></div>
+        <div id="rev-card" class="en-card"></div>
+        <div class="en-hint mono">
+          <kbd>空格</kbd> 显示释义　<kbd>1</kbd> 忘了　<kbd>2</kbd> 模糊　<kbd>3</kbd> 认识　<kbd>P</kbd> 发音
+          　·　忘了的词 10 分钟内重现，认识的按 1 → 6 → 更长天数安排
+        </div>
+      </section>
+
+      <!-- 生词本 -->
+      <section class="enx-panel" data-p="book" hidden>
+        <div class="enx-h">添加生词</div>
+        <div class="enx-bar">
+          <input id="book-w" type="text" class="mono" placeholder="单词，如 serendipity" style="width:180px;" />
+          <input id="book-d" type="text" placeholder="释义（可点「查释义」自动填）" style="flex:1; min-width:200px; max-width:340px;" />
+          <button type="button" class="pie-btn" id="book-fill">查释义</button>
+          <button type="button" class="pie-btn primary" id="book-add">添加</button>
+          <span class="mono enx-msg" id="book-msg"></span>
+        </div>
+        <div class="enx-h">词包</div>
+        <div class="enx-packs" id="book-packs"></div>
+        <div class="enx-h">全部生词</div>
+        <div class="enx-bar slim">
+          <input id="book-q" type="text" placeholder="搜索词或释义…" style="width:220px;" />
+          <span class="mono enx-msg" id="book-count"></span>
+        </div>
+        <div id="book-list" class="en-book"></div>
+      </section>
+
+      <!-- 听写 -->
+      <section class="enx-panel" data-p="dict" hidden>
+        <div class="enx-h">听写拼写 —— 用耳朵替代眼睛</div>
+        <div class="enx-bar">
+          <label>范围
+            <select id="dict-scope" class="mono">
+              <option value="all">全部生词</option>
+              <option value="due">待复习的</option>
+            </select>
+          </label>
+          <button type="button" class="pie-btn primary" id="dict-start">▶ 开始 / 下一个</button>
+          <button type="button" class="pie-btn" id="dict-replay">🔊 再听一遍</button>
+        </div>
+        <div class="en-card dictation">
+          <div class="mono en-dictmsg" id="dict-msg">点「开始」出题</div>
+          <div class="en-dictrow">
+            <input id="dict-input" type="text" class="en-dictin mono" autocomplete="off" spellcheck="false" placeholder="听到什么拼什么，回车提交" />
+            <button type="button" class="pie-btn primary" id="dict-check">提交</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 词典 & AI -->
+      <section class="enx-panel" data-p="ai" hidden>
+        <div class="enx-h">查词 —— 词典免费即用，AI 讲词源（需配 Key）</div>
+        <div class="enx-bar">
+          <input id="ai-word" type="text" class="mono" placeholder="输入单词，回车查词典" style="width:200px;" />
+          <button type="button" class="pie-btn primary" id="lk-go">查词典</button>
+          <button type="button" class="pie-btn" id="ai-go">AI 讲解</button>
+          <button type="button" class="pie-btn" id="ai-spk">🔊 发音</button>
+        </div>
+        <div id="lookup-out" class="en-lookup" hidden></div>
+        <pre id="ai-out" class="en-aiout"></pre>
+        <p class="mono enx-note">词典：dictionaryapi.dev / freedictionaryapi.com（公开源，含真人发音）· AI 讲解含词源词根拆解，结果本地缓存</p>
+      </section>
+
+      <!-- 口语陪练 -->
+      <section class="enx-panel" data-p="chat" hidden>
+        <div class="enx-h">口语陪练 Alex —— 多提问让你开口，纠错温和</div>
+        <div class="enx-bar slim">
+          <label class="mono"><input type="checkbox" id="chat-fix" checked /> 纠错模式</label>
+          <button type="button" class="pie-btn" id="chat-clear">清空对话</button>
+        </div>
+        <div id="chat-log" class="en-chat"></div>
+        <div class="en-dictrow" style="max-width:820px;">
+          <input id="chat-input" type="text" class="en-dictin" autocomplete="off" placeholder="Say something in English… (回车发送)" />
+          <button type="button" class="pie-btn primary" id="chat-send">发送</button>
+        </div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="enx-panel" data-p="set" hidden>
+        <div class="enx-h">发音</div>
+        <div class="enx-bar">
+          <label>音源
+            <select id="en-aud" class="mono">
+              <option value="auto">真人发音优先（推荐）</option>
+              <option value="tts">仅浏览器 TTS</option>
+            </select>
+          </label>
+          <label>口音
+            <select id="en-acc" class="mono">
+              <option value="us">美音</option>
+              <option value="uk">英音</option>
+            </select>
+          </label>
+          <label>TTS 音色 <select id="en-voice" class="mono" style="max-width:240px;"><option>（加载中…）</option></select></label>
+          <label>语速 <input id="en-rate" type="range" min="0.6" max="1.3" step="0.05" style="width:110px;" /></label>
+          <button type="button" class="pie-btn" id="en-try">试听 TTS</button>
+        </div>
+        <p class="mono enx-note">真人发音来自公开词典源的录音（美/英），首次播放需联网，之后走缓存；TTS 为完全离线的兜底。</p>
+
+        <div class="enx-h">AI 服务（OpenAI 兼容 · BYOK）</div>
+        <div class="enx-bar col">
+          <label>预设
+            <select id="set-preset" class="mono">
+              <option value="">自定义</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="glm">智谱 GLM-4-Flash（免费）</option>
+              <option value="kimi">Kimi (Moonshot)</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <label>接口地址 <input id="set-base" type="text" class="mono" style="width:320px;" /></label>
+          <label>API Key <input id="set-key" type="password" class="mono" style="width:320px;" placeholder="sk-…" /></label>
+          <label>模型 <input id="set-model" type="text" class="mono" style="width:200px;" /></label>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button type="button" class="pie-btn primary" id="set-save">保存</button>
+            <button type="button" class="pie-btn" id="set-test">测试连接</button>
+            <span class="mono enx-msg" id="set-msg"></span>
+          </div>
+        </div>
+        <p class="mono enx-note">Key 只保存在你自己的浏览器 localStorage，请求从你的浏览器直连服务商 —— 本站没有服务器，也无法看到你的 Key。</p>
+
+        <div class="enx-h">数据</div>
+        <div class="enx-bar">
+          <button type="button" class="pie-btn" id="set-export">导出生词本 (JSON)</button>
+          <label class="pie-btn" style="cursor:pointer;">导入 JSON<input id="set-import" type="file" accept=".json" hidden /></label>
+          <button type="button" class="pie-btn" id="set-wipe" style="color:var(--c-render);">清空全部数据</button>
+        </div>
+      </section>
+    </div>
   </div>
 
-  <!-- ① 复习 -->
-  <section class="uke-panel" data-p="rev">
-    <div class="mono" id="rev-stat" style="font-size:12px; color:var(--ink2); margin-bottom:10px;"></div>
-    <div id="rev-card" class="en-card"></div>
-    <p class="mono hint2" style="max-width:820px;">看到单词先回想意思，再点「显示释义」对答案。「忘了」的词 10 分钟内还会再出现；「认识」的词会按 1 → 6 → 更长的间隔安排复习。</p>
-  </section>
-
-  <!-- ② 生词本 -->
-  <section class="uke-panel" data-p="book" hidden>
-    <div class="shu-panel">
-      <label>单词 <input id="book-w" type="text" placeholder="serendipity" style="width:150px;" class="mono" /></label>
-      <label>释义 <input id="book-d" type="text" placeholder="意外发现珍宝的运气" style="width:200px;" /></label>
-      <button type="button" class="pie-btn" id="book-fill">查释义</button>
-      <button type="button" class="pie-btn primary" id="book-add">添加</button>
-      <span class="mono" id="book-msg" style="font-size:12px; color:var(--good);"></span>
-    </div>
-    <div class="uke-presets mono" id="book-packs" style="margin-top:12px;"></div>
-    <div class="shu-panel" style="margin-top:12px;">
-      <label>搜索 <input id="book-q" type="text" placeholder="词或释义…" style="width:180px;" /></label>
-      <span class="mono" id="book-count" style="font-size:12px; color:var(--ink2);"></span>
-    </div>
-    <div id="book-list" class="en-book"></div>
-  </section>
-
-  <!-- ③ 听写 -->
-  <section class="uke-panel" data-p="dict" hidden>
-    <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
-      听发音、拼出单词。用你的耳朵替代眼睛 —— 拼写和听力一起练。
-    </p>
-    <div class="shu-panel">
-      <label>范围
-        <select id="dict-scope" class="mono">
-          <option value="all">全部生词</option>
-          <option value="due">待复习的</option>
-        </select>
-      </label>
-      <button type="button" class="pie-btn primary" id="dict-start">▶ 开始 / 下一个</button>
-      <button type="button" class="pie-btn" id="dict-replay">🔊 再听一遍</button>
-    </div>
-    <div class="en-card" style="margin-top:14px;">
-      <div class="mono" id="dict-msg" style="min-height:22px;">点「开始」出题</div>
-      <div style="display:flex; gap:10px; margin-top:12px;">
-        <input id="dict-input" type="text" class="en-dictin mono" autocomplete="off" spellcheck="false" placeholder="听到什么拼什么，回车提交" />
-        <button type="button" class="pie-btn primary" id="dict-check">提交</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- ④ AI 讲解 -->
-  <section class="uke-panel" data-p="ai" hidden>
-    <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
-      「查词典」免费即用（公开词典源：音标、英英释义、例句、同义词、<b>真人发音</b>）；
-      「AI 讲解」额外给你中文词义、<b>词源词根拆解</b>、例句翻译和记忆技巧（需在「⑥ 设置」配 Key，结果本地缓存不重复花钱）。
-    </p>
-    <div class="shu-panel">
-      <label>单词 <input id="ai-word" type="text" class="mono" placeholder="ubiquitous" style="width:170px;" /></label>
-      <button type="button" class="pie-btn primary" id="lk-go">查词典（免费）</button>
-      <button type="button" class="pie-btn" id="ai-go">AI 讲解</button>
-      <button type="button" class="pie-btn" id="ai-spk">🔊 TTS</button>
-    </div>
-    <div id="lookup-out" class="en-lookup" hidden></div>
-    <pre id="ai-out" class="en-aiout"></pre>
-  </section>
-
-  <!-- ⑤ AI 对话 -->
-  <section class="uke-panel" data-p="chat" hidden>
-    <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
-      和 AI 陪练 Alex 用英语聊天，它会主动提问让你多开口；开着「纠错」，你的错误会被温和地指出来。
-    </p>
-    <div class="shu-panel">
-      <label class="mono"><input type="checkbox" id="chat-fix" checked /> 纠错模式</label>
-      <button type="button" class="pie-btn" id="chat-clear">清空对话</button>
-    </div>
-    <div id="chat-log" class="en-chat"></div>
-    <div style="display:flex; gap:10px; max-width:820px; margin-top:10px;">
-      <input id="chat-input" type="text" class="en-dictin" autocomplete="off" placeholder="Say something in English… (回车发送)" />
-      <button type="button" class="pie-btn primary" id="chat-send">发送</button>
-    </div>
-  </section>
-
-  <!-- ⑥ 设置 -->
-  <section class="uke-panel" data-p="set" hidden>
-    <h3 class="uke-step">AI 服务（OpenAI 兼容接口，BYOK）</h3>
-    <p style="max-width:820px; color:var(--ink2); font-size:13px;">
-      Key 只保存在你自己的浏览器 localStorage，请求从你的浏览器直连服务商 —— 本站没有也无法看到你的 Key。
-      国内推荐 DeepSeek（便宜）或智谱 GLM-4-Flash（免费档）。
-    </p>
-    <div class="shu-panel" style="align-items:flex-start; flex-direction:column; gap:10px;">
-      <label>预设
-        <select id="set-preset" class="mono">
-          <option value="">自定义</option>
-          <option value="deepseek">DeepSeek</option>
-          <option value="glm">智谱 GLM-4-Flash（免费）</option>
-          <option value="kimi">Kimi (Moonshot)</option>
-          <option value="openai">OpenAI</option>
-        </select>
-      </label>
-      <label>接口地址 <input id="set-base" type="text" class="mono" style="width:320px;" /></label>
-      <label>API Key <input id="set-key" type="password" class="mono" style="width:320px;" placeholder="sk-…" /></label>
-      <label>模型 <input id="set-model" type="text" class="mono" style="width:200px;" /></label>
-      <div style="display:flex; gap:10px; align-items:center;">
-        <button type="button" class="pie-btn primary" id="set-save">保存</button>
-        <button type="button" class="pie-btn" id="set-test">测试连接</button>
-        <span class="mono" id="set-msg" style="font-size:12px; color:var(--ink2);"></span>
-      </div>
-    </div>
-    <h3 class="uke-step">发音（浏览器本地 TTS）</h3>
-    <div class="shu-panel">
-      <label>音色 <select id="en-voice" class="mono" style="max-width:280px;"><option>（加载中…）</option></select></label>
-      <label>语速 <input id="en-rate" type="range" min="0.6" max="1.3" step="0.05" style="width:120px;" /></label>
-      <button type="button" class="pie-btn" id="en-try">试听</button>
-    </div>
-    <h3 class="uke-step">数据</h3>
-    <div class="shu-panel">
-      <button type="button" class="pie-btn" id="set-export">导出生词本 (JSON)</button>
-      <label class="pie-btn" style="cursor:pointer;">导入 JSON<input id="set-import" type="file" accept=".json" hidden /></label>
-      <button type="button" class="pie-btn" id="set-wipe" style="color:var(--c-render);">清空全部数据</button>
-    </div>
-  </section>
-
-  <p class="mono" style="max-width:820px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
-    复习算法为 SM-2 简化版；发音用浏览器内置语音合成（离线可用）；AI 为可选功能，未配置时其余功能完全可用。
+  <p class="mono" style="max-width:1000px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
+    复习算法为 SM-2 简化版；未配置 AI 时其余功能完全可用。词典与发音数据来自公开源，学习数据不出你的浏览器。
   </p>
 </main>
 </Base>
