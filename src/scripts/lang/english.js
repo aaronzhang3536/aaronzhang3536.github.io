@@ -43,7 +43,7 @@ function store(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } c
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 let words = load(K.words, []);
-let cfg = load(K.cfg, { base: 'https://api.deepseek.com/v1', key: '', model: 'deepseek-chat', voice: '', rate: 0.95 });
+let cfg = load(K.cfg, { base: 'https://api.deepseek.com/v1', key: '', model: 'deepseek-chat', voice: '', rate: 0.95, aud: 'auto', acc: 'us' });
 let stats = load(K.stats, {});
 let aiCache = load(K.cache, {});
 
@@ -70,6 +70,14 @@ function loadVoices() {
       `<option value="${esc(v.name)}"${v.name === cfg.voice ? ' selected' : ''}>${esc(v.name)} (${esc(v.lang)})</option>`).join('');
   }
 }
+function bestVoice() {
+  if (!voices.length) return null;
+  return voices.find((v) => v.name === cfg.voice) ||
+    voices.find((v) => /Google US English/i.test(v.name)) ||
+    voices.find((v) => /en[-_]US/i.test(v.lang) && /natural/i.test(v.name)) ||
+    voices.find((v) => /en[-_]US/i.test(v.lang)) ||
+    voices[0];
+}
 function speak(text) {
   if (!window.speechSynthesis) return;
   try {
@@ -77,10 +85,28 @@ function speak(text) {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-US';
     u.rate = cfg.rate || 0.95;
-    const v = voices.find((x) => x.name === cfg.voice) || voices[0];
+    const v = bestVoice();
     if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) {}
+}
+/* 发音统一入口：真人音频优先（词典源 mp3，本地缓存），拿不到/超时才回退 TTS */
+async function pronounce(word) {
+  const w = String(word || '').trim();
+  if (!w) return null;
+  if (cfg.aud === 'tts' || /\s/.test(w)) { speak(w); return null; }
+  let d = dictCache[w.toLowerCase()] || null;
+  if (!d) {
+    try { d = await Promise.race([dictLookup(w), new Promise((r) => setTimeout(() => r(null), 2500))]); }
+    catch (e) { d = null; }
+  }
+  const list = (d && d.audios) || [];
+  const pick = (cfg.acc === 'uk')
+    ? (list.find((a) => a.tag === '英') || list.find((a) => a.tag === '美') || list[0])
+    : (list.find((a) => a.tag === '美') || list.find((a) => a.tag === '英') || list[0]);
+  if (pick) playUrl(pick.url, w);
+  else speak(w);
+  return d;
 }
 
 /* ---------- SRS（SM-2 简化版）：忘了0 / 模糊3 / 认识5 ---------- */
@@ -98,13 +124,25 @@ function sm2(it, q) {
 function dueWords() { const now = Date.now(); return words.filter((w) => !w.srs || w.srs.d <= now); }
 
 /* ---------- ① 今日复习 ---------- */
-let queue = [], cur = null;
+let queue = [], cur = null, revDone = 0;
 function buildQueue() {
   queue = dueWords().slice();
+  revDone = 0;
   for (let i = queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = queue[i]; queue[i] = queue[j]; queue[j] = t; }
 }
 function revStats() {
-  $('rev-stat').textContent = '今日已复习 ' + (stats[today()] || 0) + ' · 连续 ' + streak() + ' 天 · 生词本 ' + words.length + ' 词 · 待复习 ' + dueWords().length;
+  const due = dueWords().length;
+  if ($('st-due')) {
+    $('st-due').textContent = due;
+    $('st-today').textContent = stats[today()] || 0;
+    $('st-streak').textContent = streak();
+    $('st-total').textContent = words.length;
+  }
+  const badge = $('nav-due');
+  if (badge) badge.textContent = due > 0 ? due : '';
+  const total = revDone + queue.length + (cur ? 1 : 0);
+  const bar = $('rev-prog');
+  if (bar) bar.style.width = total > 0 ? Math.round((revDone / total) * 100) + '%' : '0%';
 }
 function nextCard() {
   cur = queue.shift() || null;
@@ -112,30 +150,54 @@ function nextCard() {
   revStats();
   if (!cur) {
     box.innerHTML = words.length
-      ? '<div class="en-done">🎉 今日复习完成！<span class="mono">明天再来，或去「③ 听写」巩固拼写</span></div>'
-      : '<div class="en-done">生词本是空的<span class="mono">去「② 生词本」导入词包或手动添加</span></div>';
+      ? '<div class="en-done">🎉 今日复习完成<span class="mono">明天再来，或去「听写拼写」巩固</span></div>'
+      : '<div class="en-done">生词本是空的<span class="mono">去「生词本」导入词包或手动添加</span></div>';
     return;
   }
+  const w = cur.w;
+  const cached = dictCache[w.toLowerCase()];
   box.innerHTML =
-    '<div class="en-word">' + esc(cur.w) + ' <button type="button" class="pie-btn en-spk" id="rev-spk">🔊</button></div>' +
+    '<div class="en-word">' + esc(w) + '</div>' +
+    '<div class="en-ph" id="rev-ph">' + esc((cached && cached.ph) || '') + '</div>' +
     '<div class="en-def" id="rev-def" hidden>' + esc(cur.def) + '</div>' +
     '<div class="en-actions" id="rev-actions">' +
-    '<button type="button" class="pie-btn primary" id="rev-show">显示释义</button></div>';
-  $('rev-spk').addEventListener('click', () => speak(cur.w));
-  speak(cur.w);
-  $('rev-show').addEventListener('click', () => {
-    $('rev-def').hidden = false;
-    $('rev-actions').innerHTML =
-      '<button type="button" class="pie-btn en-g0" data-q="0">忘了</button>' +
-      '<button type="button" class="pie-btn en-g3" data-q="3">模糊</button>' +
-      '<button type="button" class="pie-btn en-g5" data-q="5">认识</button>';
-    $('rev-actions').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
-      const q = parseInt(b.getAttribute('data-q'), 10);
-      sm2(cur, q); bumpStat(); saveWords();
-      if (q < 3) queue.splice(Math.min(queue.length, 3 + Math.floor(Math.random() * 3)), 0, cur);
-      nextCard();
-    }));
+    '<button type="button" class="en-spkbtn" id="rev-spk" title="发音 (P)">🔊</button>' +
+    '<button type="button" class="en-reveal" id="rev-show">显示释义</button></div>';
+  $('rev-spk').addEventListener('click', () => pronounce(w));
+  pronounce(w).then((d) => {
+    if (d && d.ph && cur && cur.w === w && $('rev-ph')) $('rev-ph').textContent = d.ph;
   });
+  $('rev-show').addEventListener('click', revReveal);
+}
+function revReveal() {
+  if (!cur || !$('rev-show')) return;
+  $('rev-def').hidden = false;
+  $('rev-actions').innerHTML =
+    '<button type="button" class="en-grade g0" data-q="0"><b>忘了</b><kbd>1</kbd></button>' +
+    '<button type="button" class="en-grade g3" data-q="3"><b>模糊</b><kbd>2</kbd></button>' +
+    '<button type="button" class="en-grade g5" data-q="5"><b>认识</b><kbd>3</kbd></button>';
+  $('rev-actions').querySelectorAll('.en-grade').forEach((b) => b.addEventListener('click', () => revGrade(parseInt(b.getAttribute('data-q'), 10))));
+}
+function revGrade(q) {
+  if (!cur) return;
+  sm2(cur, q); bumpStat(); saveWords();
+  revDone++;
+  if (q < 3) queue.splice(Math.min(queue.length, 3 + Math.floor(Math.random() * 3)), 0, cur);
+  nextCard();
+}
+/* 键盘：空格=显示释义，1/2/3=评分，P=发音（仅复习面板可见且不在输入框时） */
+function revKeys(e) {
+  const panel = document.querySelector('.enx-panel[data-p="rev"]');
+  if (!panel || panel.hidden) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+  if (e.key === ' ' || e.key === 'Enter') {
+    if ($('rev-show')) { e.preventDefault(); revReveal(); }
+  } else if (e.key === '1' || e.key === '2' || e.key === '3') {
+    if (!$('rev-show') && $('rev-actions') && cur) revGrade(e.key === '1' ? 0 : e.key === '2' ? 3 : 5);
+  } else if (e.key === 'p' || e.key === 'P') {
+    if (cur) pronounce(cur.w);
+  }
 }
 
 /* ---------- ② 生词本 ---------- */
@@ -154,7 +216,7 @@ function renderBook() {
     '<button type="button" class="pie-btn en-spk" data-s="' + esc(w.w) + '">🔊</button>' +
     '<button type="button" class="pie-btn en-del" data-w="' + esc(w.w) + '">✕</button></div>').join('') ||
     '<div class="mono" style="color:var(--ink2); font-size:12.5px; padding:10px 0;">还没有词——导入下面的词包，或在上方手动添加。</div>';
-  $('book-list').querySelectorAll('.en-spk').forEach((b) => b.addEventListener('click', () => speak(b.getAttribute('data-s'))));
+  $('book-list').querySelectorAll('.en-spk').forEach((b) => b.addEventListener('click', () => pronounce(b.getAttribute('data-s'))));
   $('book-list').querySelectorAll('.en-del').forEach((b) => b.addEventListener('click', () => {
     const w = b.getAttribute('data-w');
     words = words.filter((x) => x.w !== w);
@@ -184,12 +246,12 @@ function dictNext() {
   $('dict-input').value = '';
   $('dict-msg').innerHTML = '听音拼写，回车提交　<span class="mono" style="color:var(--ink2);">连对 ' + dictStreak + '</span>';
   $('dict-input').focus();
-  speak(w.w);
+  pronounce(w.w);
 }
 function dictCheck() {
   if (!dictCur) return;
   const val = $('dict-input').value.trim().toLowerCase();
-  if (!val) { speak(dictCur.w); return; }
+  if (!val) { pronounce(dictCur.w); return; }
   if (val === dictCur.w.toLowerCase()) {
     dictStreak++; bumpStat();
     $('dict-msg').innerHTML = '<span style="color:var(--good);">✓ 正确</span>　' + esc(dictCur.w) + ' — ' + esc(dictCur.def) +
@@ -198,7 +260,7 @@ function dictCheck() {
   } else {
     dictStreak = 0;
     $('dict-msg').innerHTML = '<span style="color:var(--c-render);">✗ 不对</span>　正确拼写：<b>' + esc(dictCur.w) + '</b> — ' + esc(dictCur.def);
-    speak(dictCur.w);
+    pronounce(dictCur.w);
   }
 }
 
@@ -226,12 +288,14 @@ function aiErrText(e) {
 /* ---------- 免费词典查询（dictionaryapi.dev 主源 → freedictionaryapi.com 备源）---------- */
 let dictCache = load(K.dict, {});
 let curAudio = null;
-function playUrl(url) {
+function playUrl(url, fbWord) {
   try {
     if (curAudio) curAudio.pause();
     curAudio = new Audio(url);
-    curAudio.play();
-  } catch (e) {}
+    if (fbWord) curAudio.onerror = () => speak(fbWord);
+    const p = curAudio.play();
+    if (p && p.catch) p.catch(() => { if (fbWord) speak(fbWord); });
+  } catch (e) { if (fbWord) speak(fbWord); }
 }
 async function dictLookup(word) {
   const w = word.toLowerCase();
@@ -381,6 +445,8 @@ function cfgSave() {
   cfg.model = $('set-model').value.trim() || cfg.model;
   cfg.voice = $('en-voice').value || cfg.voice;
   cfg.rate = parseFloat($('en-rate').value) || 0.95;
+  cfg.aud = $('en-aud').value || 'auto';
+  cfg.acc = $('en-acc').value || 'us';
   store(K.cfg, cfg);
   $('set-msg').textContent = '✓ 已保存（仅存于本机浏览器）';
 }
@@ -418,28 +484,30 @@ function importData(file) {
 
 /* ---------- 标签页 & 初始化 ---------- */
 function setupTabs() {
-  const tabs = document.querySelectorAll('.uke-tab');
+  const tabs = document.querySelectorAll('.enx-side button');
   tabs.forEach((tab) => tab.addEventListener('click', () => {
     tabs.forEach((t) => t.classList.remove('on'));
     tab.classList.add('on');
     const p = tab.getAttribute('data-p');
-    document.querySelectorAll('.uke-panel').forEach((pan) => { pan.hidden = pan.getAttribute('data-p') !== p; });
+    document.querySelectorAll('.enx-panel').forEach((pan) => { pan.hidden = pan.getAttribute('data-p') !== p; });
     if (p === 'rev') { buildQueue(); nextCard(); }
     if (p === 'book') renderBook();
     if (window.speechSynthesis) speechSynthesis.cancel();
+    if (curAudio) try { curAudio.pause(); } catch (e) {}
   }));
 }
 
 function init() {
   if (!$('rev-card')) return;
   setupTabs();
+  document.addEventListener('keydown', revKeys);
   loadVoices();
   if (window.speechSynthesis) speechSynthesis.onvoiceschanged = loadVoices;
   /* ① 复习 */
   buildQueue(); nextCard();
   /* ② 生词本 */
   $('book-packs').innerHTML = PACKS.map((p) =>
-    '<button type="button" class="pie-btn" data-p="' + p.id + '">导入 ' + p.name + '</button>').join('');
+    '<button type="button" class="enx-pack" data-p="' + p.id + '"><b>' + p.name + '</b><span>' + p.words.length + ' 词 · 点击导入</span></button>').join('');
   $('book-packs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
     const p = PACKS.find((x) => x.id === b.getAttribute('data-p'));
     let n = 0;
@@ -457,14 +525,14 @@ function init() {
   renderBook();
   /* ③ 听写 */
   $('dict-start').addEventListener('click', dictNext);
-  $('dict-replay').addEventListener('click', () => dictCur && speak(dictCur.w));
+  $('dict-replay').addEventListener('click', () => dictCur && pronounce(dictCur.w));
   $('dict-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') dictCheck(); });
   $('dict-check').addEventListener('click', dictCheck);
   /* ④ 词典 & AI 讲解 */
   $('lk-go').addEventListener('click', lookupWord);
   $('ai-go').addEventListener('click', explainWord);
   $('ai-word').addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupWord(); });
-  $('ai-spk').addEventListener('click', () => { const w = $('ai-word').value.trim(); if (w) speak(w); });
+  $('ai-spk').addEventListener('click', () => { const w = $('ai-word').value.trim(); if (w) pronounce(w); });
   /* ② 一键查释义填充 */
   $('book-fill').addEventListener('click', async () => {
     const w = ($('book-w').value || '').trim();
@@ -485,6 +553,8 @@ function init() {
   /* ⑥ 设置 */
   $('set-base').value = cfg.base; $('set-key').value = cfg.key; $('set-model').value = cfg.model;
   $('en-rate').value = cfg.rate;
+  $('en-aud').value = cfg.aud || 'auto';
+  $('en-acc').value = cfg.acc || 'us';
   $('set-preset').addEventListener('change', () => {
     const p = PRESETS[$('set-preset').value];
     if (p) { $('set-base').value = p.base; $('set-model').value = p.model; }
