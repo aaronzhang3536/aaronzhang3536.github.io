@@ -88,24 +88,55 @@ import Base from '../../layouts/Base.astro';
     </div>
   </section>
 
-  <!-- ③ 节奏型 -->
+  <!-- ③ 节奏机 -->
   <section class="uke-panel" data-p="rhythm" hidden>
     <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
-      扫弦节奏型是弹唱的骨架：↓ 下扫、↑ 上扫、✕ 切音、· 空拍（手照常挥、不碰弦）。
-      选一个型，先慢速跟着亮灯扫，念着口诀练到不用想。
+      节奏机两种玩法：<b>跟练</b>——听示范跟着扫；<b>判定</b>——像音游一样按时机击打：
+      <span class="mono">J</span>=↓下扫 <span class="mono">K</span>=↑上扫 <span class="mono">空格</span>=✕切音（触屏点舞台左/右半）。
+      难度越高判定窗口越窄、要求键位正确，地狱档还会逐小节加速。
     </p>
     <div id="pat-list" class="uke-presets mono"></div>
-    <div id="pat-row" class="uke-patrow"></div>
     <p class="mono hint2" id="pat-hint"></p>
     <div class="shu-panel">
+      <label>模式
+        <select id="rg-mode" class="mono">
+          <option value="follow">跟练</option>
+          <option value="judge">判定（游戏）</option>
+        </select>
+      </label>
+      <label>难度
+        <select id="rg-diff" class="mono">
+          <option value="easy">简单</option>
+          <option value="normal" selected>普通</option>
+          <option value="hard">困难</option>
+          <option value="hell">地狱</option>
+        </select>
+      </label>
+      <label>小节
+        <select id="rg-bars" class="mono">
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+        </select>
+      </label>
       <label>和弦 <select id="pat-chord" class="mono"></select></label>
       <label>速度
-        <input id="pat-bpm" type="range" min="30" max="140" value="60" style="width:150px;" />
+        <input id="pat-bpm" type="range" min="30" max="160" value="60" style="width:130px;" />
         <b class="mono" style="color:var(--ink);"><span id="pat-bpmv">60</span> BPM</b>
       </label>
+      <label class="mono"><input type="checkbox" id="rg-accel" /> 逐渐加速</label>
       <button type="button" class="pie-btn primary" id="pat-start">▶ 开始</button>
-      <span class="mono" id="pat-count" style="color:var(--accent); min-width:70px;"></span>
+      <span class="mono" id="pat-count" style="color:var(--accent); min-width:90px;"></span>
     </div>
+    <div class="rg-stage" id="rg-stage">
+      <canvas id="rg-fx" aria-hidden="true"></canvas>
+      <div id="pat-row" class="uke-patrow big"></div>
+      <div id="rg-combo" class="rg-combo"></div>
+      <div id="rg-pops" aria-hidden="true"></div>
+      <div class="rg-stats mono" id="rg-stats"></div>
+      <div class="rg-keys mono" id="rg-keys" hidden>J = ↓ 下扫　·　K = ↑ 上扫　·　空格 = ✕ 切音　·　简单/普通难度任意键均可命中</div>
+    </div>
+    <div id="rg-result" class="gm-res" hidden></div>
   </section>
 
   <!-- ④ 和弦库 -->

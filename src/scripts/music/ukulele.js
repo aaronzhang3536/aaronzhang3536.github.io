@@ -412,41 +412,254 @@ function chnk(when) {
   src.start(when || ctx.currentTime);
 }
 
-/* ---------- 扫弦节奏型（8 个八分槽位；D 下扫 U 上扫 X 切音） ---------- */
+/* ---------- 节奏机（8 分音槽位；D 下扫 U 上扫 X 切音）
+   跟练模式：听示范跟着扫；判定模式：按时机击打（J=↓ K=↑ 空格=✕），带判定/连击/特效 ---------- */
 const PATTERNS = [
-  { name: '四分下扫', slots: ['D', '', 'D', '', 'D', '', 'D', ''], hint: '最基础：每拍一个下扫，手腕放松像甩水' },
-  { name: '八分扫弦', slots: ['D', 'U', 'D', 'U', 'D', 'U', 'D', 'U'], hint: '下上交替：下扫踩在拍点上，上扫在半拍，手腕匀速摆动不停' },
-  { name: '民谣万能型', slots: ['D', '', 'D', 'U', '', 'U', 'D', 'U'], hint: '口诀「下、下上、上下上」——先慢速念口诀再扫，会了这个能弹一半的歌' },
-  { name: '慢摇抒情', slots: ['D', '', '', 'U', '', 'U', 'D', ''], hint: '留白多，适合慢歌；空拍时手继续虚挥保持节奏' },
-  { name: '切音型', slots: ['D', '', 'X', 'U', '', 'U', 'X', 'U'], hint: 'X=切音：扫完立刻用右手掌侧面捂住琴弦发出「恰」' },
-  { name: '华尔兹 3/4', slots: ['D', '', 'U', '', 'U', ''], hint: '三拍子「蹦-恰-恰」，生日快乐就用它' },
+  { name: '四分下扫', diff: 1, slots: ['D', '', 'D', '', 'D', '', 'D', ''], hint: '最基础：每拍一个下扫，手腕放松像甩水' },
+  { name: '八分扫弦', diff: 1, slots: ['D', 'U', 'D', 'U', 'D', 'U', 'D', 'U'], hint: '下上交替：下扫踩拍点，上扫在半拍，手腕匀速不停' },
+  { name: '民谣万能型', diff: 2, slots: ['D', '', 'D', 'U', '', 'U', 'D', 'U'], hint: '口诀「下、下上、上下上」——会了这个能弹一半的歌' },
+  { name: '慢摇抒情', diff: 2, slots: ['D', '', '', 'U', '', 'U', 'D', ''], hint: '留白多，适合慢歌；空拍手照常虚挥保持摆动' },
+  { name: '切音型', diff: 3, slots: ['D', '', 'X', 'U', '', 'U', 'X', 'U'], hint: 'X=切音「恰」：扫完立刻手掌侧面捂弦（判定模式按空格）' },
+  { name: '华尔兹 3/4', diff: 2, slots: ['D', '', 'U', '', 'U', ''], hint: '三拍子「蹦-恰-恰」，生日快乐就用它' },
 ];
+const RG_DIFF = {
+  easy:   { name: '简单', win: [95, 160], anyKey: true,  accel: false },
+  normal: { name: '普通', win: [75, 125], anyKey: true,  accel: false },
+  hard:   { name: '困难', win: [55, 95],  anyKey: false, accel: false },
+  hell:   { name: '地狱', win: [40, 72],  anyKey: false, accel: true },
+};
+const RG_KEY = 'yzzn-uke-rhythm';
+function rgLoadBest() { try { return JSON.parse(localStorage.getItem(RG_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function rgSaveBest() { try { localStorage.setItem(RG_KEY, JSON.stringify(rgBest)); } catch (e) {} }
 let patIdx = 2;
-function patBpm() { return Math.max(30, Math.min(140, parseInt($('pat-bpm').value, 10) || 60)); }
+let rgMode = 'follow', rgRun = null, rgSweep = null;
+let rgBest = rgLoadBest();
+function rgDiffCfg() { return RG_DIFF[$('rg-diff').value] || RG_DIFF.normal; }
+function patBpm() {
+  const base = Math.max(30, Math.min(160, parseInt($('pat-bpm').value, 10) || 60));
+  return base + (rgRun ? rgRun.accel : 0);
+}
 const patLoop = makeLooper(patTick, () => 30 / patBpm());
+
 function patTick(i, when) {
   const p = PATTERNS[patIdx], n = p.slots.length;
   const inCount = i < n, s = i % n, onBeat = s % 2 === 0;
+  if (rgRun && !rgRun.done && i >= n + rgRun.bars * n) {
+    rgRun.done = true;
+    patLoop.stop();
+    uiAt(when, rhythmFinish);
+    return;
+  }
   if (onBeat) click(when, s === 0);
+  const barIdx = Math.floor((i - n) / n);
+  if (!inCount && s === 0 && barIdx > 0 && rgRun && rgRun.accelOn) {
+    rgRun.accel = Math.min(60, barIdx * 3);
+    uiAt(when, () => { if ($('pat-bpmv')) $('pat-bpmv').textContent = patBpm(); });
+  }
   if (!inCount) {
-    const ch = chordByName($('pat-chord').value) || CHORDS[0];
     const slot = p.slots[s];
-    if (slot === 'D') strum(ch, 'down', when, 0.5);
-    else if (slot === 'U') strum(ch, 'up', when, 0.3);
-    else if (slot === 'X') chnk(when);
+    if (rgMode === 'follow' || !rgRun) {
+      const ch = chordByName($('pat-chord').value) || CHORDS[0];
+      if (slot === 'D') strum(ch, 'down', when, 0.5);
+      else if (slot === 'U') strum(ch, 'up', when, 0.3);
+      else if (slot === 'X') chnk(when);
+    } else if (slot) {
+      rgRun.events.push({ i: s, t: when, type: slot, judged: false });
+      rgRun.max += 100;
+    }
   }
   uiAt(when, () => {
-    if (!patLoop.on) return;
-    $('pat-count').textContent = inCount ? '预备 ' + Math.ceil((n - s) / 2) : '';
+    if (!patLoop.on && !(rgRun && !rgRun.done)) return;
+    $('pat-count').textContent = inCount ? '预备 ' + Math.ceil((n - s) / 2) : (rgRun ? '第 ' + (barIdx + 1) + ' / ' + rgRun.bars + ' 小节' : '');
     document.querySelectorAll('#pat-row .uke-slot').forEach((el, k) => {
       el.classList.toggle('on', !inCount && k === s);
       el.classList.toggle('count', inCount && k === s);
     });
+    if (s === 0) {
+      const st = $('rg-stage');
+      if (st) { st.classList.remove('beat'); void st.offsetWidth; st.classList.add('beat'); }
+    }
   });
+}
+
+/* —— 判定与特效 —— */
+function rgNow() { return ac().currentTime; }
+function rgHit(kind) {
+  if (!rgRun || rgRun.done) return;
+  const d = rgDiffCfg();
+  const now = rgNow();
+  let best = null;
+  rgRun.events.forEach((ev) => {
+    if (ev.judged) return;
+    const dt = Math.abs(now - ev.t) * 1000;
+    if (dt <= d.win[1] && (!best || dt < Math.abs(now - best.t) * 1000)) best = ev;
+  });
+  if (!best) { rgPop(null, 'MISS', 'ms'); rgRun.stray++; rgRun.combo = 0; rgCombo(); rgStats(); return; }
+  best.judged = true;
+  const dt = Math.abs(now - best.t) * 1000;
+  const laneOK = d.anyKey || best.type === kind;
+  const ch = chordByName($('pat-chord').value) || CHORDS[0];
+  if (!laneOK) {
+    rgRun.miss++; rgRun.combo = 0;
+    rgPop(best.i, '错向', 'ms'); rgBurst(best.i, 'var(--c-render)', 8);
+  } else if (dt <= d.win[0]) {
+    rgRun.perfect++; rgRun.score += 100; rgRun.combo++;
+    if (best.type === 'X') chnk(0); else strum(ch, best.type === 'D' ? 'down' : 'up', 0, 0.5);
+    rgPop(best.i, 'PERFECT', 'pf'); rgBurst(best.i, 'var(--c-tool)', 22);
+  } else {
+    rgRun.good++; rgRun.score += 60; rgRun.combo++;
+    if (best.type === 'X') chnk(0); else strum(ch, best.type === 'D' ? 'down' : 'up', 0, 0.3);
+    rgPop(best.i, 'GOOD', 'gd'); rgBurst(best.i, 'var(--good)', 12);
+  }
+  rgRun.maxCombo = Math.max(rgRun.maxCombo, rgRun.combo);
+  rgCombo();
+  rgStats();
+}
+function rgSweepTick() {
+  if (!rgRun || rgRun.done) return;
+  const d = rgDiffCfg();
+  const now = rgNow();
+  rgRun.events.forEach((ev) => {
+    if (ev.judged || now <= ev.t + d.win[1] / 1000) return;
+    ev.judged = true;
+    rgRun.miss++; rgRun.combo = 0;
+    rgPop(ev.i, 'MISS', 'ms');
+    rgCombo(); rgStats();
+  });
+}
+function slotX(i) {
+  const els = document.querySelectorAll('#pat-row .uke-slot');
+  const el = els[i];
+  if (!el) return null;
+  return { x: el.offsetLeft + el.offsetWidth / 2, y: el.offsetTop + el.offsetHeight / 2 };
+}
+function rgPop(i, text, cls) {
+  const layer = $('rg-pops');
+  if (!layer) return;
+  const row = $('pat-row');
+  const pos = i != null ? slotX(i) : null;
+  const sp = document.createElement('span');
+  sp.className = 'rg-pop ' + cls;
+  sp.textContent = text;
+  sp.style.left = (pos ? row.offsetLeft + pos.x : layer.parentNode.clientWidth / 2) + 'px';
+  sp.style.top = (pos ? row.offsetTop + pos.y - 40 : 30) + 'px';
+  layer.appendChild(sp);
+  setTimeout(() => sp.remove(), 750);
+}
+function rgCombo() {
+  const el = $('rg-combo');
+  if (!el || !rgRun) return;
+  const c = rgRun.combo;
+  el.textContent = c >= 2 ? c + ' COMBO' : '';
+  el.className = 'rg-combo' + (c >= 30 ? ' t3' : c >= 12 ? ' t2' : '');
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  if (c > 0 && c % 20 === 0) {
+    const st = $('rg-stage');
+    const ring = document.createElement('i');
+    ring.className = 'rg-ring';
+    st.appendChild(ring);
+    setTimeout(() => ring.remove(), 650);
+  }
+}
+function rgStats() {
+  const el = $('rg-stats');
+  if (!el || !rgRun) return;
+  el.textContent = '得分 ' + rgRun.score + ' · P ' + rgRun.perfect + ' / G ' + rgRun.good + ' / M ' + (rgRun.miss + rgRun.stray) + ' · 最高连击 ' + rgRun.maxCombo;
+}
+/* 粒子火花 */
+let rgParts = [], rgFxOn = false;
+function rgBurst(i, color, n) {
+  const cv = $('rg-fx');
+  if (!cv) return;
+  const pos = slotX(i);
+  if (!pos) return;
+  const st = $('rg-stage');
+  if (cv.width !== st.clientWidth || cv.height !== st.clientHeight) { cv.width = st.clientWidth; cv.height = st.clientHeight; }
+  const row = $('pat-row');
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * 6.2832, sp = 60 + Math.random() * 200;
+    rgParts.push({ x: row.offsetLeft + pos.x, y: row.offsetTop + pos.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, life: 0.55 + Math.random() * 0.3, t: 0, c: color, r: 1.5 + Math.random() * 2 });
+  }
+  if (!rgFxOn) { rgFxOn = true; requestAnimationFrame(rgFxLoop); }
+}
+function rgFxLoop() {
+  const cv = $('rg-fx');
+  if (!cv || !rgParts.length) { rgFxOn = false; if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); return; }
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, cv.width, cv.height);
+  const cs = getComputedStyle(document.body);
+  const dt = 1 / 60;
+  rgParts = rgParts.filter((pp) => (pp.t += dt) < pp.life);
+  rgParts.forEach((pp) => {
+    pp.vy += 420 * dt;
+    pp.x += pp.vx * dt; pp.y += pp.vy * dt;
+    const col = pp.c.indexOf('var(') === 0 ? cs.getPropertyValue(pp.c.slice(4, -1)).trim() : pp.c;
+    g.globalAlpha = Math.max(0, 1 - pp.t / pp.life);
+    g.fillStyle = col;
+    g.beginPath(); g.arc(pp.x, pp.y, pp.r, 0, 6.2832); g.fill();
+  });
+  g.globalAlpha = 1;
+  requestAnimationFrame(rgFxLoop);
+}
+/* 结算 */
+function rhythmFinish() {
+  if (rgSweep) { clearInterval(rgSweep); rgSweep = null; }
+  rgSweepTick();
+  const r = rgRun;
+  if (!r) return;
+  const acc = r.max ? r.score / r.max : 0;
+  const grade = acc >= 0.95 ? 'S' : acc >= 0.85 ? 'A' : acc >= 0.7 ? 'B' : acc >= 0.5 ? 'C' : 'D';
+  const key = patIdx + '|' + $('rg-diff').value + '|' + r.bars;
+  const prev = rgBest[key];
+  const isBest = !prev || r.score > prev.score;
+  if (isBest) { rgBest[key] = { score: r.score, grade: grade, acc: Math.round(acc * 100) }; rgSaveBest(); }
+  const res = $('rg-result');
+  res.hidden = false;
+  res.innerHTML =
+    '<div class="rg-grade g' + grade + '">' + grade + '</div>' +
+    '<div class="gm-acc mono">得分 ' + r.score + ' / ' + r.max + ' · 准确率 ' + Math.round(acc * 100) + '%' + (isBest ? ' · ✨ 新纪录' : (prev ? ' · 最佳 ' + prev.score : '')) + '</div>' +
+    '<div class="gm-wrong mono">PERFECT ' + r.perfect + ' · GOOD ' + r.good + ' · MISS ' + (r.miss + r.stray) + ' · 最高连击 ' + r.maxCombo + '</div>' +
+    '<div class="bw-actions" style="justify-content:center;">' +
+    '<button type="button" class="pie-btn primary" id="rg-again">再来一次</button>' +
+    '<button type="button" class="pie-btn" id="rg-close">关闭</button></div>';
+  $('rg-again').addEventListener('click', () => { res.hidden = true; patStart(); });
+  $('rg-close').addEventListener('click', () => { res.hidden = true; });
+  rgRun = null;
+  $('pat-start').textContent = '▶ 开始';
+  $('pat-count').textContent = '';
+  if ($('rg-combo')) $('rg-combo').textContent = '';
+  document.querySelectorAll('#pat-row .uke-slot').forEach((el) => el.classList.remove('on', 'count'));
+}
+function patStart() {
+  patStop();
+  if ($('rg-result')) $('rg-result').hidden = true;
+  if (rgMode === 'judge') {
+    rgRun = {
+      bars: Math.max(2, Math.min(32, parseInt($('rg-bars').value, 10) || 8)),
+      accelOn: $('rg-accel').checked || rgDiffCfg().accel,
+      accel: 0, events: [], score: 0, max: 0,
+      perfect: 0, good: 0, miss: 0, stray: 0, combo: 0, maxCombo: 0, done: false,
+    };
+    rgSweep = setInterval(rgSweepTick, 30);
+    rgStats();
+  }
+  patLoop.start();
+  $('pat-start').textContent = '■ 停止';
+}
+function patStop() {
+  patLoop.stop();
+  if (rgSweep) { clearInterval(rgSweep); rgSweep = null; }
+  rgRun = null;
+  rgParts = [];
+  const b = $('pat-start'); if (b) b.textContent = '▶ 开始';
+  if ($('pat-count')) $('pat-count').textContent = '';
+  if ($('rg-combo')) $('rg-combo').textContent = '';
+  if ($('rg-stats')) $('rg-stats').textContent = '';
+  document.querySelectorAll('#pat-row .uke-slot').forEach((el) => el.classList.remove('on', 'count'));
 }
 function renderPatterns() {
   $('pat-list').innerHTML = PATTERNS.map((p, i) =>
-    '<button type="button" class="pie-btn uke-patbtn' + (i === patIdx ? ' on' : '') + '" data-i="' + i + '">' + p.name + '</button>').join('');
+    '<button type="button" class="pie-btn uke-patbtn' + (i === patIdx ? ' on' : '') + '" data-i="' + i + '">' + p.name + ' <span style="color:var(--c-tool);">' + '★'.repeat(p.diff) + '</span></button>').join('');
   $('pat-list').querySelectorAll('.uke-patbtn').forEach((b) => b.addEventListener('click', () => {
     patStop(); patIdx = parseInt(b.getAttribute('data-i'), 10);
     $('pat-list').querySelectorAll('.uke-patbtn').forEach((x, i) => x.classList.toggle('on', i === patIdx));
@@ -457,15 +670,25 @@ function renderPatterns() {
 function renderPatRow() {
   const p = PATTERNS[patIdx];
   const SYM = { D: '↓', U: '↑', X: '✕', '': '·' };
-  $('pat-row').innerHTML = p.slots.map((s, i) =>
-    '<span class="uke-slot' + (i % 2 === 0 ? ' beat' : '') + (s === '' ? ' rest' : '') + '">' + SYM[s] + '</span>').join('');
-  $('pat-hint').textContent = p.hint;
+  $('pat-row').innerHTML = p.slots.map((sl, i) =>
+    '<span class="uke-slot' + (i % 2 === 0 ? ' beat' : '') + (sl === '' ? ' rest' : '') + '">' + SYM[sl] + '</span>').join('');
+  $('pat-hint').textContent = p.hint + '　难度 ' + '★'.repeat(p.diff);
 }
-function patStop() {
-  patLoop.stop();
-  const b = $('pat-start'); if (b) b.textContent = '▶ 开始';
-  if ($('pat-count')) $('pat-count').textContent = '';
-  document.querySelectorAll('#pat-row .uke-slot').forEach((el) => el.classList.remove('on', 'count'));
+/* 判定输入：J=↓ K=↑ 空格=✕；触屏点舞台左/右半 */
+function rgKeydown(e) {
+  if (rgMode !== 'judge' || !rgRun) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+  if (e.key === 'j' || e.key === 'J') { e.preventDefault(); rgHit('D'); }
+  else if (e.key === 'k' || e.key === 'K') { e.preventDefault(); rgHit('U'); }
+  else if (e.key === ' ') { e.preventDefault(); rgHit('X'); }
+}
+function rgPointer(e) {
+  if (rgMode !== 'judge' || !rgRun) return;
+  if (e.target.closest('button, select, input')) return;
+  const st = $('rg-stage');
+  const r = st.getBoundingClientRect();
+  rgHit(e.clientX - r.left < r.width / 2 ? 'D' : 'U');
 }
 
 /* ---------- 弹唱曲库（公版/传统曲目，简化编配） ---------- */
@@ -897,9 +1120,16 @@ function init() {
     $('pat-chord').innerHTML = ['C', 'Am', 'F', 'G', 'G7', 'Em'].map((n) => '<option>' + n + '</option>').join('');
     renderPatterns();
     $('pat-bpm').addEventListener('input', () => { $('pat-bpmv').textContent = patBpm(); });
-    $('pat-start').addEventListener('click', () => {
-      if (patLoop.on) { patStop(); } else { patLoop.start(); $('pat-start').textContent = '■ 停止'; }
+    $('pat-start').addEventListener('click', () => { patLoop.on ? patStop() : patStart(); });
+    $('rg-mode').addEventListener('change', () => {
+      rgMode = $('rg-mode').value;
+      patStop();
+      $('rg-result').hidden = true;
+      $('rg-keys').hidden = rgMode !== 'judge';
+      $('rg-stage').classList.toggle('judge', rgMode === 'judge');
     });
+    document.addEventListener('keydown', rgKeydown);
+    $('rg-stage').addEventListener('pointerdown', rgPointer);
   }
   /* 弹唱曲库 */
   if ($('song-list')) {
