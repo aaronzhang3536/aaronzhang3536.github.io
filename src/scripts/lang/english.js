@@ -231,6 +231,84 @@ function addWord(w, def) {
   return true;
 }
 
+/* ---------- 添加生词：查词预览卡（义项点选 + 可编辑 + AI 中文释义） ---------- */
+let bwWord = '';
+const POS_SHORT = { noun: 'n.', verb: 'v.', adjective: 'adj.', adverb: 'adv.', pronoun: 'pron.', preposition: 'prep.', conjunction: 'conj.', interjection: 'int.', numeral: 'num.' };
+async function bwLookup() {
+  const w = ($('book-w').value || '').trim();
+  if (!w) { $('book-msg').textContent = '先输入单词'; return; }
+  bwWord = w;
+  const card = $('bw-card');
+  card.hidden = false;
+  $('book-msg').textContent = '';
+  $('bw-head').innerHTML = '<b>' + esc(w) + '</b><span class="mono" style="color:var(--ink2);">查询中…</span>';
+  $('bw-senses').innerHTML = '';
+  $('bw-def').value = '';
+  const d = await dictLookup(w);
+  if (bwWord !== w) return;   /* 用户已换词 */
+  $('bw-head').innerHTML =
+    '<b>' + esc((d && d.w) || w) + '</b>' +
+    (d && d.ph ? '<span class="mono">' + esc(d.ph) + '</span>' : '') +
+    ((d && d.audios && d.audios.length)
+      ? d.audios.map((a) => '<button type="button" class="pie-btn en-audio" data-u="' + esc(a.url) + '">🔊 ' + a.tag + '</button>').join('')
+      : '<button type="button" class="pie-btn en-audio" data-tts="1">🔊</button>');
+  $('bw-head').querySelectorAll('.en-audio').forEach((b) => b.addEventListener('click', () => {
+    b.getAttribute('data-tts') ? pronounce(w) : playUrl(b.getAttribute('data-u'), w);
+  }));
+  if (!d || !d.meanings.length) {
+    $('bw-senses').innerHTML = '<div class="mono" style="font-size:12px; color:var(--ink2);">词典没查到义项 —— 直接在下面手写释义，或点「AI 中文释义」。</div>';
+    return;
+  }
+  $('bw-senses').innerHTML = d.meanings.map((m) => {
+    const ps = POS_SHORT[m.pos] || m.pos;
+    return '<div class="bw-pos mono">' + esc(m.pos) + '</div>' +
+      m.defs.map((df) =>
+        '<button type="button" class="bw-sense" data-t="' + esc(ps + ' ' + df.def) + '">' + esc(df.def) +
+        (df.ex ? '<em>' + esc(df.ex) + '</em>' : '') + '</button>').join('');
+  }).join('');
+  $('bw-senses').querySelectorAll('.bw-sense').forEach((b) => b.addEventListener('click', () => {
+    const t = b.getAttribute('data-t');
+    const ta = $('bw-def');
+    ta.value = ta.value.trim() ? ta.value.trim().replace(/；$/, '') + '；' + t : t;
+    b.classList.add('used');
+  }));
+  if (d.audios && d.audios.length) {
+    const pick = (cfg.acc === 'uk')
+      ? (d.audios.find((a) => a.tag === '英') || d.audios[0])
+      : (d.audios.find((a) => a.tag === '美') || d.audios[0]);
+    playUrl(pick.url, w);
+  }
+}
+async function bwAIDef() {
+  if (!bwWord) return;
+  const key = 'zhdef:' + bwWord.toLowerCase() + '@' + cfg.model;
+  if (aiCache[key]) { $('bw-def').value = aiCache[key]; return; }
+  $('book-msg').textContent = 'AI 生成中…';
+  try {
+    const t = await ai([
+      { role: 'system', content: '你是英汉词典编辑。只输出释义本身，不要任何多余文字。' },
+      { role: 'user', content: '给出英文单词 "' + bwWord + '" 的简明中文词典释义，格式如「adj. 有弹性的；能恢复的」，多义项用；分隔，总长不超过 40 字。' },
+    ], 120);
+    if (t) {
+      aiCache[key] = t; store(K.cache, aiCache);
+      $('bw-def').value = t;
+      $('book-msg').textContent = '';
+    }
+  } catch (e) { $('book-msg').textContent = aiErrText(e); }
+}
+function bwAdd() {
+  if (!bwWord) return;
+  if (addWord(bwWord, $('bw-def').value)) {
+    saveWords(); renderBook(); revStats();
+    $('book-msg').textContent = '✓ 已添加 ' + bwWord;
+    $('bw-card').hidden = true;
+    $('book-w').value = ''; bwWord = '';
+    $('book-w').focus();
+  } else {
+    $('book-msg').textContent = $('bw-def').value.trim() ? bwWord + ' 已在生词本里' : '释义不能为空';
+  }
+}
+
 /* ---------- ③ 听写拼写 ---------- */
 let dictCur = null, dictStreak = 0;
 function dictPool() {
@@ -515,12 +593,14 @@ function init() {
     saveWords(); renderBook(); revStats();
     $('book-msg').textContent = n ? '✓ 新增 ' + n + ' 词' : '这些词都已在生词本里';
   }));
-  $('book-add').addEventListener('click', () => {
-    if (addWord($('book-w').value, $('book-d').value)) {
-      saveWords(); renderBook(); revStats();
-      $('book-w').value = ''; $('book-d').value = ''; $('book-msg').textContent = '✓ 已添加';
-    } else $('book-msg').textContent = '词为空或已存在';
+  $('bw-go').addEventListener('click', bwLookup);
+  $('book-w').addEventListener('keydown', (e) => { if (e.key === 'Enter') bwLookup(); });
+  $('bw-ai').addEventListener('click', bwAIDef);
+  $('bw-clear').addEventListener('click', () => {
+    $('bw-def').value = '';
+    $('bw-senses') && $('bw-senses').querySelectorAll('.bw-sense.used').forEach((b) => b.classList.remove('used'));
   });
+  $('bw-add').addEventListener('click', bwAdd);
   $('book-q').addEventListener('input', renderBook);
   renderBook();
   /* ③ 听写 */
@@ -533,18 +613,6 @@ function init() {
   $('ai-go').addEventListener('click', explainWord);
   $('ai-word').addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupWord(); });
   $('ai-spk').addEventListener('click', () => { const w = $('ai-word').value.trim(); if (w) pronounce(w); });
-  /* ② 一键查释义填充 */
-  $('book-fill').addEventListener('click', async () => {
-    const w = ($('book-w').value || '').trim();
-    if (!w) { $('book-msg').textContent = '先输入单词'; return; }
-    $('book-msg').textContent = '查询中…';
-    const d = await dictLookup(w);
-    const first = d && d.meanings[0] && d.meanings[0].defs[0];
-    if (first) {
-      $('book-d').value = '[' + d.meanings[0].pos + '] ' + first.def.slice(0, 90);
-      $('book-msg').textContent = '✓ 已填入英英释义（可手动改成中文）';
-    } else $('book-msg').textContent = '没查到，手动填写吧';
-  });
   /* ⑤ AI 对话 */
   $('chat-send').addEventListener('click', chatSend);
   $('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); } });

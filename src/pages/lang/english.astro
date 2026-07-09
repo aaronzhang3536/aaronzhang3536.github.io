@@ -44,11 +44,20 @@ import Base from '../../layouts/Base.astro';
       <section class="enx-panel" data-p="book" hidden>
         <div class="enx-h">添加生词</div>
         <div class="enx-bar">
-          <input id="book-w" type="text" class="mono" placeholder="单词，如 serendipity" style="width:180px;" />
-          <input id="book-d" type="text" placeholder="释义（可点「查释义」自动填）" style="flex:1; min-width:200px; max-width:340px;" />
-          <button type="button" class="pie-btn" id="book-fill">查释义</button>
-          <button type="button" class="pie-btn primary" id="book-add">添加</button>
+          <input id="book-w" type="text" class="mono" placeholder="输入单词，回车查词预览" style="width:230px;" />
+          <button type="button" class="pie-btn primary" id="bw-go">查词预览</button>
           <span class="mono enx-msg" id="book-msg"></span>
+        </div>
+        <div id="bw-card" class="bw-card" hidden>
+          <div class="en-lk-head" id="bw-head"></div>
+          <div id="bw-senses" class="bw-senses"></div>
+          <div class="bw-deflab mono">释义<span>　点上方义项填入（可多选），或直接手写 / 编辑</span></div>
+          <textarea id="bw-def" class="bw-ta" rows="2" placeholder="例：adj. 有弹性的；能快速恢复的"></textarea>
+          <div class="bw-actions">
+            <button type="button" class="pie-btn" id="bw-ai">AI 中文释义</button>
+            <button type="button" class="pie-btn" id="bw-clear">清空释义</button>
+            <button type="button" class="pie-btn primary" id="bw-add">＋ 添加到生词本</button>
+          </div>
         </div>
         <div class="enx-h">词包</div>
         <div class="enx-packs" id="book-packs"></div>
