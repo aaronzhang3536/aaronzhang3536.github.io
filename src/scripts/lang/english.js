@@ -654,18 +654,39 @@ const STAGE_TYPES = ['配对', '选择', '听力'];
 let gameStore = load(K.game, {});
 let G = null;   /* 当前局 { src, stage, type, pool, sample, qi, right, wrongSet, combo } */
 function gShuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
-function gameSrcId() { return cfg.level || 'book'; }
+function gameSrcId() {
+  if (cfg.gameLv === 'book') return 'book';
+  return cfg.gameLv || cfg.level || 'book';
+}
 async function gameWordList() {
-  if (cfg.level) {
-    const p = await loadLevel(cfg.level);
+  const src = gameSrcId();
+  if (src !== 'book') {
+    const p = await loadLevel(src);
     return p ? p.words.map((e) => ({ w: e[0], def: e[2] })) : [];
   }
   return words.map((x) => ({ w: x.w, def: x.def }));
+}
+function renderGameSrcSel() {
+  const sel = $('game-src');
+  if (!sel) return;
+  const cur = gameSrcId();
+  sel.innerHTML = LEVELS.map((l) =>
+    '<option value="' + l[0] + '"' + (cur === l[0] ? ' selected' : '') + '>' + l[1] + '</option>').join('') +
+    '<option value="book"' + (cur === 'book' ? ' selected' : '') + '>我的生词本</option>';
+  if (!sel._wired) {
+    sel._wired = true;
+    sel.addEventListener('change', () => {
+      cfg.gameLv = sel.value;
+      store(K.cfg, cfg);
+      renderGameMap();
+    });
+  }
 }
 function gameProg() { const id = gameSrcId(); if (!gameStore[id]) gameStore[id] = { stars: {} }; return gameStore[id]; }
 function starsTotal(prog, nStage) { let t = 0; for (let i = 0; i < nStage; i++) t += prog.stars[i] || 0; return t; }
 async function renderGameMap() {
   const map = $('game-map');
+  renderGameSrcSel();
   $('game-play').hidden = true;
   $('game-result').hidden = true;
   map.hidden = false;
@@ -677,8 +698,9 @@ async function renderGameMap() {
   }
   const nStage = Math.ceil(list.length / CHUNK);
   const prog = gameProg();
-  let unlocked = 0;
-  while (unlocked < nStage - 1 && (prog.stars[unlocked] || 0) > 0) unlocked++;
+  let cleared = 0;
+  while (cleared < nStage && (prog.stars[cleared] || 0) > 0) cleared++;
+  const unlocked = Math.min(nStage - 1, cleared + 2);   /* 通关进度 + 前方 2 关可玩 */
   $('game-lvlname').textContent = levelName(gameSrcId()) + ' · ' + list.length + ' 词 · ' + nStage + ' 关';
   $('game-stars').textContent = '★ ' + starsTotal(prog, nStage) + ' / ' + nStage * 3;
   map.innerHTML = list.length ? Array.from({ length: nStage }, (_, i) => {
@@ -690,6 +712,8 @@ async function renderGameMap() {
       '<em class="mono">' + (locked ? '🔒' : STAGE_TYPES[i % 3]) + '</em></button>';
   }).join('') : '';
   map.querySelectorAll('.gm-tile:not(.lock)').forEach((b) => b.addEventListener('click', () => startStage(parseInt(b.getAttribute('data-i'), 10))));
+  map.insertAdjacentHTML('beforeend',
+    '<div class="mono" style="grid-column:1/-1; font-size:11px; color:var(--ink2); padding-top:4px;">规则：正确率 ≥60% 得星过关；任意时刻开放「已通关进度 + 前方 2 关」。词源可在上方切换，考纲等级不需要先导入生词本。</div>');
 }
 async function startStage(i) {
   const list = await gameWordList();
@@ -700,7 +724,7 @@ async function startStage(i) {
   G = {
     stage: i, type, pool,
     sample: gShuffle(pool).slice(0, Math.min(nQ, pool.length)),
-    qi: 0, right: 0, combo: 0, wrongSet: {},
+    qi: 0, right: 0, miss: 0, combo: 0, wrongSet: {},
   };
   $('game-map').hidden = true;
   $('game-result').hidden = true;
@@ -750,7 +774,7 @@ function matchRound(start) {
     } else {
       const e = seg.find((x) => x.w === lw);
       gWrong(lw, e ? e.def : '');
-      G.combo = 0;
+      G.miss++; G.combo = 0;
       selL.classList.add('bad'); b.classList.add('bad');
       const l0 = selL; selL = null;
       setTimeout(() => { l0.classList.remove('bad', 'sel'); b.classList.remove('bad'); }, 450);
@@ -796,7 +820,10 @@ function quizAsk() {
 }
 function finishStage() {
   const total = G.sample.length;
-  const acc = total ? G.right / total : 0;
+  /* 配对：失误次数计入分母，否则怎么错都是满分 */
+  const acc = G.type === 0
+    ? (G.right + G.miss > 0 ? G.right / (G.right + G.miss) : 0)
+    : (total ? G.right / total : 0);
   const stars = acc >= 0.92 ? 3 : acc >= 0.75 ? 2 : acc >= 0.6 ? 1 : 0;
   const prog = gameProg();
   if (stars > (prog.stars[G.stage] || 0)) prog.stars[G.stage] = stars;
@@ -812,6 +839,7 @@ function finishStage() {
   res.innerHTML =
     '<div class="gm-res">' +
     '<div class="gm-stars">' + (stars ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : '未通关') + '</div>' +
+    (stars ? '' : '<div class="mono" style="font-size:12px; color:var(--c-render);">正确率不足 60%，没拿到星 —— 错词已进生词本，复习后再来。</div>') +
     '<div class="gm-acc mono">正确率 ' + Math.round(acc * 100) + '% · ' + G.right + ' / ' + total + '</div>' +
     (wrongs.length ? '<div class="gm-wrong mono">错词 ' + wrongs.length + ' 个' + (added ? '（' + added + ' 个新词已加入生词本，将进入复习）' : '（已在生词本中）') + '：' + wrongs.slice(0, 8).map(esc).join(' · ') + (wrongs.length > 8 ? ' …' : '') + '</div>' : '<div class="gm-wrong mono" style="color:var(--good);">全对，零错词！</div>') +
     '<div class="bw-actions" style="justify-content:center;">' +
