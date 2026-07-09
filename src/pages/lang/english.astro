@@ -19,7 +19,7 @@ import Base from '../../layouts/Base.astro';
     <button type="button" class="uke-tab pie-btn on" data-p="rev">① 今日复习</button>
     <button type="button" class="uke-tab pie-btn" data-p="book">② 生词本</button>
     <button type="button" class="uke-tab pie-btn" data-p="dict">③ 听写拼写</button>
-    <button type="button" class="uke-tab pie-btn" data-p="ai">④ AI 讲解</button>
+    <button type="button" class="uke-tab pie-btn" data-p="ai">④ 词典 & AI</button>
     <button type="button" class="uke-tab pie-btn" data-p="chat">⑤ AI 对话</button>
     <button type="button" class="uke-tab pie-btn" data-p="set">⑥ 设置</button>
   </div>
@@ -36,6 +36,7 @@ import Base from '../../layouts/Base.astro';
     <div class="shu-panel">
       <label>单词 <input id="book-w" type="text" placeholder="serendipity" style="width:150px;" class="mono" /></label>
       <label>释义 <input id="book-d" type="text" placeholder="意外发现珍宝的运气" style="width:200px;" /></label>
+      <button type="button" class="pie-btn" id="book-fill">查释义</button>
       <button type="button" class="pie-btn primary" id="book-add">添加</button>
       <span class="mono" id="book-msg" style="font-size:12px; color:var(--good);"></span>
     </div>
@@ -74,14 +75,16 @@ import Base from '../../layouts/Base.astro';
   <!-- ④ AI 讲解 -->
   <section class="uke-panel" data-p="ai" hidden>
     <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
-      任何单词，让 AI 给你音标、词义、例句、搭配和记忆技巧。结果缓存在本地，同一个词不重复花钱。
-      需要先在「⑥ 设置」配置 API Key。
+      「查词典」免费即用（公开词典源：音标、英英释义、例句、同义词、<b>真人发音</b>）；
+      「AI 讲解」额外给你中文词义、<b>词源词根拆解</b>、例句翻译和记忆技巧（需在「⑥ 设置」配 Key，结果本地缓存不重复花钱）。
     </p>
     <div class="shu-panel">
       <label>单词 <input id="ai-word" type="text" class="mono" placeholder="ubiquitous" style="width:170px;" /></label>
-      <button type="button" class="pie-btn primary" id="ai-go">生成讲解</button>
-      <button type="button" class="pie-btn" id="ai-spk">🔊 发音</button>
+      <button type="button" class="pie-btn primary" id="lk-go">查词典（免费）</button>
+      <button type="button" class="pie-btn" id="ai-go">AI 讲解</button>
+      <button type="button" class="pie-btn" id="ai-spk">🔊 TTS</button>
     </div>
+    <div id="lookup-out" class="en-lookup" hidden></div>
     <pre id="ai-out" class="en-aiout"></pre>
   </section>
 

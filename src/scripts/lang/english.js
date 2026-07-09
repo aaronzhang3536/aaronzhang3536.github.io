@@ -1,7 +1,7 @@
 /* 英语学习中心：SRS 生词本（SM-2）+ 听写拼写 + TTS 发音 + AI 讲解/对话（BYOK）
    所有数据存 localStorage；AI 为可选功能，Key 只存本地、直连 OpenAI 兼容接口 */
 
-const K = { words: 'yzzn-en-words', cfg: 'yzzn-en-cfg', stats: 'yzzn-en-stats', cache: 'yzzn-en-ai' };
+const K = { words: 'yzzn-en-words', cfg: 'yzzn-en-cfg', stats: 'yzzn-en-stats', cache: 'yzzn-en-ai', dict: 'yzzn-en-dict' };
 
 /* ---------- 内置词包 ---------- */
 const PACKS = [
@@ -223,6 +223,98 @@ function aiErrText(e) {
   return '出错了：' + (e && e.message || e);
 }
 
+/* ---------- 免费词典查询（dictionaryapi.dev 主源 → freedictionaryapi.com 备源）---------- */
+let dictCache = load(K.dict, {});
+let curAudio = null;
+function playUrl(url) {
+  try {
+    if (curAudio) curAudio.pause();
+    curAudio = new Audio(url);
+    curAudio.play();
+  } catch (e) {}
+}
+async function dictLookup(word) {
+  const w = word.toLowerCase();
+  if (dictCache[w]) return dictCache[w];
+  let norm = null;
+  try {   /* 主源：dictionaryapi.dev */
+    const r = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(w));
+    if (r.ok) {
+      const j = await r.json();
+      const e0 = Array.isArray(j) && j[0];
+      if (e0) {
+        norm = {
+          w: e0.word,
+          ph: e0.phonetic || ((e0.phonetics || []).map((p) => p.text).filter(Boolean)[0] || ''),
+          audios: (e0.phonetics || []).filter((p) => p.audio).map((p) => ({
+            url: p.audio, tag: /-us\./.test(p.audio) ? '美' : /-uk\./.test(p.audio) ? '英' : /-au\./.test(p.audio) ? '澳' : '▶',
+          })).slice(0, 3),
+          meanings: (e0.meanings || []).slice(0, 4).map((m) => ({
+            pos: m.partOfSpeech,
+            defs: (m.definitions || []).slice(0, 3).map((d) => ({ def: d.definition, ex: d.example || '' })),
+            syns: (m.synonyms || []).slice(0, 6),
+          })),
+          src: 'dictionaryapi.dev',
+        };
+      }
+    }
+  } catch (e) {}
+  if (!norm) {
+    try {   /* 备源：freedictionaryapi.com（Wiktionary 数据） */
+      const r2 = await fetch('https://freedictionaryapi.com/api/v1/entries/en/' + encodeURIComponent(w));
+      if (r2.ok) {
+        const j2 = await r2.json();
+        if (j2 && j2.entries && j2.entries.length) {
+          norm = {
+            w: j2.word,
+            ph: (((j2.entries[0] || {}).pronunciations || []).find((p) => p.type === 'ipa') || {}).text || '',
+            audios: [],
+            meanings: j2.entries.slice(0, 4).map((en) => ({
+              pos: en.partOfSpeech,
+              defs: (en.senses || []).slice(0, 3).map((s) => ({ def: s.definition, ex: (s.examples || [])[0] || '' })),
+              syns: ((en.synonyms || [])).slice(0, 6),
+            })),
+            src: 'freedictionaryapi.com',
+          };
+        }
+      }
+    } catch (e) {}
+  }
+  if (norm) {
+    dictCache[w] = norm;
+    const keys = Object.keys(dictCache);
+    if (keys.length > 80) delete dictCache[keys[0]];
+    store(K.dict, dictCache);
+  }
+  return norm;
+}
+async function lookupWord() {
+  const w = ($('ai-word').value || '').trim();
+  if (!w) return;
+  const out = $('lookup-out');
+  out.hidden = false;
+  out.innerHTML = '<span class="mono" style="color:var(--ink2);">查询中…</span>';
+  const d = await dictLookup(w);
+  if (!d) {
+    out.innerHTML = '<span class="mono" style="color:var(--ink2);">没查到 "' + esc(w) + '" —— 检查拼写，或该词太生僻（词典源不可达时也会失败）。</span>';
+    return;
+  }
+  out.innerHTML =
+    '<div class="en-lk-head"><b>' + esc(d.w) + '</b>' +
+    (d.ph ? '<span class="mono">' + esc(d.ph) + '</span>' : '') +
+    d.audios.map((a) => '<button type="button" class="pie-btn en-audio" data-u="' + esc(a.url) + '">🔊 ' + a.tag + '</button>').join('') +
+    '</div>' +
+    d.meanings.map((m) =>
+      '<div class="en-lk-m"><i class="mono">' + esc(m.pos) + '</i>' +
+      '<ol>' + m.defs.map((df) =>
+        '<li>' + esc(df.def) + (df.ex ? '<em>' + esc(df.ex) + '</em>' : '') + '</li>').join('') + '</ol>' +
+      (m.syns.length ? '<div class="en-lk-syn mono">近义：' + m.syns.map(esc).join(' · ') + '</div>' : '') +
+      '</div>').join('') +
+    '<div class="mono en-lk-src">数据：' + d.src + '（免费公开源）· 音频为真人发音</div>';
+  out.querySelectorAll('.en-audio').forEach((b) => b.addEventListener('click', () => playUrl(b.getAttribute('data-u'))));
+  if (d.audios.length) playUrl(d.audios[d.audios.length - 1].url);
+}
+
 /* ④ AI 讲解 */
 async function explainWord() {
   const w = ($('ai-word').value || '').trim();
@@ -234,7 +326,7 @@ async function explainWord() {
   try {
     const text = await ai([
       { role: 'system', content: '你是资深英语老师，面向中文母语学习者。用纯文本回复，不要用 Markdown 记号。' },
-      { role: 'user', content: '讲解英文单词 "' + w + '"：\n1. 美式音标\n2. 核心词义（按词性，中文）\n3. 三个地道例句（英文+中文，由易到难）\n4. 高频搭配 2-3 个\n5. 一句话记忆技巧\n简洁直接。' },
+      { role: 'user', content: '讲解英文单词 "' + w + '"：\n1. 美式音标\n2. 核心词义（按词性，中文）\n3. 词源与词根词缀拆解（来自哪个语言/词根，如何演变成现在的意思，简短）\n4. 三个地道例句（英文+中文，由易到难）\n5. 高频搭配 2-3 个\n6. 一句话记忆技巧\n简洁直接。' },
     ]);
     aiCache[key] = text;
     const keys = Object.keys(aiCache);
@@ -368,10 +460,23 @@ function init() {
   $('dict-replay').addEventListener('click', () => dictCur && speak(dictCur.w));
   $('dict-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') dictCheck(); });
   $('dict-check').addEventListener('click', dictCheck);
-  /* ④ AI 讲解 */
+  /* ④ 词典 & AI 讲解 */
+  $('lk-go').addEventListener('click', lookupWord);
   $('ai-go').addEventListener('click', explainWord);
-  $('ai-word').addEventListener('keydown', (e) => { if (e.key === 'Enter') explainWord(); });
+  $('ai-word').addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupWord(); });
   $('ai-spk').addEventListener('click', () => { const w = $('ai-word').value.trim(); if (w) speak(w); });
+  /* ② 一键查释义填充 */
+  $('book-fill').addEventListener('click', async () => {
+    const w = ($('book-w').value || '').trim();
+    if (!w) { $('book-msg').textContent = '先输入单词'; return; }
+    $('book-msg').textContent = '查询中…';
+    const d = await dictLookup(w);
+    const first = d && d.meanings[0] && d.meanings[0].defs[0];
+    if (first) {
+      $('book-d').value = '[' + d.meanings[0].pos + '] ' + first.def.slice(0, 90);
+      $('book-msg').textContent = '✓ 已填入英英释义（可手动改成中文）';
+    } else $('book-msg').textContent = '没查到，手动填写吧';
+  });
   /* ⑤ AI 对话 */
   $('chat-send').addEventListener('click', chatSend);
   $('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); } });
