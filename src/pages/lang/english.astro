@@ -18,6 +18,7 @@ import Base from '../../layouts/Base.astro';
       <button type="button" class="on" data-p="rev"><i class="sw" style="background:var(--c-ai);"></i>今日复习<em id="nav-due"></em></button>
       <button type="button" data-p="book"><i class="sw" style="background:var(--c-base);"></i>生词本</button>
       <button type="button" data-p="dict"><i class="sw" style="background:var(--c-char);"></i>听写拼写</button>
+      <button type="button" data-p="game"><i class="sw" style="background:var(--c-render);"></i>闯关</button>
       <button type="button" data-p="ai"><i class="sw" style="background:var(--c-tool);"></i>词典 · AI 讲解</button>
       <button type="button" data-p="chat"><i class="sw" style="background:var(--c-life);"></i>口语陪练</button>
       <button type="button" data-p="set"><i class="sw" style="background:var(--ink2);"></i>设置</button>
@@ -59,7 +60,9 @@ import Base from '../../layouts/Base.astro';
             <button type="button" class="pie-btn primary" id="bw-add">＋ 添加到生词本</button>
           </div>
         </div>
-        <div class="enx-h">词包</div>
+        <div class="enx-h">考纲词库</div>
+        <div id="book-level"></div>
+        <div class="enx-h">入门词包</div>
         <div class="enx-packs" id="book-packs"></div>
         <div class="enx-h">全部生词</div>
         <div class="enx-bar slim">
@@ -77,6 +80,7 @@ import Base from '../../layouts/Base.astro';
             <select id="dict-scope" class="mono">
               <option value="all">全部生词</option>
               <option value="due">待复习的</option>
+              <option value="level">等级词库（考纲）</option>
             </select>
           </label>
           <button type="button" class="pie-btn primary" id="dict-start">▶ 开始 / 下一个</button>
@@ -89,6 +93,26 @@ import Base from '../../layouts/Base.astro';
             <button type="button" class="pie-btn primary" id="dict-check">提交</button>
           </div>
         </div>
+      </section>
+
+      <!-- 闯关 -->
+      <section class="enx-panel" data-p="game" hidden>
+        <div class="enx-h">闯关 —— 考纲词库切成关卡，配对 / 选择 / 听力轮换，错词自动进生词本复习</div>
+        <div class="enx-bar slim">
+          <span class="mono" id="game-lvlname" style="color:var(--ink);"></span>
+          <span class="mono" id="game-stars" style="margin-left:auto; color:var(--c-tool);"></span>
+        </div>
+        <div id="game-map" class="gm-map"></div>
+        <div id="game-play" hidden>
+          <div class="gm-hud mono">
+            <span id="gp-title" style="color:var(--ink);"></span>
+            <span id="gp-progress"></span>
+            <span id="gp-score" style="color:var(--good);"></span>
+            <button type="button" class="pie-btn" id="gp-quit" style="margin-left:auto;">✕ 退出</button>
+          </div>
+          <div id="gp-stage"></div>
+        </div>
+        <div id="game-result" hidden></div>
       </section>
 
       <!-- 词典 & AI -->
@@ -121,7 +145,22 @@ import Base from '../../layouts/Base.astro';
 
       <!-- 设置 -->
       <section class="enx-panel" data-p="set" hidden>
-        <div class="enx-h">发音</div>
+        <div class="enx-h">学习计划</div>
+        <div class="enx-bar">
+          <label>考试等级
+            <select id="set-level" class="mono"></select>
+          </label>
+          <label>每日新词
+            <select id="set-daily" class="mono">
+              <option value="0">关闭</option>
+              <option value="10">10 个/天</option>
+              <option value="20">20 个/天</option>
+              <option value="30">30 个/天</option>
+            </select>
+          </label>
+          <span class="mono" style="font-size:11.5px; color:var(--ink2);">选定后：生词本出现整套考纲词库，听写/闯关按等级抽题，复习自动补新词（记得点下方保存）</span>
+        </div>
+
         <div class="enx-bar">
           <label>音源
             <select id="en-aud" class="mono">

@@ -1,7 +1,7 @@
 /* 英语学习中心：SRS 生词本（SM-2）+ 听写拼写 + TTS 发音 + AI 讲解/对话（BYOK）
    所有数据存 localStorage；AI 为可选功能，Key 只存本地、直连 OpenAI 兼容接口 */
 
-const K = { words: 'yzzn-en-words', cfg: 'yzzn-en-cfg', stats: 'yzzn-en-stats', cache: 'yzzn-en-ai', dict: 'yzzn-en-dict' };
+const K = { words: 'yzzn-en-words', cfg: 'yzzn-en-cfg', stats: 'yzzn-en-stats', cache: 'yzzn-en-ai', dict: 'yzzn-en-dict', daily: 'yzzn-en-daily', game: 'yzzn-en-game' };
 
 /* ---------- 内置词包 ---------- */
 const PACKS = [
@@ -43,7 +43,7 @@ function store(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } c
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 let words = load(K.words, []);
-let cfg = load(K.cfg, { base: 'https://api.deepseek.com/v1', key: '', model: 'deepseek-chat', voice: '', rate: 0.95, aud: 'auto', acc: 'us' });
+let cfg = load(K.cfg, { base: 'https://api.deepseek.com/v1', key: '', model: 'deepseek-chat', voice: '', rate: 0.95, aud: 'auto', acc: 'us', level: '', daily: 0 });
 let stats = load(K.stats, {});
 let aiCache = load(K.cache, {});
 
@@ -212,7 +212,7 @@ function renderBook() {
   const list = words.filter((w) => !q || w.w.toLowerCase().includes(q) || w.def.includes(q));
   $('book-count').textContent = '共 ' + words.length + ' 词' + (q ? '，匹配 ' + list.length : '');
   $('book-list').innerHTML = list.map((w, i) =>
-    '<div class="en-row"><b>' + esc(w.w) + '</b><span>' + esc(w.def) + '</span>' + fmtDue(w) +
+    '<div class="en-row"><b>' + esc(w.w) + (w.lv ? ' <u class="en-lvchip mono">' + esc(levelName(w.lv)) + '</u>' : '') + '</b><span>' + esc(w.def) + '</span>' + fmtDue(w) +
     '<button type="button" class="pie-btn en-spk" data-s="' + esc(w.w) + '">🔊</button>' +
     '<button type="button" class="pie-btn en-del" data-w="' + esc(w.w) + '">✕</button></div>').join('') ||
     '<div class="mono" style="color:var(--ink2); font-size:12.5px; padding:10px 0;">还没有词——导入下面的词包，或在上方手动添加。</div>';
@@ -311,13 +311,18 @@ function bwAdd() {
 
 /* ---------- ③ 听写拼写 ---------- */
 let dictCur = null, dictStreak = 0;
-function dictPool() {
+async function dictPool() {
   const scope = $('dict-scope').value;
+  if (scope === 'level') {
+    if (!cfg.level) return [];
+    const p = await loadLevel(cfg.level);
+    return p ? p.words.map((e) => ({ w: e[0], def: e[2] })) : [];
+  }
   return scope === 'due' ? dueWords() : words;
 }
-function dictNext() {
-  const pool = dictPool();
-  if (!pool.length) { $('dict-msg').textContent = '没有可听写的词——先去导入词包。'; dictCur = null; return; }
+async function dictNext() {
+  const pool = await dictPool();
+  if (!pool.length) { $('dict-msg').textContent = $('dict-scope').value === 'level' ? '先在「设置」选择考试等级。' : '没有可听写的词——先去导入词包。'; dictCur = null; return; }
   let w = pool[Math.floor(Math.random() * pool.length)];
   if (pool.length > 1 && dictCur && w.w === dictCur.w) w = pool[(pool.indexOf(w) + 1) % pool.length];
   dictCur = w;
@@ -525,6 +530,8 @@ function cfgSave() {
   cfg.rate = parseFloat($('en-rate').value) || 0.95;
   cfg.aud = $('en-aud').value || 'auto';
   cfg.acc = $('en-acc').value || 'us';
+  cfg.level = $('set-level').value || '';
+  cfg.daily = parseInt($('set-daily').value, 10) || 0;
   store(K.cfg, cfg);
   $('set-msg').textContent = '✓ 已保存（仅存于本机浏览器）';
 }
@@ -560,6 +567,263 @@ function importData(file) {
   rd.readAsText(file);
 }
 
+/* ---------- 考试等级词库（构建期从 ECDICT/MIT 生成，站内自托管，按需懒加载） ---------- */
+const LEVELS = [
+  ['zk', '中考'], ['gk', '高考'], ['cet4', 'CET-4'], ['cet6', 'CET-6'],
+  ['ky', '考研'], ['toefl', 'TOEFL'], ['ielts', 'IELTS'], ['gre', 'GRE'],
+];
+const levelCache = {};
+async function loadLevel(lv) {
+  if (!lv) return null;
+  if (levelCache[lv]) return levelCache[lv];
+  try {
+    const r = await fetch('/data/en/levels/' + lv + '.json');
+    if (!r.ok) return null;
+    const j = await r.json();
+    j.id = lv;
+    levelCache[lv] = j;
+    return j;
+  } catch (e) { return null; }
+}
+function levelName(lv) { const e = LEVELS.find((x) => x[0] === lv); return e ? e[1] : (lv === 'book' ? '生词本' : lv); }
+
+/* 等级词库卡：进度 + 分批导入 */
+async function renderLevelCard() {
+  const box = $('book-level');
+  if (!box) return;
+  if (!cfg.level) {
+    box.innerHTML = '<div class="mono" style="font-size:12.5px; color:var(--ink2); padding:4px 0;">还没设置考试等级 —— 去「设置」选一个（中考 → GRE），这里就会出现整套考纲词库。</div>';
+    return;
+  }
+  box.innerHTML = '<div class="mono" style="font-size:12px; color:var(--ink2);">词库加载中…</div>';
+  const p = await loadLevel(cfg.level);
+  if (!p) { box.innerHTML = '<div class="mono" style="font-size:12px; color:var(--ink2);">词库加载失败（离线？）稍后再试。</div>'; return; }
+  const have = new Set(words.map((w) => w.w.toLowerCase()));
+  const done = p.words.reduce((t, e) => t + (have.has(e[0].toLowerCase()) ? 1 : 0), 0);
+  const pct = ((done / p.n) * 100).toFixed(1);
+  box.innerHTML =
+    '<div class="lvl-card"><div class="lvl-head"><b>' + esc(p.name) + ' 考纲词库</b>' +
+    '<span class="mono">' + done + ' / ' + p.n + ' 已入生词本 · ' + pct + '%</span></div>' +
+    '<div class="enx-prog" style="margin:8px 0 12px;"><i style="width:' + pct + '%;"></i></div>' +
+    '<div class="bw-actions" style="margin:0;">' +
+    '<button type="button" class="pie-btn primary" id="lvl-imp">导入下一批 50 词（按词频）</button>' +
+    '<span class="mono enx-msg" id="lvl-msg"></span></div></div>';
+  $('lvl-imp').addEventListener('click', () => {
+    const haveNow = new Set(words.map((w) => w.w.toLowerCase()));
+    let n = 0;
+    for (const e of p.words) {
+      if (n >= 50) break;
+      if (haveNow.has(e[0].toLowerCase())) continue;
+      if (addWord(e[0], e[2])) {
+        const it = words[words.length - 1];
+        it.ph = e[1]; it.lv = cfg.level;
+        n++;
+      }
+    }
+    saveWords(); renderBook(); revStats(); renderLevelCard();
+    if ($('lvl-msg')) $('lvl-msg').textContent = n ? '✓ 新增 ' + n + ' 词' : '词库已全部导入 🎉';
+  });
+}
+
+/* 每日新词：进入复习时按计划从等级词库补充 */
+async function ensureDailyNew() {
+  if (!cfg.level || !(cfg.daily > 0)) return 0;
+  const dk = load(K.daily, {});
+  const got = dk[today()] || 0;
+  if (got >= cfg.daily) return 0;
+  const p = await loadLevel(cfg.level);
+  if (!p) return 0;
+  const have = new Set(words.map((w) => w.w.toLowerCase()));
+  let n = 0;
+  for (const e of p.words) {
+    if (n >= cfg.daily - got) break;
+    if (have.has(e[0].toLowerCase())) continue;
+    if (addWord(e[0], e[2])) {
+      const it = words[words.length - 1];
+      it.ph = e[1]; it.lv = cfg.level;
+      n++;
+    }
+  }
+  if (n) { saveWords(); dk[today()] = got + n; store(K.daily, dk); }
+  return n;
+}
+
+/* ---------- 闯关：等级词库切关，配对 / 四选一 / 听音辨词轮换，错词进 SRS ---------- */
+const CHUNK = 50;
+const STAGE_TYPES = ['配对', '选择', '听力'];
+let gameStore = load(K.game, {});
+let G = null;   /* 当前局 { src, stage, type, pool, sample, qi, right, wrongSet, combo } */
+function gShuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+function gameSrcId() { return cfg.level || 'book'; }
+async function gameWordList() {
+  if (cfg.level) {
+    const p = await loadLevel(cfg.level);
+    return p ? p.words.map((e) => ({ w: e[0], def: e[2] })) : [];
+  }
+  return words.map((x) => ({ w: x.w, def: x.def }));
+}
+function gameProg() { const id = gameSrcId(); if (!gameStore[id]) gameStore[id] = { stars: {} }; return gameStore[id]; }
+function starsTotal(prog, nStage) { let t = 0; for (let i = 0; i < nStage; i++) t += prog.stars[i] || 0; return t; }
+async function renderGameMap() {
+  const map = $('game-map');
+  $('game-play').hidden = true;
+  $('game-result').hidden = true;
+  map.hidden = false;
+  const list = await gameWordList();
+  if (list.length < 12) {
+    map.innerHTML = '<div class="mono" style="font-size:12.5px; color:var(--ink2);">词太少开不了关 —— 去「设置」选考试等级，或先在生词本攒 12 个词。</div>';
+    $('game-lvlname').textContent = ''; $('game-stars').textContent = '';
+    return;
+  }
+  const nStage = Math.ceil(list.length / CHUNK);
+  const prog = gameProg();
+  let unlocked = 0;
+  while (unlocked < nStage - 1 && (prog.stars[unlocked] || 0) > 0) unlocked++;
+  $('game-lvlname').textContent = levelName(gameSrcId()) + ' · ' + list.length + ' 词 · ' + nStage + ' 关';
+  $('game-stars').textContent = '★ ' + starsTotal(prog, nStage) + ' / ' + nStage * 3;
+  map.innerHTML = list.length ? Array.from({ length: nStage }, (_, i) => {
+    const locked = i > unlocked;
+    const st = prog.stars[i] || 0;
+    return '<button type="button" class="gm-tile' + (locked ? ' lock' : '') + (st ? ' done' : '') + '" data-i="' + i + '"' + (locked ? ' disabled' : '') + '>' +
+      '<b>' + (i + 1) + '</b>' +
+      '<i>' + '★'.repeat(st) + '☆'.repeat(Math.max(0, 3 - st)) + '</i>' +
+      '<em class="mono">' + (locked ? '🔒' : STAGE_TYPES[i % 3]) + '</em></button>';
+  }).join('') : '';
+  map.querySelectorAll('.gm-tile:not(.lock)').forEach((b) => b.addEventListener('click', () => startStage(parseInt(b.getAttribute('data-i'), 10))));
+}
+async function startStage(i) {
+  const list = await gameWordList();
+  const pool = list.slice(i * CHUNK, (i + 1) * CHUNK);
+  if (pool.length < 8) { renderGameMap(); return; }
+  const type = i % 3;
+  const nQ = type === 0 ? 12 : type === 1 ? 12 : 10;
+  G = {
+    stage: i, type, pool,
+    sample: gShuffle(pool).slice(0, Math.min(nQ, pool.length)),
+    qi: 0, right: 0, combo: 0, wrongSet: {},
+  };
+  $('game-map').hidden = true;
+  $('game-result').hidden = true;
+  $('game-play').hidden = false;
+  $('gp-title').textContent = '第 ' + (i + 1) + ' 关 · ' + STAGE_TYPES[type];
+  gUpdateHud();
+  if (type === 0) matchRound(0);
+  else quizAsk();
+}
+function gUpdateHud() {
+  if (!G) return;
+  const total = G.type === 0 ? G.sample.length : G.sample.length;
+  const done = G.type === 0 ? G.matchDone || 0 : G.qi;
+  $('gp-progress').textContent = done + ' / ' + total;
+  $('gp-score').textContent = '✓ ' + G.right + (G.combo > 1 ? ' · 连击 ' + G.combo : '');
+}
+function gWrong(w, def) { if (!G.wrongSet[w]) G.wrongSet[w] = def; }
+/* 配对：每轮 6 对 */
+function matchRound(start) {
+  const seg = G.sample.slice(start, start + 6);
+  if (!seg.length) { finishStage(); return; }
+  G.matchStart = start;
+  let selL = null;
+  const L = gShuffle(seg), R = gShuffle(seg);
+  $('gp-stage').innerHTML =
+    '<div class="mg-wrap"><div class="mg-col" id="mg-l">' +
+    L.map((e) => '<button type="button" class="mg-it mono" data-w="' + esc(e.w) + '">' + esc(e.w) + '</button>').join('') +
+    '</div><div class="mg-col" id="mg-r">' +
+    R.map((e) => '<button type="button" class="mg-it" data-w="' + esc(e.w) + '">' + esc(e.def.slice(0, 42)) + '</button>').join('') +
+    '</div></div>';
+  const remain = new Set(seg.map((e) => e.w));
+  $('gp-stage').querySelectorAll('#mg-l .mg-it').forEach((b) => b.addEventListener('click', () => {
+    if (b.classList.contains('ok')) return;
+    $('gp-stage').querySelectorAll('#mg-l .mg-it').forEach((x) => x.classList.remove('sel'));
+    b.classList.add('sel'); selL = b;
+    pronounce(b.getAttribute('data-w'));
+  }));
+  $('gp-stage').querySelectorAll('#mg-r .mg-it').forEach((b) => b.addEventListener('click', () => {
+    if (!selL || b.classList.contains('ok')) return;
+    const lw = selL.getAttribute('data-w'), rw = b.getAttribute('data-w');
+    if (lw === rw) {
+      selL.classList.remove('sel'); selL.classList.add('ok'); b.classList.add('ok');
+      G.right++; G.combo++; G.matchDone = (G.matchDone || 0) + 1;
+      remain.delete(lw); selL = null;
+      gUpdateHud();
+      if (!remain.size) setTimeout(() => matchRound(start + 6), 500);
+    } else {
+      const e = seg.find((x) => x.w === lw);
+      gWrong(lw, e ? e.def : '');
+      G.combo = 0;
+      selL.classList.add('bad'); b.classList.add('bad');
+      const l0 = selL; selL = null;
+      setTimeout(() => { l0.classList.remove('bad', 'sel'); b.classList.remove('bad'); }, 450);
+      gUpdateHud();
+    }
+  }));
+}
+/* 四选一 / 听音辨词 */
+function quizAsk() {
+  if (G.qi >= G.sample.length) { finishStage(); return; }
+  const cur = G.sample[G.qi];
+  const opts = gShuffle([cur].concat(gShuffle(G.pool.filter((e) => e.w !== cur.w)).slice(0, 3)));
+  const isListen = G.type === 2;
+  $('gp-stage').innerHTML =
+    '<div class="qz-prompt">' +
+    (isListen
+      ? '<button type="button" class="en-spkbtn" id="qz-spk" style="font-size:26px; padding:14px 26px;">🔊</button><div class="mono" style="font-size:12px; color:var(--ink2); margin-top:8px;">听发音，选单词</div>'
+      : '<div class="qz-def">' + esc(cur.def.slice(0, 80)) + '</div><div class="mono" style="font-size:12px; color:var(--ink2); margin-top:8px;">选出对应的单词</div>') +
+    '</div><div class="qz-opts">' +
+    opts.map((o) => '<button type="button" class="qz-opt mono" data-w="' + esc(o.w) + '">' + esc(o.w) + '</button>').join('') +
+    '</div>';
+  if (isListen) {
+    $('qz-spk').addEventListener('click', () => pronounce(cur.w));
+    pronounce(cur.w);
+  }
+  let answered = false;
+  $('gp-stage').querySelectorAll('.qz-opt').forEach((b) => b.addEventListener('click', () => {
+    if (answered) return;
+    answered = true;
+    const pick = b.getAttribute('data-w');
+    if (pick === cur.w) {
+      b.classList.add('ok'); G.right++; G.combo++;
+    } else {
+      b.classList.add('bad'); G.combo = 0;
+      gWrong(cur.w, cur.def);
+      $('gp-stage').querySelectorAll('.qz-opt').forEach((x) => { if (x.getAttribute('data-w') === cur.w) x.classList.add('ok'); });
+      if (!isListen) pronounce(cur.w);
+    }
+    G.qi++;
+    gUpdateHud();
+    setTimeout(quizAsk, pick === cur.w ? 550 : 1300);
+  }));
+}
+function finishStage() {
+  const total = G.sample.length;
+  const acc = total ? G.right / total : 0;
+  const stars = acc >= 0.92 ? 3 : acc >= 0.75 ? 2 : acc >= 0.6 ? 1 : 0;
+  const prog = gameProg();
+  if (stars > (prog.stars[G.stage] || 0)) prog.stars[G.stage] = stars;
+  store(K.game, gameStore);
+  /* 错词进生词本（立即到期，进 SRS） */
+  const wrongs = Object.keys(G.wrongSet);
+  let added = 0;
+  wrongs.forEach((w) => { if (addWord(w, G.wrongSet[w])) { words[words.length - 1].lv = cfg.level || ''; added++; } });
+  if (added) { saveWords(); revStats(); }
+  $('game-play').hidden = true;
+  const res = $('game-result');
+  res.hidden = false;
+  res.innerHTML =
+    '<div class="gm-res">' +
+    '<div class="gm-stars">' + (stars ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : '未通关') + '</div>' +
+    '<div class="gm-acc mono">正确率 ' + Math.round(acc * 100) + '% · ' + G.right + ' / ' + total + '</div>' +
+    (wrongs.length ? '<div class="gm-wrong mono">错词 ' + wrongs.length + ' 个' + (added ? '（' + added + ' 个新词已加入生词本，将进入复习）' : '（已在生词本中）') + '：' + wrongs.slice(0, 8).map(esc).join(' · ') + (wrongs.length > 8 ? ' …' : '') + '</div>' : '<div class="gm-wrong mono" style="color:var(--good);">全对，零错词！</div>') +
+    '<div class="bw-actions" style="justify-content:center;">' +
+    '<button type="button" class="pie-btn" id="gm-retry">再来一次</button>' +
+    (stars ? '<button type="button" class="pie-btn primary" id="gm-next">下一关 →</button>' : '') +
+    '<button type="button" class="pie-btn" id="gm-back">返回地图</button>' +
+    '</div></div>';
+  $('gm-retry').addEventListener('click', () => startStage(G.stage));
+  if ($('gm-next')) $('gm-next').addEventListener('click', () => startStage(G.stage + 1));
+  $('gm-back').addEventListener('click', renderGameMap);
+}
+
 /* ---------- 标签页 & 初始化 ---------- */
 function setupTabs() {
   const tabs = document.querySelectorAll('.enx-side button');
@@ -568,8 +832,21 @@ function setupTabs() {
     tab.classList.add('on');
     const p = tab.getAttribute('data-p');
     document.querySelectorAll('.enx-panel').forEach((pan) => { pan.hidden = pan.getAttribute('data-p') !== p; });
-    if (p === 'rev') { buildQueue(); nextCard(); }
-    if (p === 'book') renderBook();
+    if (p === 'rev') {
+      ensureDailyNew().then((n) => {
+        buildQueue(); nextCard();
+        if (n > 0 && $('rev-card')) {
+          const tip = document.createElement('div');
+          tip.className = 'mono enx-msg';
+          tip.style.cssText = 'margin-bottom:8px;';
+          tip.textContent = '☀ 已按每日计划加入 ' + n + ' 个新词';
+          $('rev-card').parentNode.insertBefore(tip, $('rev-card'));
+          setTimeout(() => tip.remove(), 4000);
+        }
+      });
+    }
+    if (p === 'book') { renderBook(); renderLevelCard(); }
+    if (p === 'game') renderGameMap();
     if (window.speechSynthesis) speechSynthesis.cancel();
     if (curAudio) try { curAudio.pause(); } catch (e) {}
   }));
@@ -623,6 +900,10 @@ function init() {
   $('en-rate').value = cfg.rate;
   $('en-aud').value = cfg.aud || 'auto';
   $('en-acc').value = cfg.acc || 'us';
+  $('set-level').innerHTML = '<option value="">不设置</option>' + LEVELS.map((l) => '<option value="' + l[0] + '"' + (cfg.level === l[0] ? ' selected' : '') + '>' + l[1] + '</option>').join('');
+  $('set-daily').value = String(cfg.daily || 0);
+  if ($('gp-quit')) $('gp-quit').addEventListener('click', renderGameMap);
+  renderLevelCard();
   $('set-preset').addEventListener('change', () => {
     const p = PRESETS[$('set-preset').value];
     if (p) { $('set-base').value = p.base; $('set-model').value = p.model; }
