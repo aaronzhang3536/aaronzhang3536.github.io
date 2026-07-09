@@ -5072,31 +5072,48 @@
       };
     }
 
-    /* ---------- 音乐 · 节奏机 ---------- */
+    /* ---------- 音乐 · 节奏机（四档难度 + 特效） ---------- */
     function rhythmGame(stage) {
       var K = 'yzzn-arc-rhythm';
-      var best = hiGet(K);
+      var DIFFS = [
+        { id: 'easy',   name: '简单', bpm: 96,  dens: 0.68, speed: 160, pw: 0.070, gw: 0.170, dbl: 0,    bars: 24 },
+        { id: 'normal', name: '普通', bpm: 112, dens: 1.0,  speed: 195, pw: 0.055, gw: 0.140, dbl: 0.05, bars: 28 },
+        { id: 'hard',   name: '困难', bpm: 126, dens: 1.28, speed: 245, pw: 0.045, gw: 0.120, dbl: 0.18, bars: 30 },
+        { id: 'hell',   name: '地狱', bpm: 140, dens: 1.5,  speed: 300, pw: 0.038, gw: 0.100, dbl: 0.34, bars: 32 },
+      ];
+      var di = 1;
+      try { di = Math.max(0, Math.min(3, parseInt(localStorage.getItem(K + '-diff') || '1', 10))); } catch (err) {}
+      function hiKey() { return di === 1 ? K : K + '-' + DIFFS[di].id; }
+      var best = hiGet(hiKey());
       var W = 460, H = 330;
-      var ui = arcUI(stage, W, H, 'D F J K 对应四轨（也可点击轨道） · PERFECT ±55ms · 曲子每局现编');
+      var ui = arcUI(stage, W, H, 'D F J K 四轨（可点击轨道）· 1-4 换难度 · 空格/点击开始');
       var KEYS = ['KeyD', 'KeyF', 'KeyJ', 'KeyK'], KLAB = 'DFJK';
       var LANE_W = 74, FIELD = LANE_W * 4, X0 = (W - FIELD) / 2;
-      var HITY = H - 46, SPEED = 190, LEAD = 2.2;
+      var HITY = H - 46, LEAD = 2.2;
       var PENT = [0, 3, 5, 7, 10];
       var actx = null, raf = null, sched = null, noiseBuf = null;
-      var notes, evts, evIdx, playing = false, over = false, t0 = 0;
-      var score, combo, maxCombo, judges, laneFx, judgeFx, endT;
+      var notes, evts, evIdx, evVisIdx, playing = false, over = false, t0 = 0;
+      var score, combo, maxCombo, judges, laneFx, judgeFx, endT, beatDur;
+      /* 特效状态 */
+      var parts = [], rings = [], eq = [], flashT = -9, shakeT = -9, grade = '';
+      for (var qi = 0; qi < 16; qi++) eq.push(0);
+      var diffBtns = [];   /* 起始屏难度按钮命中区 */
+
+      function D() { return DIFFS[di]; }
       function gen() {
         notes = []; evts = [];
-        var bpm = 112, beat = 60 / bpm, bars = 28;
+        var bpm = D().bpm, beat = 60 / bpm, bars = D().bars;
+        beatDur = beat;
         var prog = [0, -4, -9, -2];   /* Am F C G */
         var mel = 3 + Math.floor(Math.random() * 3);
-        for (var i2 = 0; i2 < 4; i2++) evts.push({ t: LEAD - (4 - i2) * beat + beat * 0, ty: 'hat', f: 0 });
+        for (var i2 = 0; i2 < 4; i2++) evts.push({ t: Math.max(0.05, LEAD - (4 - i2) * beat), ty: 'hat', f: 0 });
         for (var b2 = 0; b2 < bars; b2++) {
           var rootF = 110 * Math.pow(2, prog[b2 % 4] / 12);
           for (var q = 0; q < 4; q++) {
             evts.push({ t: LEAD + (b2 * 4 + q) * beat, ty: 'bass', f: q === 0 ? rootF : rootF * (q === 2 ? 1.5 : 1) });
           }
-          var dens = b2 < 4 ? 0.4 : b2 < 12 ? 0.55 : b2 < 20 ? 0.68 : 0.78;
+          var ramp = b2 < 4 ? 0.4 : b2 < 12 ? 0.55 : b2 < 20 ? 0.68 : 0.78;
+          var dens = Math.min(0.92, ramp * D().dens);
           for (var e2 = 0; e2 < 8; e2++) {
             var t2 = LEAD + (b2 * 4 + e2 * 0.5) * beat;
             evts.push({ t: t2, ty: 'hat', f: 0 });
@@ -5109,15 +5126,21 @@
               var lane = Math.min(3, Math.floor(mel * 4 / 10));
               evts.push({ t: t2, ty: 'mel', f: f });
               notes.push({ t: t2, lane: lane, st: 0 });
+              /* 双押（难度越高越多）：同刻加一条不同轨 */
+              if (Math.random() < D().dbl) {
+                var lane2 = (lane + 1 + Math.floor(Math.random() * 3)) % 4;
+                evts.push({ t: t2, ty: 'mel', f: f * 1.5 });
+                notes.push({ t: t2, lane: lane2, st: 0 });
+              }
             }
           }
         }
         evts.sort(function (a, b) { return a.t - b.t; });
         notes.sort(function (a, b) { return a.t - b.t; });
-        endT = notes[notes.length - 1].t + 1.2;
+        endT = notes.length ? notes[notes.length - 1].t + 1.2 : LEAD + 2;
       }
       function synth(ev) {
-        var t2 = t0 + ev.t;
+        var t2 = Math.max(actx.currentTime + 0.005, t0 + ev.t);
         if (ev.ty === 'hat') {
           if (!noiseBuf) {
             noiseBuf = actx.createBuffer(1, actx.sampleRate * 0.04, actx.sampleRate);
@@ -5144,6 +5167,21 @@
         o.start(t2); o.stop(t2 + dur + 0.05);
       }
       function now() { return actx.currentTime - t0; }
+      function burst(lane, kind) {
+        var P = pal();
+        var COLS4 = [P['c-render'], P['c-engine'], P['c-char'], P['c-tool']];
+        var x = X0 + (lane + 0.5) * LANE_W, y = HITY;
+        var n = kind === 'P' ? 26 : kind === 'G' ? 14 : 6;
+        var col = kind === 'M' ? P.ink2 : COLS4[lane];
+        for (var i2 = 0; i2 < n; i2++) {
+          var a = kind === 'M' ? (Math.PI / 2 + (Math.random() - 0.5) * 1.2) : Math.random() * 6.2832;
+          var sp = kind === 'M' ? 30 + Math.random() * 50 : 80 + Math.random() * 240;
+          parts.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (kind === 'M' ? -40 : 90),
+            life: 0.4 + Math.random() * 0.35, t: 0, c: col, r: kind === 'P' ? 1.5 + Math.random() * 2.5 : 1 + Math.random() * 1.8 });
+        }
+        if (parts.length > 260) parts.splice(0, parts.length - 260);
+        if (kind === 'P') rings.push({ x: x, y: y, t: 0 });
+      }
       function judge(lane) {
         if (!playing) return;
         laneFx[lane] = now();
@@ -5151,8 +5189,8 @@
         for (var i2 = 0; i2 < notes.length; i2++) {
           var nt = notes[i2];
           if (nt.st || nt.lane !== lane) continue;
-          if (nt.t - now() > 0.14) break;
-          if (Math.abs(nt.t - now()) <= 0.14) { cand = nt; break; }
+          if (nt.t - now() > D().gw) break;
+          if (Math.abs(nt.t - now()) <= D().gw) { cand = nt; break; }
         }
         if (!cand) {
           combo = 0;
@@ -5161,22 +5199,92 @@
         }
         cand.st = 1;
         var d2 = Math.abs(cand.t - now());
-        if (d2 <= 0.055) { score += 300; judges.P++; judgeFx = { txt: 'PERFECT', col: 'play', t: now() }; }
-        else { score += 100; judges.G++; judgeFx = { txt: 'GOOD', col: 'accent', t: now() }; }
+        if (d2 <= D().pw) { score += 300; judges.P++; judgeFx = { txt: 'PERFECT', col: 'play', t: now() }; burst(lane, 'P'); }
+        else { score += 100; judges.G++; judgeFx = { txt: 'GOOD', col: 'accent', t: now() }; burst(lane, 'G'); }
         combo++;
         if (combo > maxCombo) maxCombo = combo;
+        if (combo > 0 && combo % 25 === 0) flashT = now();
+      }
+      function calcGrade() {
+        var tot = judges.P + judges.G + judges.M;
+        if (!tot) return 'C';
+        var acc = (judges.P * 300 + judges.G * 100) / (tot * 300);
+        return acc >= 0.95 ? 'S' : acc >= 0.88 ? 'A' : acc >= 0.75 ? 'B' : 'C';
       }
       function finish() {
         playing = false; over = true;
+        grade = calcGrade();
         if (sched) { clearInterval(sched); sched = null; }
-        if (score > best) { best = score; hiSet(K, best); }
+        if (score > best) { best = score; hiSet(hiKey(), best); }
         ui.msg.textContent = 'PERFECT ' + judges.P + ' · GOOD ' + judges.G + ' · MISS ' + judges.M +
-          ' · 最大连击 ' + maxCombo + ' — 点击再来一曲';
+          ' · 最大连击 ' + maxCombo + ' — 空格再来 / 1-4 换难度';
+        if (grade === 'S' || grade === 'A') {
+          var P = pal();
+          var cols = [P['c-render'], P['c-engine'], P['c-char'], P['c-tool'], P.accent];
+          for (var b3 = 0; b3 < 4; b3++) {
+            var cx = 60 + Math.random() * (W - 120), cy = 50 + Math.random() * 120;
+            for (var i3 = 0; i3 < 30; i3++) {
+              var a3 = Math.random() * 6.2832, sp3 = 60 + Math.random() * 190;
+              parts.push({ x: cx, y: cy, vx: Math.cos(a3) * sp3, vy: Math.sin(a3) * sp3,
+                life: 0.6 + Math.random() * 0.5, t: 0, c: cols[(b3 + i3) % cols.length], r: 1.5 + Math.random() * 2 });
+            }
+          }
+        }
+      }
+      function drawIdle(g, P) {
+        g.fillStyle = P.ink; g.font = '700 20px Consolas,monospace'; g.textAlign = 'center';
+        g.fillText(over ? 'FINISH · SCORE ' + score : '节 奏 机', W / 2, 66);
+        if (over) {
+          g.font = '800 46px Consolas,monospace';
+          g.fillStyle = grade === 'S' ? P['c-tool'] : grade === 'A' ? P.play : grade === 'B' ? P['c-char'] : P.ink2;
+          g.fillText(grade, W / 2, 118);
+        }
+        /* 难度按钮 */
+        diffBtns = [];
+        var bw = 92, bh = 34, gap = 12, tx = (W - (bw * 4 + gap * 3)) / 2, by = over ? 150 : 120;
+        for (var i2 = 0; i2 < 4; i2++) {
+          var x = tx + i2 * (bw + gap);
+          diffBtns.push({ x: x, y: by, w: bw, h: bh, i: i2 });
+          var on = i2 === di;
+          g.fillStyle = on ? P.accent : P.surface2;
+          g.globalAlpha = on ? 0.22 : 0.7;
+          g.fillRect(x, by, bw, bh);
+          g.globalAlpha = 1;
+          g.strokeStyle = on ? P.accent : P.line;
+          g.lineWidth = on ? 2 : 1;
+          g.strokeRect(x, by, bw, bh);
+          g.fillStyle = on ? P.accent : P.ink2;
+          g.font = '600 13px Consolas,monospace';
+          g.fillText(DIFFS[i2].name + ' ' + '·'.repeat(i2 + 1), x + bw / 2, by + 22);
+        }
+        g.fillStyle = P.ink2; g.font = '12px Consolas,monospace';
+        g.fillText('BPM ' + D().bpm + ' · ' + D().bars + ' 小节 · PERFECT ±' + Math.round(D().pw * 1000) + 'ms' + (D().dbl ? ' · 有双押' : ''), W / 2, by + 56);
+        g.fillStyle = P.ink; g.font = '600 14px Consolas,monospace';
+        g.fillText(over ? '空格 / 点击 —— 再来一曲' : '空格 / 点击 —— 开始（会出声）', W / 2, by + 86);
       }
       function draw() {
         var P = pal(), g = ui.g;
-        g.clearRect(0, 0, W, H);
         var COLS4 = [P['c-render'], P['c-engine'], P['c-char'], P['c-tool']];
+        g.clearRect(0, 0, W, H);
+        var nw = playing ? now() : 0;
+        /* MISS 震屏 */
+        g.save();
+        if (playing && nw - shakeT < 0.15) {
+          var sh = (1 - (nw - shakeT) / 0.15) * 3;
+          g.translate((Math.random() - 0.5) * sh * 2, (Math.random() - 0.5) * sh * 2);
+        }
+        /* 背景均衡器 */
+        var bw2 = W / 16;
+        for (var b4 = 0; b4 < 16; b4++) {
+          eq[b4] *= 0.90;
+          if (eq[b4] > 1) {
+            g.globalAlpha = 0.10;
+            g.fillStyle = COLS4[b4 % 4];
+            g.fillRect(b4 * bw2 + 2, H - 24 - eq[b4], bw2 - 4, eq[b4]);
+            g.globalAlpha = 1;
+          }
+        }
+        /* 轨道 */
         g.strokeStyle = P.line; g.lineWidth = 1;
         for (var l2 = 0; l2 <= 4; l2++) {
           g.beginPath(); g.moveTo(X0 + l2 * LANE_W, 0); g.lineTo(X0 + l2 * LANE_W, H - 24); g.stroke();
@@ -5187,7 +5295,14 @@
           g.fillText(KLAB[l3], X0 + (l3 + 0.5) * LANE_W, H - 8);
         }
         if (playing) {
-          var nw = now();
+          var fever = combo >= 30;
+          /* 音乐事件驱动均衡器 */
+          while (evVisIdx < evts.length && evts[evVisIdx].t <= nw) {
+            var ev2 = evts[evVisIdx++];
+            if (ev2.ty === 'bass') { eq[0] = eq[1] = 34 + Math.random() * 10; eq[2] = 20; }
+            else if (ev2.ty === 'mel') { var bi2 = 4 + Math.floor(Math.random() * 8); eq[bi2] = 26 + Math.random() * 16; }
+            else { eq[13 + Math.floor(Math.random() * 3)] = 12 + Math.random() * 8; }
+          }
           /* 按键闪光 */
           for (var l4 = 0; l4 < 4; l4++) {
             var dt2 = nw - laneFx[l4];
@@ -5198,41 +5313,98 @@
               g.globalAlpha = 1;
             }
           }
-          /* 判定线 */
-          g.strokeStyle = P.accent; g.lineWidth = 2;
+          /* 判定线：随节拍脉冲，FEVER 发光 */
+          var ph = ((nw - LEAD) % beatDur + beatDur) % beatDur / beatDur;
+          var pulse = Math.max(0, 1 - ph * 3);
+          g.strokeStyle = fever ? P['c-tool'] : P.accent;
+          g.lineWidth = 2 + pulse * 2;
+          if (fever) { g.shadowColor = P['c-tool']; g.shadowBlur = 10; }
+          g.globalAlpha = 0.7 + pulse * 0.3;
           g.beginPath(); g.moveTo(X0, HITY); g.lineTo(X0 + FIELD, HITY); g.stroke();
-          /* 音符 + 漏接判定 */
+          g.globalAlpha = 1; g.shadowBlur = 0;
+          /* 音符 + 拖尾 + 漏接 */
           for (var i3 = 0; i3 < notes.length; i3++) {
             var nt = notes[i3];
-            if (!nt.st && nw - nt.t > 0.14) { nt.st = 2; combo = 0; judges.M++; judgeFx = { txt: 'MISS', col: 'c-render', t: nw }; }
+            if (!nt.st && nw - nt.t > D().gw) {
+              nt.st = 2; combo = 0; judges.M++;
+              judgeFx = { txt: 'MISS', col: 'c-render', t: nw };
+              shakeT = nw; burst(nt.lane, 'M');
+            }
             if (nt.st) continue;
-            var y = HITY - (nt.t - nw) * SPEED;
-            if (y < -16 || y > HITY + 30) continue;
+            var y = HITY - (nt.t - nw) * D().speed;
+            if (y < -20 || y > HITY + 30) continue;
             g.fillStyle = COLS4[nt.lane];
-            g.fillRect(X0 + nt.lane * LANE_W + 5, y - 6, LANE_W - 10, 12);
-          }
-          /* 判定文字 + 连击 */
-          if (judgeFx && nw - judgeFx.t < 0.5) {
-            g.globalAlpha = 1 - (nw - judgeFx.t) / 0.5;
-            g.fillStyle = P[judgeFx.col] || P.ink2;
-            g.font = '700 17px Consolas,monospace';
-            g.fillText(judgeFx.txt, W / 2, HITY - 74);
+            g.globalAlpha = 0.18;
+            g.fillRect(X0 + nt.lane * LANE_W + 9, y - 26, LANE_W - 18, 18);   /* 拖尾 */
             g.globalAlpha = 1;
+            if (fever) { g.shadowColor = COLS4[nt.lane]; g.shadowBlur = 8; }
+            g.fillRect(X0 + nt.lane * LANE_W + 5, y - 6, LANE_W - 10, 12);
+            g.shadowBlur = 0;
           }
-          if (combo >= 5) {
-            g.fillStyle = P.ink; g.font = '700 22px Consolas,monospace';
-            g.fillText(combo + ' COMBO', W / 2, 40);
+          /* 连击里程碑闪屏 */
+          if (nw - flashT < 0.3) {
+            g.globalAlpha = 0.14 * (1 - (nw - flashT) / 0.3);
+            g.fillStyle = P.accent;
+            g.fillRect(0, 0, W, H);
+            g.globalAlpha = 1;
           }
           if (nw > endT) finish();
         } else {
-          g.fillStyle = P.ink; g.font = '600 15px Consolas,monospace';
-          g.fillText(over ? 'FINISH · SCORE ' + score : '点击开始（会出声）', W / 2, H / 2 - 20);
+          drawIdle(g, P);
         }
+        /* 粒子 / 冲击环（含结算烟花） */
+        var dt3 = 1 / 60;
+        for (var pi2 = parts.length - 1; pi2 >= 0; pi2--) {
+          var pp = parts[pi2];
+          pp.t += dt3;
+          if (pp.t >= pp.life) { parts.splice(pi2, 1); continue; }
+          pp.vy += 300 * dt3;
+          pp.x += pp.vx * dt3; pp.y += pp.vy * dt3;
+          g.globalAlpha = Math.max(0, 1 - pp.t / pp.life);
+          g.fillStyle = pp.c;
+          g.beginPath(); g.arc(pp.x, pp.y, pp.r, 0, 6.2832); g.fill();
+        }
+        g.globalAlpha = 1;
+        for (var ri2 = rings.length - 1; ri2 >= 0; ri2--) {
+          var rg2 = rings[ri2];
+          rg2.t += dt3;
+          if (rg2.t > 0.35) { rings.splice(ri2, 1); continue; }
+          var pr = rg2.t / 0.35;
+          g.globalAlpha = 0.8 * (1 - pr);
+          g.strokeStyle = P.accent;
+          g.lineWidth = 2;
+          g.beginPath(); g.arc(rg2.x, rg2.y, 8 + pr * 42, 0, 6.2832); g.stroke();
+        }
+        g.globalAlpha = 1;
+        /* 判定文字 + 连击 */
+        if (playing && judgeFx && nw - judgeFx.t < 0.5) {
+          var jp = (nw - judgeFx.t) / 0.5;
+          g.globalAlpha = 1 - jp;
+          g.fillStyle = P[judgeFx.col] || P.ink2;
+          g.font = '700 ' + Math.round(17 + (1 - jp) * 4) + 'px Consolas,monospace';
+          g.fillText(judgeFx.txt, W / 2, HITY - 74 - jp * 14);
+          g.globalAlpha = 1;
+        }
+        if (playing && combo >= 5) {
+          var fever2 = combo >= 30;
+          g.fillStyle = fever2 ? P['c-tool'] : P.ink;
+          if (fever2) { g.shadowColor = P['c-tool']; g.shadowBlur = 12; }
+          g.font = '700 22px Consolas,monospace';
+          g.fillText(combo + ' COMBO' + (fever2 ? ' FEVER!' : ''), W / 2, 40);
+          g.shadowBlur = 0;
+        }
+        g.restore();
         g.textAlign = 'left';
         ui.s.textContent = 'SCORE ' + (score || 0);
-        ui.m.textContent = playing && combo ? 'COMBO ' + combo : '';
+        ui.m.textContent = playing && combo ? 'COMBO ' + combo : '难度 ' + D().name;
         ui.hb.textContent = best ? 'HI ' + best : '';
         raf = requestAnimationFrame(draw);
+      }
+      function setDiff(i2) {
+        if (playing || i2 === di) return;
+        di = i2;
+        try { localStorage.setItem(K + '-diff', String(di)); } catch (err) {}
+        best = hiGet(hiKey());
       }
       function start() {
         try {
@@ -5243,18 +5415,24 @@
         score = 0; combo = 0; maxCombo = 0;
         judges = { P: 0, G: 0, M: 0 };
         laneFx = [-9, -9, -9, -9]; judgeFx = null;
-        evIdx = 0; t0 = actx.currentTime + 0.1;
+        parts = []; rings = []; flashT = -9; shakeT = -9;
+        for (var qi2 = 0; qi2 < 16; qi2++) eq[qi2] = 0;
+        evIdx = 0; evVisIdx = 0; t0 = actx.currentTime + 0.1;
         playing = true; over = false;
         ui.msg.textContent = '';
         sched = setInterval(function () {
           while (evIdx < evts.length && evts[evIdx].t < now() + 0.6) {
-            synth(evts[evIdx]);
+            try { synth(evts[evIdx]); } catch (err) {}
             evIdx++;
           }
         }, 120);
       }
       function onKey(e) {
         if (e.repeat) return;
+        if (!playing) {
+          if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); start(); return; }
+          if (e.code >= 'Digit1' && e.code <= 'Digit4') { setDiff(e.code.charCodeAt(5) - 49); return; }
+        }
         var lane = KEYS.indexOf(e.code);
         if (lane < 0) return;
         e.preventDefault();
@@ -5262,9 +5440,17 @@
       }
       document.addEventListener('keydown', onKey);
       ui.cvs.addEventListener('pointerdown', function (e) {
-        if (!playing) { start(); return; }
         var r2 = ui.cvs.getBoundingClientRect();
         var mx = (e.clientX - r2.left) * (W / r2.width);
+        var my = (e.clientY - r2.top) * (H / r2.height);
+        if (!playing) {
+          for (var i2 = 0; i2 < diffBtns.length; i2++) {
+            var b2 = diffBtns[i2];
+            if (mx >= b2.x && mx <= b2.x + b2.w && my >= b2.y && my <= b2.y + b2.h) { setDiff(b2.i); return; }
+          }
+          start();
+          return;
+        }
         var lane = Math.floor((mx - X0) / LANE_W);
         if (lane >= 0 && lane <= 3) judge(lane);
       });
@@ -5310,7 +5496,7 @@
       { id: 'simon',    name: 'Simon 序列',    cat: 'brain', glyph: 'SIM',  desc: '记住闪烁与音高的顺序', hiKey: 'yzzn-arc-simon', start: simonGame },
       /* 音乐 */
       { id: 'tuner',    name: '调音师',        cat: 'music', glyph: '440',  desc: '凭耳朵把失谐的音调准', hiKey: 'yzzn-arc-tuner', hiLabel: 'BEST', hiSuf: ' 音分', start: tunerGame },
-      { id: 'rhythm',   name: '节奏机',        cat: 'music', glyph: '4/4',  desc: '四轨下落式音游，曲子每局现编', hiKey: 'yzzn-arc-rhythm', start: rhythmGame }
+      { id: 'rhythm',   name: '节奏机',        cat: 'music', glyph: '4/4',  desc: '四轨下落式音游 · 四档难度 · 曲子每局现编', hiKey: 'yzzn-arc-rhythm', start: rhythmGame }
     ];
     var ARC_CATS = {
       dev: ['程序员特供', '--c-render'],
