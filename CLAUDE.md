@@ -53,6 +53,7 @@ Every change — post, UI, or lab experiment — follows the same **build → ve
 4. **Push & wait.** `git push origin master` triggers `.github/workflows/deploy.yml` (`withastro/action`). Poll the run rather than trusting the push:
    `curl -s "https://api.github.com/repos/aaronzhang3536/aaronzhang3536.github.io/actions/runs?per_page=1"` → require `status == "completed"` && `conclusion == "success"` on the **new** head SHA (guard against reading the previous run). The deploy step flakes intermittently (~1 in 6); the workflow carries a `continue-on-error` retry, but if a whole run fails, re-trigger with an empty commit (`git commit --allow-empty -m …`) — don't assume it self-heals.
 5. **Confirm live.** `curl` the deployed URL and grep for a marker unique to the change (an element id, a string) before declaring done.
+6. **国内镜像（best-effort）.** The same push also triggers `.github/workflows/deploy-edgeone.yml` → Tencent EdgeOne Pages (project `within-one-frame`, `npx edgeone pages deploy dist`). It skips silently when the repo secret `EDGEONE_API_TOKEN` is missing/expired (token: EdgeOne Pages console → API Token). GitHub Pages remains the source of truth; don't block a ship on the mirror.
 
 ## Lab (`src/pages/lab/` + `src/scripts/lab/`)
 
