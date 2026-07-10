@@ -691,9 +691,11 @@ async function renderGameMap() {
   $('game-result').hidden = true;
   map.hidden = false;
   const list = await gameWordList();
+  const cont = $('game-cont');
   if (list.length < 12) {
     map.innerHTML = '<div class="mono" style="font-size:12.5px; color:var(--ink2);">词太少开不了关 —— 去「设置」选考试等级，或先在生词本攒 12 个词。</div>';
     $('game-lvlname').textContent = ''; $('game-stars').textContent = '';
+    if (cont) cont.hidden = true;
     return;
   }
   const nStage = Math.ceil(list.length / CHUNK);
@@ -703,17 +705,35 @@ async function renderGameMap() {
   const unlocked = Math.min(nStage - 1, cleared + 2);   /* 通关进度 + 前方 2 关可玩 */
   $('game-lvlname').textContent = levelName(gameSrcId()) + ' · ' + list.length + ' 词 · ' + nStage + ' 关';
   $('game-stars').textContent = '★ ' + starsTotal(prog, nStage) + ' / ' + nStage * 3;
+  if (cont) {
+    const allDone = cleared >= nStage;
+    cont.hidden = false;
+    cont.disabled = allDone;
+    cont.textContent = allDone ? '★ 全部通关' : '▶ 继续 · 第 ' + (cleared + 1) + ' 关';
+    cont.dataset.i = String(Math.min(cleared, nStage - 1));
+    if (!cont._wired) {
+      cont._wired = true;
+      cont.addEventListener('click', () => { if (!cont.disabled) startStage(parseInt(cont.dataset.i, 10)); });
+    }
+  }
   map.innerHTML = list.length ? Array.from({ length: nStage }, (_, i) => {
     const locked = i > unlocked;
     const st = prog.stars[i] || 0;
-    return '<button type="button" class="gm-tile' + (locked ? ' lock' : '') + (st ? ' done' : '') + '" data-i="' + i + '"' + (locked ? ' disabled' : '') + '>' +
+    return '<button type="button" class="gm-tile' + (locked ? ' lock' : '') + (st ? ' done' : '') + (i === cleared ? ' next' : '') + '" data-i="' + i + '"' + (locked ? ' disabled' : '') +
+      ' title="第 ' + (i + 1) + ' 关 · 词 ' + (i * CHUNK + 1) + '–' + Math.min(list.length, (i + 1) * CHUNK) + '">' +
       '<b>' + (i + 1) + '</b>' +
       '<i>' + '★'.repeat(st) + '☆'.repeat(Math.max(0, 3 - st)) + '</i>' +
       '<em class="mono">' + (locked ? '🔒' : STAGE_TYPES[i % 3]) + '</em></button>';
   }).join('') : '';
   map.querySelectorAll('.gm-tile:not(.lock)').forEach((b) => b.addEventListener('click', () => startStage(parseInt(b.getAttribute('data-i'), 10))));
   map.insertAdjacentHTML('beforeend',
-    '<div class="mono" style="grid-column:1/-1; font-size:11px; color:var(--ink2); padding-top:4px;">规则：正确率 ≥60% 得星过关；任意时刻开放「已通关进度 + 前方 2 关」。词源可在上方切换，考纲等级不需要先导入生词本。</div>');
+    '<div class="mono" style="grid-column:1/-1; font-size:11px; color:var(--ink2); padding-top:4px;">规则：正确率 ≥60% 得星过关；任意时刻开放「已通关进度 + 前方 2 关」。词按考纲词频从高到低切关——第 1 关就是最常用的 ' + CHUNK + ' 个词。</div>');
+  /* 关卡多时地图内滚动到当前进度（面板隐藏时 rect 为 0，自动跳过） */
+  const nx = map.querySelector('.gm-tile.next');
+  if (nx && map.scrollHeight > map.clientHeight + 4) {
+    const mr = map.getBoundingClientRect();
+    if (mr.height > 0) map.scrollTop += nx.getBoundingClientRect().top - mr.top - map.clientHeight * 0.38;
+  }
 }
 async function startStage(i) {
   const list = await gameWordList();
@@ -729,6 +749,7 @@ async function startStage(i) {
   $('game-map').hidden = true;
   $('game-result').hidden = true;
   $('game-play').hidden = false;
+  if ($('game-cont')) $('game-cont').hidden = true;
   $('gp-title').textContent = '第 ' + (i + 1) + ' 关 · ' + STAGE_TYPES[type];
   gUpdateHud();
   if (type === 0) matchRound(0);
