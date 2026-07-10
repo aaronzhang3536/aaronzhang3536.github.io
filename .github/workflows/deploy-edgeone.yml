@@ -38,6 +38,6 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy to EdgeOne Pages
+      - name: Deploy to EdgeOne Makers
         if: env.EDGEONE_API_TOKEN != ''
-        run: npx edgeone pages deploy dist -n "$PROJECT_NAME" -t "$EDGEONE_API_TOKEN"
+        run: npx edgeone makers deploy dist -n "$PROJECT_NAME" -t "$EDGEONE_API_TOKEN"
