@@ -8,7 +8,7 @@
  "my": 29928.4,
  "scale": 0.1,
  "offset": -100,
- "hmin": -3.8,
- "hmax": 1465.3,
- "source": "AWS Terrain Tiles (SRTM), terrarium z13"
+ "hmin": 7.7,
+ "hmax": 1475.1,
+ "source": "Copernicus GLO-30 (1 arcsec)"
 }

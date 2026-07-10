@@ -36,14 +36,14 @@ const FALLS_LUSHAN = [
 ];
 const SCENES = {
   lushan: {
-    name: '庐山 · 自由漫游', sub: 'WebGPU · 真实 DEM 等比例（SRTM 30m） · 29.0 × 29.9 km',
+    name: '庐山 · 自由漫游', sub: 'Copernicus GLO-30 · 29.0 × 29.9 km',
     data: 'lushan', palette: 0, water: 12.5, fogDef: 36,
     treeN: 130000, treeLo: 25, treeHi: 1240, treeSlope: 55, broadleafHi: 750,
     marks: MARKS_LUSHAN, falls: FALLS_LUSHAN, start: 'hanpokou',
     tps: ['hanpokou', 'dahanyang', 'wulao', 'sandiequan', 'guling', 'ruqin', 'xiufeng', 'shimen', 'bailu', 'poyang'],
   },
   luoyun: {
-    name: '罗云村 · 黄土塬漫游', sub: 'WebGPU · SRTM 30m + 沟壑算法增强 · 山西洪洞 · 11.0 × 11.1 km',
+    name: '罗云村 · 黄土塬漫游', sub: 'Copernicus GLO-30 · 2048² 网格 5.4m + 沟壑增强 · 11.0 × 11.1 km',
     data: 'luoyun', palette: 1, water: -999, fogDef: 26,
     treeN: 42000, treeLo: 540, treeHi: 1420, treeSlope: 46, broadleafHi: 9999,
     marks: MARKS_LUOYUN, falls: [], start: 'luoyun',
@@ -286,25 +286,25 @@ const TERRAIN = COMMON + TER_IO + /* wgsl */`
 ` + TER_FS;
 
 /* 簇选级 compute：屏幕误差 LOD + 视锥剔除 → 可见簇列表 + 间接绘制参数 */
-const CLUSTER_WGSL = COMMON + /* wgsl */`
+const clusterWGSL = (OFFS_STR, CNTS_STR, TOTAL, MAXL, NLV) => COMMON + /* wgsl */`
 struct Cluster { a: vec4f, b: vec4f };   // a: px, pz, level, 0 ; b: minH, maxH, 0, 0
 struct DrawArgs { vcount: u32, icount: atomic<u32>, vfirst: u32, ifirst: u32 };
 @group(0) @binding(2) var<storage, read> clusters: array<Cluster>;
 @group(0) @binding(3) var<storage, read_write> vis: array<u32>;
 @group(0) @binding(4) var<storage, read_write> args: DrawArgs;
-const OFFS = array<u32, 8>(0u, 16384u, 20480u, 21504u, 21760u, 21824u, 21840u, 21844u);
-const CNTS = array<u32, 8>(128u, 64u, 32u, 16u, 8u, 4u, 2u, 1u);
+const OFFS = array<u32, ${NLV}>(${OFFS_STR});
+const CNTS = array<u32, ${NLV}>(${CNTS_STR});
 fn aabbMin(c: Cluster) -> vec3f {
   let L = c.a.z;
-  let cw = u.map.x / 1024.0 * 8.0 * exp2(L);
-  let cd = u.map.y / 1024.0 * 8.0 * exp2(L);
+  let cw = u.map.x / u.map.z * 8.0 * exp2(L);
+  let cd = u.map.y / u.map.z * 8.0 * exp2(L);
   let skirt = u.map.w * exp2(L) * 1.4 + 3.0;
   return vec3f(c.a.x * cw, c.b.x - skirt, c.a.y * cd);
 }
 fn aabbMax(c: Cluster) -> vec3f {
   let L = c.a.z;
-  let cw = u.map.x / 1024.0 * 8.0 * exp2(L);
-  let cd = u.map.y / 1024.0 * 8.0 * exp2(L);
+  let cw = u.map.x / u.map.z * 8.0 * exp2(L);
+  let cd = u.map.y / u.map.z * 8.0 * exp2(L);
   return vec3f((c.a.x + 1.0) * cw, max(c.b.y, u.fog.y) + 2.0, (c.a.y + 1.0) * cd);
 }
 fn frustumOK(mn: vec3f, mx: vec3f) -> bool {
@@ -334,15 +334,14 @@ fn errPx(L: f32, d: f32) -> f32 {
 }
 @compute @workgroup_size(64) fn cs(@builtin(global_invocation_id) gid: vec3u) {
   let ci = gid.x;
-  let total = 21845u;
-  if (ci >= total) { return; }
+  if (ci >= ${TOTAL}u) { return; }
   let c = clusters[ci];
   let L = c.a.z;
   let mn = aabbMin(c); let mx = aabbMax(c);
   if (!frustumOK(mn, mx)) { return; }
   let dSelf = distTo(mn, mx);
   if (L > 0.5 && errPx(L, dSelf) > u.nan.x) { return; }        // 太粗 → 交给子级
-  if (L < 6.5) {                                                // 父级已够精 → 由父级渲染
+  if (L < f32(${MAXL}u) - 0.5) {                                // 父级已够精 → 由父级渲染
     let Lp = u32(L) + 1u;
     let pI = OFFS[Lp] + (u32(c.a.y) / 2u) * CNTS[Lp] + (u32(c.a.x) / 2u);
     let pc = clusters[pI];
@@ -383,9 +382,10 @@ struct Cluster { a: vec4f, b: vec4f };
     else { gx = (c.a.x * 8.0 + 8.0) * step; gz = (c.a.y * 8.0 + t) * step; }
     drop = select(0.0, u.map.w * step * 1.4 + 3.0, lz > 0.5);
   }
-  gx = min(gx, 1023.0); gz = min(gz, 1023.0);
-  let wx = gx / 1023.0 * u.map.x;
-  let wz = gz / 1023.0 * u.map.y;
+  let n1 = u.map.z - 1.0;
+  gx = min(gx, n1); gz = min(gz, n1);
+  let wx = gx / n1 * u.map.x;
+  let wz = gz / n1 * u.map.y;
   let h = hAt(i32(gx), i32(gz));
   let wl = u.fog.y;
   let inLake = waterMask(wx, wz);
@@ -551,7 +551,8 @@ let qsSet = null, qsBuf = null, qsRead = null, gpuMs = 0;
 let pipeMode = 'nanite', tauPx = 1.4, cullFrozen = false, lodTint = 0;
 let pCluster, pNanite, bgCluster, bgNanite, clusterBuf, visBuf, drawArgs, argsRead, visCount = 0;
 let cullVP = null, cullEye = null;
-const NCLUSTERS = 21845, VPC = 576;   /* (64+32) quads × 6 */
+let NCLUSTERS = 21845, MAXL = 7, LEVELS = 8, OFFS_JS = [];
+const VPC = 576;   /* (64+32) quads × 6 */
 
 const cam = { x: 0, y: 1400, z: 0, yaw: 0, pitch: -0.12, speed: 60, walk: false };
 let timeOfDay = 8.2, autoTime = false, fogK = 0.000036, wind = 1.0, dbgMode = 0;
@@ -595,7 +596,7 @@ async function init() {
   format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
-  hud.textContent = '加载庐山 DEM…';
+  hud.textContent = '加载' + SCN.name.split(' ')[0] + ' DEM…';
   const [mj, hb] = await Promise.all([
     fetch('/data/' + SCN.data + '/meta.json').then((r) => r.json()),
     fetch('/data/' + SCN.data + '/height.bin').then((r) => r.arrayBuffer()),
@@ -610,13 +611,18 @@ async function init() {
   uniBuf = device.createBuffer({ size: 76 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   uni = new Float32Array(76);
 
-  /* 簇金字塔：L0 128² … L7 1²，每簇 min/max 高度 */
+  /* 簇金字塔：Lk 覆盖 8·2^k 格，直到 1 簇；每簇 min/max 高度 */
+  const BASE = meta.n / 8;                        // 1024→128, 2048→256
+  LEVELS = Math.round(Math.log2(BASE)) + 1;
+  MAXL = LEVELS - 1;
+  OFFS_JS = []; NCLUSTERS = 0;
+  for (let L = 0, c = BASE; L < LEVELS; L++, c >>= 1) { OFFS_JS.push(NCLUSTERS); NCLUSTERS += c * c; }
   const cl = new Float32Array(NCLUSTERS * 8);
   {
     const n = meta.n;
-    let mm = new Float32Array(128 * 128 * 2);
-    for (let pz = 0; pz < 128; pz++) {
-      for (let px = 0; px < 128; px++) {
+    let mm = new Float32Array(BASE * BASE * 2);
+    for (let pz = 0; pz < BASE; pz++) {
+      for (let px = 0; px < BASE; px++) {
         let lo = 1e9, hi = -1e9;
         for (let dz = 0; dz <= 8; dz++) {
           const z = Math.min(pz * 8 + dz, n - 1);
@@ -626,12 +632,12 @@ async function init() {
             if (h > hi) hi = h;
           }
         }
-        mm[(pz * 128 + px) * 2] = lo;
-        mm[(pz * 128 + px) * 2 + 1] = hi;
+        mm[(pz * BASE + px) * 2] = lo;
+        mm[(pz * BASE + px) * 2 + 1] = hi;
       }
     }
-    let off = 0, cnt = 128, cur = mm;
-    for (let L = 0; L < 8; L++) {
+    let off = 0, cnt = BASE, cur = mm;
+    for (let L = 0; L < LEVELS; L++) {
       for (let pz = 0; pz < cnt; pz++) {
         for (let px = 0; px < cnt; px++) {
           const o = (off + pz * cnt + px) * 8;
@@ -697,8 +703,16 @@ async function init() {
   pSky = mk(SKY, { depthWrite: false, depthCompare: 'less-equal' });
   pTerrain = mk(TERRAIN, { cull: 'back' });
   pNanite = mk(NANITE_T, { cull: 'back' });
-  pCluster = device.createComputePipeline({ layout: 'auto',
-    compute: { module: device.createShaderModule({ code: CLUSTER_WGSL }), entryPoint: 'cs' } });
+  {
+    const cnts = [];
+    for (let L = 0, c = meta.n / 8; L < LEVELS; L++, c >>= 1) cnts.push(c);
+    const code = clusterWGSL(
+      OFFS_JS.map((v) => v + 'u').join(', '),
+      cnts.map((v) => v + 'u').join(', '),
+      NCLUSTERS, MAXL, LEVELS);
+    pCluster = device.createComputePipeline({ layout: 'auto',
+      compute: { module: device.createShaderModule({ code }), entryPoint: 'cs' } });
+  }
   pTrees = mk(TREES, {});
   pFalls = mk(FALLSW, { blend: alphaBlend, depthWrite: false });
   pMist = mk(MIST, { blend: alphaBlend, depthWrite: false });
@@ -1096,7 +1110,7 @@ function frame() {
   uni.set([cam.x, cam.y, cam.z, simT], 32);
   uni.set([sunDir[0], sunDir[1], sunDir[2], sunI], 36);
   uni.set([meta.mx, meta.my, meta.n, meta.mx / meta.n], 40);
-  uni.set([fogK, SCN.water, gridStep, wind], 44);
+  uni.set([fogK, SCN.water, gridStep * (meta && meta.n > 1024 ? 2 : 1), wind], 44);
   uni.set([Math.sin(elev), 1.05, dbgMode, lodTint], 48);
   if (!cullFrozen || !cullVP) { cullVP = vp.slice(); cullEye = [cam.x, cam.y, cam.z]; }
   uni.set(cullVP, 52);
@@ -1132,7 +1146,8 @@ function render() {
     pass.setPipeline(pNanite); pass.setBindGroup(0, bgNanite);
     pass.drawIndirect(drawArgs, 0);
   } else {
-    const cells = Math.floor((meta.n - 1) / gridStep);
+    const eff = gridStep * (meta.n > 1024 ? 2 : 1);   /* 2048 网格暴力档减半防炸帧 */
+    const cells = Math.floor((meta.n - 1) / eff);
     pass.setPipeline(pTerrain); pass.setBindGroup(0, bgTerrain); pass.draw(cells * cells * 6);
   }
   pass.setPipeline(pTrees); pass.setBindGroup(0, bgTrees); pass.draw(12, treeCount);
@@ -1172,7 +1187,7 @@ function updateHUD() {
     terTris = visCount * 192;
     pipeTag = 'Nanite ' + visCount + '/' + NCLUSTERS + ' 簇' + (cullFrozen ? '·已冻结' : '');
   } else {
-    const cells = Math.floor((meta.n - 1) / gridStep);
+    const cells = Math.floor((meta.n - 1) / (gridStep * (meta.n > 1024 ? 2 : 1)));
     terTris = cells * cells * 2;
     pipeTag = '暴力网格';
   }

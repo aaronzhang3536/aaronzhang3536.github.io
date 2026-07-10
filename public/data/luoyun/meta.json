@@ -1,5 +1,5 @@
 {
- "n": 1024,
+ "n": 2048,
  "lon0": 111.452,
  "lon1": 111.575,
  "lat0": 36.362,
@@ -8,7 +8,7 @@
  "my": 11096.8,
  "scale": 0.1,
  "offset": -100,
- "hmin": 614.3,
- "hmax": 1409.9,
- "source": "AWS Terrain Tiles (SRTM), terrarium z13 + loess enhancement (slope-selective ridged detail + thermal erosion)"
+ "hmin": 614.9,
+ "hmax": 1417.7,
+ "source": "Copernicus GLO-30 (1 arcsec) + loess enhancement (slope-selective ridged detail + thermal erosion)"
 }
