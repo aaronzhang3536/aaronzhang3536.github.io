@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 const demos = [
+  { href: '/lab/lushan/', sw: '--c-engine', name: '庐山 · 自由漫游', desc: '真实 DEM 等比例 29×30km：大气天空、鄱阳湖、三处瀑布、13 万棵树，WASD 飞行', tag: 'WebGPU', live: true },
   { href: '/lab/gpu-particles/', sw: '--c-render', name: 'GPU 粒子', desc: '4K~400 万粒子的 compute 模拟 + 拖尾累积，真实 timestamp-query 计时', tag: 'WebGPU', live: true },
   { href: '/lab/path-tracer/', sw: '--c-tool', name: '路径追踪 Cornell Box', desc: 'compute 逐像素路径追踪，累积渐进收敛，可拖拽环绕', tag: 'WebGPU', live: true },
   { href: '/lab/fluid/', sw: '--c-char', name: '2D 流体模拟', desc: 'Stable Fluids：平流 + Jacobi 压力投影 + 涡量约束，鼠标搅动', tag: 'WebGPU', live: true },
