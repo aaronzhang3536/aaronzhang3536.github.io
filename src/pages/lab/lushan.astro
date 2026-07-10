@@ -1,0 +1,79 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="庐山 · 自由漫游" desc="真实 DEM 等比例复刻江西九江庐山：29×30km，大气天空、鄱阳湖、三叠泉瀑布、十万棵树，WebGPU 自由飞行漫游">
+<main class="wrap reader">
+  <a class="back mono" href="/lab/">← 实验室</a>
+  <h1 class="rd-title">庐山 · 自由漫游</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-engine);"></span>
+    <span>WebGPU · 真实 DEM 等比例（SRTM 30m）</span>
+    <span>29.0 × 29.9 km · 裸 API 无框架</span>
+  </div>
+
+  <div class="lab-stage lu-stage">
+    <canvas id="lab-cv"></canvas>
+    <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
+    <div id="lu-labels" aria-hidden="true"></div>
+    <canvas id="lu-map" width="192" height="192" title="点击小地图传送"></canvas>
+  </div>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+
+  <div class="lab-ctl mono">
+    <label>时刻
+      <input id="lu-time" type="range" min="5.2" max="19.4" step="0.05" value="8.2" style="width:150px;" />
+    </label>
+    <label class="mono"><input type="checkbox" id="lu-auto" /> 昼夜流转 (T)</label>
+    <label>雾气
+      <input id="lu-fog" type="range" min="8" max="220" step="1" value="36" style="width:110px;" />
+    </label>
+    <label>模式
+      <select id="lu-mode">
+        <option value="fly" selected>飞行 (F 切换)</option>
+        <option value="walk">步行</option>
+      </select>
+    </label>
+    <label>画质
+      <select id="lu-quality">
+        <option value="1" selected>高（2.1M 三角形地形）</option>
+        <option value="2">中</option>
+        <option value="4">低</option>
+      </select>
+    </label>
+    <label class="mono"><input type="checkbox" id="lu-fwd" /> 自动前进（触屏）</label>
+  </div>
+
+  <div class="lab-ctl mono lu-tps">
+    <span style="color:var(--ink2);">传送：</span>
+    <button type="button" class="pie-btn lu-tp" data-m="hanpokou">含鄱口</button>
+    <button type="button" class="pie-btn lu-tp" data-m="dahanyang">大汉阳峰</button>
+    <button type="button" class="pie-btn lu-tp" data-m="wulao">五老峰</button>
+    <button type="button" class="pie-btn lu-tp" data-m="sandiequan">三叠泉</button>
+    <button type="button" class="pie-btn lu-tp" data-m="guling">牯岭镇</button>
+    <button type="button" class="pie-btn lu-tp" data-m="ruqin">如琴湖</button>
+    <button type="button" class="pie-btn lu-tp" data-m="xiufeng">秀峰瀑布</button>
+    <button type="button" class="pie-btn lu-tp" data-m="shimen">石门涧</button>
+    <button type="button" class="pie-btn lu-tp" data-m="bailu">白鹿洞书院</button>
+    <button type="button" class="pie-btn lu-tp" data-m="poyang">鄱阳湖</button>
+  </div>
+
+  <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    这是按<b>真实地形数据</b>等比例复刻的庐山全域 —— 高程来自 SRTM 30m 卫星测绘
+    （构建期烘焙成 1024² 高程场自托管，运行时零外部请求），29.0 × 29.9 公里，
+    从鄱阳湖平原（约 10m）到大汉阳峰（1474m）。<b>点击画面锁定鼠标</b>，
+    WASD 移动、Space/C 升降、Shift 加速、滚轮调速、F 切步行贴地、T 昼夜流转；
+    右上小地图可点击传送。三处瀑布（三叠泉 · 秀峰 · 石门涧）挂在它们真实的溪谷位置——
+    「飞流直下三千尺」李白写的就是秀峰这一条。
+  </p>
+  <p style="max-width:800px; color:var(--ink2); font-size:13px;">
+    技术：程序化大气（Rayleigh/Mie 近似 + 卷云 + 星空）、高度/坡度驱动的地形材质
+    （田畴/阔叶林/灌丛/草甸/花岗岩节理）、气溶胶远景透视、鄱阳湖菲涅尔水面与日光耀斑、
+    13 万棵按海拔坡度散布的实例化树木（风摆 + 距离淡出）、滚动噪声瀑布 + 公告板雾气。
+    每帧 GPU 计时来自 timestamp-query。
+  </p>
+</main>
+</Base>
+
+<script>
+  import '../../scripts/lab/lushan.js';
+</script>

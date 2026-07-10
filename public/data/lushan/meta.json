@@ -1,0 +1,14 @@
+{
+ "n": 1024,
+ "lon0": 115.9,
+ "lon1": 116.2,
+ "lat0": 29.45,
+ "lat1": 29.72,
+ "mx": 29042.0,
+ "my": 29928.4,
+ "scale": 0.1,
+ "offset": -100,
+ "hmin": -3.8,
+ "hmax": 1465.3,
+ "source": "AWS Terrain Tiles (SRTM), terrarium z13"
+}
