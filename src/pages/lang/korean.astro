@@ -1,0 +1,103 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="韩语学习中心" desc="谚文道场（字母、组字机、拼读与听辨）、TOPIK I 核心词 SM-2 复习与闯关、TTS 发音；数据全存本地">
+<main class="wrap reader enx">
+  <a class="back mono" href="/lang/">← 外语</a>
+  <h1 class="rd-title">韩语学习中心</h1>
+  <div class="meta mono">
+    <span class="sw" style="background:var(--c-char);"></span>
+    <span>谚文道场 · 组字机 · TOPIK I 核心词 · 间隔重复</span>
+  </div>
+  <p class="enx-sub">
+    谚文是拼音文字——辅音 + 元音（+ 收音）拼成一个字块。道场里先认字母，
+    用「组字机」亲手拼字听发音，再用拼读测验巩固，最后进闯关背 TOPIK I 核心词。数据只存你自己的浏览器。
+  </p>
+
+  <div class="enx-app">
+    <nav class="enx-side mono" aria-label="学习模块">
+      <button type="button" class="on" data-p="dojo"><i class="sw" style="background:var(--c-char);"></i>谚文道场</button>
+      <button type="button" data-p="rev"><i class="sw" style="background:var(--c-ai);"></i>今日复习<em id="nav-due"></em></button>
+      <button type="button" data-p="game"><i class="sw" style="background:var(--c-tool);"></i>词汇闯关</button>
+      <button type="button" data-p="set"><i class="sw" style="background:var(--ink2);"></i>设置</button>
+    </nav>
+
+    <div class="enx-main">
+      <!-- 道场 -->
+      <section class="enx-panel" data-p="dojo">
+        <div class="enx-h">谚文道场 —— 点字母听发音；「拼读」页是辅音×元音全部组合</div>
+        <p class="mono" id="ea-tts-warn" hidden style="color:var(--c-render); font-size:12px;"></p>
+        <div class="enx-bar slim" id="dj-sets"></div>
+        <div class="enx-bar slim">
+          <span class="mono" id="dj-prog" style="color:var(--ink);"></span>
+          <span style="margin-left:auto; display:flex; gap:8px;">
+            <button type="button" class="pie-btn mono" id="dj-quiz-read">✏ 认读测验</button>
+            <button type="button" class="pie-btn mono" id="dj-quiz-listen">🔊 听辨测验</button>
+          </span>
+        </div>
+        <div id="dj-quiz-area"></div>
+        <div class="dj-grid" id="dj-grid"></div>
+        <div class="enx-h" style="margin-top:18px;">组字机 —— 초성 + 중성 + 종성，点着拼，拼完听</div>
+        <div id="ea-composer"></div>
+      </section>
+
+      <!-- 复习 -->
+      <section class="enx-panel" data-p="rev" hidden>
+        <div class="enx-stats">
+          <div class="enx-tile hot"><b id="st-due">0</b><span>待复习</span></div>
+          <div class="enx-tile good"><b id="st-today">0</b><span>今日已复习</span></div>
+          <div class="enx-tile"><b id="st-total">0</b><span>生词总量</span></div>
+          <div class="enx-tile"><b id="st-new">—</b><span>词库剩余新词</span></div>
+        </div>
+        <div id="rev-card" class="en-card"></div>
+        <div class="en-hint mono"><kbd>空格</kbd> 显示答案　<kbd>1</kbd> 忘了　<kbd>2</kbd> 模糊　<kbd>3</kbd> 认识　<kbd>P</kbd> 发音</div>
+      </section>
+
+      <!-- 闯关 -->
+      <section class="enx-panel" data-p="game" hidden>
+        <div class="enx-h">词汇闯关 —— TOPIK I 核心词按频度切关，配对 / 选择 / 听力轮换，错词进复习</div>
+        <div class="enx-bar slim">
+          <span class="mono" id="ea-lvlname" style="color:var(--ink);"></span>
+          <span class="mono" id="ea-stars" style="margin-left:auto; color:var(--c-tool);"></span>
+        </div>
+        <div id="ea-map" class="gm-map"></div>
+        <div id="ea-play" hidden>
+          <div class="gm-hud mono">
+            <span id="ea-gp-title" style="color:var(--ink);"></span>
+            <span id="ea-gp-progress"></span>
+            <span id="ea-gp-score" style="color:var(--good);"></span>
+            <button type="button" class="pie-btn" id="ea-gp-quit" style="margin-left:auto;">✕ 退出</button>
+          </div>
+          <div id="ea-gp-stage"></div>
+        </div>
+        <div id="ea-result" hidden></div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="enx-panel" data-p="set" hidden>
+        <div class="enx-h">发音与数据</div>
+        <div class="enx-bar">
+          <label class="mono" style="font-size:12px;">语音
+            <select id="ea-voice" class="mono"></select>
+          </label>
+          <label class="mono" style="font-size:12px;">语速
+            <input id="ea-rate" type="range" min="0.5" max="1.3" step="0.05" style="width:110px;" />
+            <span class="mono" id="ea-rate-v"></span>
+          </label>
+          <button type="button" class="pie-btn mono" id="ea-test">🔊 试听</button>
+        </div>
+        <div class="enx-bar">
+          <button type="button" class="pie-btn mono" id="ea-wipe" style="color:var(--c-render); border-color:var(--c-render);">清空本语言全部数据</button>
+        </div>
+        <p class="mono" style="font-size:12px; color:var(--ink2); max-width:640px;">
+          发音使用浏览器语音合成（Web Speech API），零外链。生词、道场掌握度、闯关星数全部只存 localStorage。
+        </p>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+  import { boot } from '../../scripts/lang/eastasian.js';
+  boot('ko');
+</script>
+</Base>
