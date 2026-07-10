@@ -7,8 +7,8 @@ import Base from '../../layouts/Base.astro';
   <h1 class="rd-title">庐山 · 自由漫游</h1>
   <div class="meta mono">
     <span class="sw" style="background:var(--c-engine);"></span>
-    <span>WebGPU · 真实 DEM 等比例（SRTM 30m）</span>
-    <span>29.0 × 29.9 km · 裸 API 无框架</span>
+    <span>WebGPU 裸 API · 真实 DEM 等比例</span>
+    <span>Copernicus GLO-30 · 29.0 × 29.9 km</span>
   </div>
 
   <div class="lab-stage lu-stage">
@@ -64,18 +64,20 @@ import Base from '../../layouts/Base.astro';
 
   <p style="max-width:800px; color:var(--ink2); font-size:14px;">
     双场景：<b>庐山</b>（江西九江，29×30km 青绿山水）与<b>罗云村</b>（山西洪洞刘家垣镇，
-    11.0×11.1km 黄土塬沟壑，村坐标取自 OpenStreetMap 36.4097°N 111.4916°E；30m 卫星高程抹平了切沟，故沟坡细节经坡度选择性分形 + 热侵蚀算法增强，塬面保持实测）——
+    11.0×11.1km 黄土塬沟壑，村坐标取自 OpenStreetMap 36.4097°N 111.4916°E，
+    以 2048² 网格（5.4m/格）过采样烘焙；卫星 30m 分辨率仍会抹平切沟，故沟坡细节经坡度选择性分形 + 热侵蚀算法增强，塬面保持实测）——
     左上「场景」下拉即可切换，两地共用同一套引擎与 Nanite 分簇管线，材质各有一套：
     庐山是林海花岗岩，罗云村是塬面田块、梯田棱线与冲沟黄土层理。
-    这是按<b>真实地形数据</b>等比例复刻的庐山全域 —— 高程来自 SRTM 30m 卫星测绘
-    （构建期烘焙成 1024² 高程场自托管，运行时零外部请求），29.0 × 29.9 公里，
+    这是按<b>真实地形数据</b>等比例复刻的庐山全域 —— 高程来自欧空局
+    <b>Copernicus GLO-30</b>（1 弧秒全球 DEM，目前可公开获取的最高清晰度档），
+    构建期烘焙自托管、运行时零外部请求，29.0 × 29.9 公里，
     从鄱阳湖平原（约 10m）到大汉阳峰（1474m）。<b>点击画面锁定鼠标</b>，
     WASD 移动、Space/C 升降、Shift 加速、滚轮调速、F 切步行贴地、T 昼夜流转；
     右上小地图可点击传送。三处瀑布（三叠泉 · 秀峰 · 石门涧）挂在它们真实的溪谷位置——
     「飞流直下三千尺」李白写的就是秀峰这一条。
   </p>
   <p style="max-width:800px; color:var(--ink2); font-size:13px;">
-    地形有两条管线可切：<b>Nanite 式分簇</b>——地形切成 21,845 个四叉树簇（8 级 LOD），
+    地形有两条管线可切：<b>Nanite 式分簇</b>——地形切成四叉树簇（庐山 21,845 簇 / 8 级 LOD，罗云村 87,381 簇 / 9 级 LOD），
     每帧由 compute shader 在 GPU 上做屏幕空间误差选级 + 视锥剔除（AABB 含每簇真实高度包围盒），
     原子写入可见簇列表后一次 drawIndirect 画完，簇间裂缝用裙边封住 —— 和 UE5 Nanite 同一套
     「GPU 决定画什么」的思想（无软光栅/遮挡剔除的教学版）。勾「LOD 着色」看层级分布，
