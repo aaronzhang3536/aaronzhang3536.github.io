@@ -40,7 +40,10 @@ struct U {
   sun: vec4f,        // xyz dir(指向太阳), 强度
   map: vec4f,        // mx, my, n, cell(米)
   fog: vec4f,        // 密度, 水面高度, 网格步长, 树摆动
-  misc: vec4f,       // 太阳高度角sin, 曝光, 0, 0
+  misc: vec4f,       // 太阳高度角sin, 曝光, 调试, LOD着色
+  cullVP: mat4x4f,   // 剔除用相机（可冻结）
+  cullEye: vec4f,    // 剔除相机位置
+  nan: vec4f,        // LOD 误差阈值px, 投影尺度, 最大层级, 0
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> H: array<f32>;
@@ -128,39 +131,26 @@ fn tonemap(c: vec3f) -> vec3f {
 }
 `;
 
-const TERRAIN = COMMON + /* wgsl */`
+const TER_IO = /* wgsl */`
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) wp: vec3f,
   @location(1) water: f32,
+  @location(2) lvl: f32,
 };
-@vertex fn vs(@builtin(vertex_index) vid: u32) -> VOut {
-  let step = u.fog.z;
-  let cells = u32((u.map.z - 1.0) / step);
-  let quad = vid / 6u;
-  let corner = vid % 6u;
-  let qx = quad % cells;
-  let qz = quad / cells;
-  var cx = f32(qx); var cz = f32(qz);
-  if (corner == 1u || corner == 4u || corner == 5u) { cz += 1.0; }
-  if (corner == 2u || corner == 3u || corner == 5u) { cx += 1.0; }
-  let n1 = u.map.z - 1.0;
-  let gx = min(cx * step, n1);
-  let gz = min(cz * step, n1);
-  let wx = gx / n1 * u.map.x;
-  let wz = gz / n1 * u.map.y;
-  let h = hAt(i32(gx), i32(gz));
-  var o: VOut;
-  let wl = u.fog.y;
-  let inLake = waterMask(wx, wz);
-  let isW = inLake > 0.5 && h < wl - 0.05;
-  let y = select(h, wl, isW);
-  o.water = select(0.0, 1.0, isW);
-  o.wp = vec3f(wx, y, wz);
-  o.pos = u.vp * vec4f(o.wp, 1.0);
-  return o;
-}
+`;
+const TER_FS = /* wgsl */`
 @fragment fn fs(v: VOut) -> @location(0) vec4f {
+  if (u.misc.w > 0.5) {   /* LOD 层级着色 */
+    let L = v.lvl;
+    let cols = array<vec3f, 8>(
+      vec3f(0.9,0.2,0.2), vec3f(0.9,0.6,0.15), vec3f(0.85,0.85,0.2), vec3f(0.3,0.8,0.3),
+      vec3f(0.2,0.7,0.8), vec3f(0.25,0.4,0.9), vec3f(0.6,0.3,0.9), vec3f(0.85,0.85,0.85));
+    let c = cols[u32(clamp(L, 0.0, 7.0))];
+    let N2 = terrainNormal(v.wp.x, v.wp.z, u.map.w * exp2(L));
+    let sh = 0.45 + 0.55 * clamp(dot(N2, u.sun.xyz), 0.0, 1.0);
+    return vec4f(c * sh, 1.0);
+  }
   let toEye = u.eye.xyz - v.wp;
   let dist = length(toEye);
   let vdir = toEye / max(dist, 0.001);
@@ -219,6 +209,150 @@ struct VOut {
   return vec4f(tonemap(col), 1.0);
 }
 `;
+const TERRAIN = COMMON + TER_IO + /* wgsl */`
+@vertex fn vs(@builtin(vertex_index) vid: u32) -> VOut {
+  let step = u.fog.z;
+  let cells = u32((u.map.z - 1.0) / step);
+  let quad = vid / 6u;
+  let corner = vid % 6u;
+  let qx = quad % cells;
+  let qz = quad / cells;
+  var cx = f32(qx); var cz = f32(qz);
+  if (corner == 1u || corner == 4u || corner == 5u) { cz += 1.0; }
+  if (corner == 2u || corner == 3u || corner == 5u) { cx += 1.0; }
+  let n1 = u.map.z - 1.0;
+  let gx = min(cx * step, n1);
+  let gz = min(cz * step, n1);
+  let wx = gx / n1 * u.map.x;
+  let wz = gz / n1 * u.map.y;
+  let h = hAt(i32(gx), i32(gz));
+  var o: VOut;
+  let wl = u.fog.y;
+  let inLake = waterMask(wx, wz);
+  let isW = inLake > 0.5 && h < wl - 0.05;
+  let y = select(h, wl, isW);
+  o.water = select(0.0, 1.0, isW);
+  o.wp = vec3f(wx, y, wz);
+  o.pos = u.vp * vec4f(o.wp, 1.0);
+  o.lvl = 0.0;
+  return o;
+}
+` + TER_FS;
+
+/* 簇选级 compute：屏幕误差 LOD + 视锥剔除 → 可见簇列表 + 间接绘制参数 */
+const CLUSTER_WGSL = COMMON + /* wgsl */`
+struct Cluster { a: vec4f, b: vec4f };   // a: px, pz, level, 0 ; b: minH, maxH, 0, 0
+struct DrawArgs { vcount: u32, icount: atomic<u32>, vfirst: u32, ifirst: u32 };
+@group(0) @binding(2) var<storage, read> clusters: array<Cluster>;
+@group(0) @binding(3) var<storage, read_write> vis: array<u32>;
+@group(0) @binding(4) var<storage, read_write> args: DrawArgs;
+const OFFS = array<u32, 8>(0u, 16384u, 20480u, 21504u, 21760u, 21824u, 21840u, 21844u);
+const CNTS = array<u32, 8>(128u, 64u, 32u, 16u, 8u, 4u, 2u, 1u);
+fn aabbMin(c: Cluster) -> vec3f {
+  let L = c.a.z;
+  let cw = u.map.x / 1024.0 * 8.0 * exp2(L);
+  let cd = u.map.y / 1024.0 * 8.0 * exp2(L);
+  let skirt = u.map.w * exp2(L) * 1.4 + 3.0;
+  return vec3f(c.a.x * cw, c.b.x - skirt, c.a.y * cd);
+}
+fn aabbMax(c: Cluster) -> vec3f {
+  let L = c.a.z;
+  let cw = u.map.x / 1024.0 * 8.0 * exp2(L);
+  let cd = u.map.y / 1024.0 * 8.0 * exp2(L);
+  return vec3f((c.a.x + 1.0) * cw, max(c.b.y, u.fog.y) + 2.0, (c.a.y + 1.0) * cd);
+}
+fn frustumOK(mn: vec3f, mx: vec3f) -> bool {
+  var outL = 0u; var outR = 0u; var outB = 0u; var outT = 0u; var outN = 0u;
+  for (var i = 0u; i < 8u; i++) {
+    let corner = vec3f(
+      select(mn.x, mx.x, (i & 1u) != 0u),
+      select(mn.y, mx.y, (i & 2u) != 0u),
+      select(mn.z, mx.z, (i & 4u) != 0u));
+    let cp = u.cullVP * vec4f(corner, 1.0);
+    if (cp.x < -cp.w) { outL++; }
+    if (cp.x >  cp.w) { outR++; }
+    if (cp.y < -cp.w) { outB++; }
+    if (cp.y >  cp.w) { outT++; }
+    if (cp.z <  0.0)  { outN++; }
+  }
+  return outL < 8u && outR < 8u && outB < 8u && outT < 8u && outN < 8u;
+}
+fn distTo(mn: vec3f, mx: vec3f) -> f32 {
+  let p = u.cullEye.xyz;
+  let c = clamp(p, mn, mx);
+  return max(length(p - c), 1.0);
+}
+fn errPx(L: f32, d: f32) -> f32 {
+  let e = u.map.w * exp2(L) * 0.42;    // 该层几何误差（米）
+  return e * u.nan.y / d;
+}
+@compute @workgroup_size(64) fn cs(@builtin(global_invocation_id) gid: vec3u) {
+  let ci = gid.x;
+  let total = 21845u;
+  if (ci >= total) { return; }
+  let c = clusters[ci];
+  let L = c.a.z;
+  let mn = aabbMin(c); let mx = aabbMax(c);
+  if (!frustumOK(mn, mx)) { return; }
+  let dSelf = distTo(mn, mx);
+  if (L > 0.5 && errPx(L, dSelf) > u.nan.x) { return; }        // 太粗 → 交给子级
+  if (L < 6.5) {                                                // 父级已够精 → 由父级渲染
+    let Lp = u32(L) + 1u;
+    let pI = OFFS[Lp] + (u32(c.a.y) / 2u) * CNTS[Lp] + (u32(c.a.x) / 2u);
+    let pc = clusters[pI];
+    let pd = distTo(aabbMin(pc), aabbMax(pc));
+    if (errPx(f32(Lp), pd) <= u.nan.x) { return; }
+  }
+  let slot = atomicAdd(&args.icount, 1u);
+  vis[slot] = ci;
+}
+`;
+/* Nanite 簇地形 VS：instance = 可见簇，8×8 主体 + 四边裙边 */
+const NANITE_T = COMMON + TER_IO + /* wgsl */`
+struct Cluster { a: vec4f, b: vec4f };
+@group(0) @binding(2) var<storage, read> clusters: array<Cluster>;
+@group(0) @binding(3) var<storage, read> vis: array<u32>;
+@vertex fn vs(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -> VOut {
+  let c = clusters[vis[iid]];
+  let L = c.a.z;
+  let step = exp2(L);
+  let q = vid / 6u;
+  let corner = vid % 6u;
+  var lx = 0.0; var lz = 0.0;
+  if (corner == 1u || corner == 4u || corner == 5u) { lz += 1.0; }
+  if (corner == 2u || corner == 3u || corner == 5u) { lx += 1.0; }
+  var gx: f32; var gz: f32; var drop = 0.0;
+  if (q < 64u) {
+    let vx = f32(q % 8u); let vz = f32(q / 8u);
+    gx = (c.a.x * 8.0 + vx + lx) * step;
+    gz = (c.a.y * 8.0 + vz + lz) * step;
+  } else {
+    /* 裙边：边 e 上第 k 段，lz=1 的两个角下沉 */
+    let e = (q - 64u) / 8u;
+    let k = f32((q - 64u) % 8u);
+    let t = (k + lx) ;
+    if (e == 0u) { gx = (c.a.x * 8.0 + t) * step; gz = (c.a.y * 8.0) * step; }
+    else if (e == 1u) { gx = (c.a.x * 8.0 + t) * step; gz = (c.a.y * 8.0 + 8.0) * step; }
+    else if (e == 2u) { gx = (c.a.x * 8.0) * step; gz = (c.a.y * 8.0 + t) * step; }
+    else { gx = (c.a.x * 8.0 + 8.0) * step; gz = (c.a.y * 8.0 + t) * step; }
+    drop = select(0.0, u.map.w * step * 1.4 + 3.0, lz > 0.5);
+  }
+  gx = min(gx, 1023.0); gz = min(gz, 1023.0);
+  let wx = gx / 1023.0 * u.map.x;
+  let wz = gz / 1023.0 * u.map.y;
+  let h = hAt(i32(gx), i32(gz));
+  let wl = u.fog.y;
+  let inLake = waterMask(wx, wz);
+  let isW = inLake > 0.5 && h < wl - 0.05;
+  let y = select(h, wl, isW) - drop;
+  var o: VOut;
+  o.water = select(0.0, 1.0, isW && drop < 0.5);
+  o.wp = vec3f(wx, y, wz);
+  o.pos = u.vp * vec4f(o.wp, 1.0);
+  o.lvl = L;
+  return o;
+}
+` + TER_FS;
 
 const SKY = COMMON + /* wgsl */`
 struct VOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
@@ -368,6 +502,10 @@ let bgTerrain, bgSky, bgTrees, bgFalls, bgMist;
 let treeCount = 0, fallVerts = 0, mistCount = 0;
 let meta, HGT;   // Float32Array 高程（米）
 let qsSet = null, qsBuf = null, qsRead = null, gpuMs = 0;
+let pipeMode = 'nanite', tauPx = 1.4, cullFrozen = false, lodTint = 0;
+let pCluster, pNanite, bgCluster, bgNanite, clusterBuf, visBuf, drawArgs, argsRead, visCount = 0;
+let cullVP = null, cullEye = null;
+const NCLUSTERS = 21845, VPC = 576;   /* (64+32) quads × 6 */
 
 const cam = { x: 0, y: 1400, z: 0, yaw: 0, pitch: -0.12, speed: 60, walk: false };
 let timeOfDay = 8.2, autoTime = false, fogK = 0.000036, wind = 1.0, dbgMode = 0;
@@ -423,8 +561,62 @@ async function init() {
 
   hBuf = device.createBuffer({ size: HGT.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(hBuf, 0, HGT);
-  uniBuf = device.createBuffer({ size: 52 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  uni = new Float32Array(52);
+  uniBuf = device.createBuffer({ size: 76 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  uni = new Float32Array(76);
+
+  /* 簇金字塔：L0 128² … L7 1²，每簇 min/max 高度 */
+  const cl = new Float32Array(NCLUSTERS * 8);
+  {
+    const n = meta.n;
+    let mm = new Float32Array(128 * 128 * 2);
+    for (let pz = 0; pz < 128; pz++) {
+      for (let px = 0; px < 128; px++) {
+        let lo = 1e9, hi = -1e9;
+        for (let dz = 0; dz <= 8; dz++) {
+          const z = Math.min(pz * 8 + dz, n - 1);
+          for (let dx = 0; dx <= 8; dx++) {
+            const h = HGT[z * n + Math.min(px * 8 + dx, n - 1)];
+            if (h < lo) lo = h;
+            if (h > hi) hi = h;
+          }
+        }
+        mm[(pz * 128 + px) * 2] = lo;
+        mm[(pz * 128 + px) * 2 + 1] = hi;
+      }
+    }
+    let off = 0, cnt = 128, cur = mm;
+    for (let L = 0; L < 8; L++) {
+      for (let pz = 0; pz < cnt; pz++) {
+        for (let px = 0; px < cnt; px++) {
+          const o = (off + pz * cnt + px) * 8;
+          cl[o] = px; cl[o + 1] = pz; cl[o + 2] = L; cl[o + 3] = 0;
+          cl[o + 4] = cur[(pz * cnt + px) * 2];
+          cl[o + 5] = cur[(pz * cnt + px) * 2 + 1];
+        }
+      }
+      off += cnt * cnt;
+      if (cnt > 1) {
+        const half = cnt >> 1;
+        const nx = new Float32Array(half * half * 2);
+        for (let pz = 0; pz < half; pz++) {
+          for (let px = 0; px < half; px++) {
+            let lo = 1e9, hi = -1e9;
+            for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) {
+              const v = ((pz * 2 + dz) * cnt + px * 2 + dx) * 2;
+              lo = Math.min(lo, cur[v]); hi = Math.max(hi, cur[v + 1]);
+            }
+            nx[(pz * half + px) * 2] = lo; nx[(pz * half + px) * 2 + 1] = hi;
+          }
+        }
+        cur = nx; cnt = half;
+      }
+    }
+  }
+  clusterBuf = device.createBuffer({ size: cl.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(clusterBuf, 0, cl);
+  visBuf = device.createBuffer({ size: NCLUSTERS * 4, usage: GPUBufferUsage.STORAGE });
+  drawArgs = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+  argsRead = device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
 
   /* 树实例：按海拔/坡度/斑块噪声散布 */
   const inst = buildTrees();
@@ -458,6 +650,9 @@ async function init() {
   const alphaBlend = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } };
   pSky = mk(SKY, { depthWrite: false, depthCompare: 'less-equal' });
   pTerrain = mk(TERRAIN, { cull: 'back' });
+  pNanite = mk(NANITE_T, { cull: 'back' });
+  pCluster = device.createComputePipeline({ layout: 'auto',
+    compute: { module: device.createShaderModule({ code: CLUSTER_WGSL }), entryPoint: 'cs' } });
   pTrees = mk(TREES, {});
   pFalls = mk(FALLSW, { blend: alphaBlend, depthWrite: false });
   pMist = mk(MIST, { blend: alphaBlend, depthWrite: false });
@@ -477,6 +672,15 @@ async function init() {
   bgMist = device.createBindGroup({ layout: pMist.getBindGroupLayout(0), entries: [
     { binding: 0, resource: { buffer: uniBuf } },
     { binding: 2, resource: { buffer: mistBuf } } ] });
+  bgCluster = device.createBindGroup({ layout: pCluster.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: uniBuf } },
+    { binding: 2, resource: { buffer: clusterBuf } },
+    { binding: 3, resource: { buffer: visBuf } },
+    { binding: 4, resource: { buffer: drawArgs } } ] });
+  bgNanite = device.createBindGroup({ layout: pNanite.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: hBuf } },
+    { binding: 2, resource: { buffer: clusterBuf } },
+    { binding: 3, resource: { buffer: visBuf } } ] });
 
   if (hasTS) {
     qsSet = device.createQuerySet({ type: 'timestamp', count: 2 });
@@ -624,6 +828,7 @@ function setupUI() {
     keys[e.code] = true;
     if (e.code === 'KeyF') { cam.walk = !cam.walk; $('lu-mode').value = cam.walk ? 'walk' : 'fly'; }
     if (e.code === 'KeyT') autoTime = !autoTime;
+    if (e.code === 'KeyG') { cullFrozen = !cullFrozen; $('lu-freeze').checked = cullFrozen; }
   });
   document.addEventListener('keyup', (e) => { keys[e.code] = false; });
   cvs.addEventListener('wheel', (e) => {
@@ -634,6 +839,10 @@ function setupUI() {
   $('lu-time').addEventListener('input', () => { timeOfDay = parseFloat($('lu-time').value); autoTime = false; });
   $('lu-fog').addEventListener('input', () => { fogK = parseFloat($('lu-fog').value) * 1e-6; });
   $('lu-quality').addEventListener('change', () => { gridStep = parseInt($('lu-quality').value, 10); });
+  $('lu-pipe').addEventListener('change', () => { pipeMode = $('lu-pipe').value; });
+  $('lu-tau').addEventListener('input', () => { tauPx = parseFloat($('lu-tau').value); });
+  $('lu-freeze').addEventListener('change', () => { cullFrozen = $('lu-freeze').checked; });
+  $('lu-lod').addEventListener('change', () => { lodTint = $('lu-lod').checked ? 1 : 0; });
   $('lu-mode').addEventListener('change', () => { cam.walk = $('lu-mode').value === 'walk'; });
   $('lu-auto').addEventListener('change', () => { autoTime = $('lu-auto').checked; });
   document.querySelectorAll('.lu-tp').forEach((b) => b.addEventListener('click', () =>
@@ -665,6 +874,9 @@ function applyQuery() {
   if (q.get('pitch')) cam.pitch = parseFloat(q.get('pitch'));
   if (q.get('yaw')) cam.yaw = parseFloat(q.get('yaw'));
   if (q.get('dbg')) dbgMode = parseFloat(q.get('dbg'));
+  if (q.get('pipe')) { pipeMode = q.get('pipe') === 'grid' ? 'grid' : 'nanite'; $('lu-pipe').value = pipeMode; }
+  if (q.get('lod')) { lodTint = 1; $('lu-lod').checked = true; }
+  if (q.get('tau')) { tauPx = parseFloat(q.get('tau')); $('lu-tau').value = q.get('tau'); }
 }
 
 /* ---------- 小地图 ---------- */
@@ -790,7 +1002,12 @@ function frame() {
   uni.set([sunDir[0], sunDir[1], sunDir[2], sunI], 36);
   uni.set([meta.mx, meta.my, meta.n, meta.mx / meta.n], 40);
   uni.set([fogK, 12.5, gridStep, wind], 44);
-  uni.set([Math.sin(elev), 1.05, dbgMode, 0], 48);
+  uni.set([Math.sin(elev), 1.05, dbgMode, lodTint], 48);
+  if (!cullFrozen || !cullVP) { cullVP = vp.slice(); cullEye = [cam.x, cam.y, cam.z]; }
+  uni.set(cullVP, 52);
+  uni.set([cullEye[0], cullEye[1], cullEye[2], 0], 68);
+  const projScale = ph / (2 * Math.tan(31 * Math.PI / 180));
+  uni.set([tauPx, projScale, 7, 0], 72);
   device.queue.writeBuffer(uniBuf, 0, uni);
 
   render();
@@ -802,14 +1019,27 @@ function frame() {
 
 function render() {
   const enc = device.createCommandEncoder();
+  if (pipeMode === 'nanite') {
+    device.queue.writeBuffer(drawArgs, 0, new Uint32Array([VPC, 0, 0, 0]));
+    const cp = enc.beginComputePass();
+    cp.setPipeline(pCluster);
+    cp.setBindGroup(0, bgCluster);
+    cp.dispatchWorkgroups(Math.ceil(NCLUSTERS / 64));
+    cp.end();
+  }
   const pass = enc.beginRenderPass({
     colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
     depthStencilAttachment: { view: depthTex.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 },
     timestampWrites: qsSet ? { querySet: qsSet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } : undefined,
   });
   pass.setPipeline(pSky); pass.setBindGroup(0, bgSky); pass.draw(3);
-  const cells = Math.floor((meta.n - 1) / gridStep);
-  pass.setPipeline(pTerrain); pass.setBindGroup(0, bgTerrain); pass.draw(cells * cells * 6);
+  if (pipeMode === 'nanite') {
+    pass.setPipeline(pNanite); pass.setBindGroup(0, bgNanite);
+    pass.drawIndirect(drawArgs, 0);
+  } else {
+    const cells = Math.floor((meta.n - 1) / gridStep);
+    pass.setPipeline(pTerrain); pass.setBindGroup(0, bgTerrain); pass.draw(cells * cells * 6);
+  }
   pass.setPipeline(pTrees); pass.setBindGroup(0, bgTrees); pass.draw(12, treeCount);
   pass.setPipeline(pFalls); pass.setBindGroup(0, bgFalls); pass.draw(fallVerts);
   pass.setPipeline(pMist); pass.setBindGroup(0, bgMist); pass.draw(6, mistCount);
@@ -818,7 +1048,16 @@ function render() {
     enc.resolveQuerySet(qsSet, 0, 2, qsBuf, 0);
     if (qsRead.mapState === 'unmapped') enc.copyBufferToBuffer(qsBuf, 0, qsRead, 0, 16);
   }
+  if (pipeMode === 'nanite' && argsRead.mapState === 'unmapped') {
+    enc.copyBufferToBuffer(drawArgs, 0, argsRead, 0, 16);
+  }
   device.queue.submit([enc.finish()]);
+  if (pipeMode === 'nanite' && argsRead.mapState === 'unmapped') {
+    argsRead.mapAsync(GPUMapMode.READ).then(() => {
+      visCount = new Uint32Array(argsRead.getMappedRange())[1];
+      argsRead.unmap();
+    }).catch(() => {});
+  }
   if (qsSet && qsRead.mapState === 'unmapped') {
     qsRead.mapAsync(GPUMapMode.READ).then(() => {
       const a = new BigInt64Array(qsRead.getMappedRange());
@@ -833,14 +1072,22 @@ function updateHUD() {
   if (performance.now() - hudT < 250) return;
   hudT = performance.now();
   const [lon, lat] = xz2lonlat(cam.x, cam.z);
-  const cells = Math.floor((meta.n - 1) / gridStep);
-  const tris = cells * cells * 2 + treeCount * 4;
+  let terTris, pipeTag;
+  if (pipeMode === 'nanite') {
+    terTris = visCount * 192;
+    pipeTag = 'Nanite ' + visCount + '/' + NCLUSTERS + ' 簇' + (cullFrozen ? '·已冻结' : '');
+  } else {
+    const cells = Math.floor((meta.n - 1) / gridStep);
+    terTris = cells * cells * 2;
+    pipeTag = '暴力网格';
+  }
+  const tris = terTris + treeCount * 4;
   hud.textContent =
     lat.toFixed(4) + '°N ' + lon.toFixed(4) + '°E · 海拔 ' + Math.round(cam.y) + 'm · ' +
     (cam.walk ? '步行' : '飞行 ' + Math.round(cam.speed) + 'm/s') +
     ' · ' + (timeOfDay | 0) + ':' + String(Math.round(timeOfDay % 1 * 60)).padStart(2, '0') +
     ' · ' + Math.round(fpsE) + ' fps' + (gpuMs ? ' · GPU ' + gpuMs.toFixed(1) + 'ms' : '') +
-    ' · ' + (tris / 1e6).toFixed(1) + 'M tris';
+    ' · ' + (tris / 1e6).toFixed(1) + 'M tris · ' + pipeTag;
 }
 
 function updateLabels(vp, dw, dh) {

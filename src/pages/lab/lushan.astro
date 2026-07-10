@@ -33,9 +33,20 @@ import Base from '../../layouts/Base.astro';
         <option value="walk">步行</option>
       </select>
     </label>
-    <label>画质
+    <label>地形管线
+      <select id="lu-pipe">
+        <option value="nanite" selected>Nanite 式分簇（GPU 驱动）</option>
+        <option value="grid">暴力网格</option>
+      </select>
+    </label>
+    <label>LOD 误差
+      <input id="lu-tau" type="range" min="0.5" max="4" step="0.1" value="1.4" style="width:90px;" />px
+    </label>
+    <label class="mono"><input type="checkbox" id="lu-freeze" /> 冻结剔除 (G)</label>
+    <label class="mono"><input type="checkbox" id="lu-lod" /> LOD 着色</label>
+    <label>暴力画质
       <select id="lu-quality">
-        <option value="1" selected>高（2.1M 三角形地形）</option>
+        <option value="1" selected>高</option>
         <option value="2">中</option>
         <option value="4">低</option>
       </select>
@@ -66,6 +77,11 @@ import Base from '../../layouts/Base.astro';
     「飞流直下三千尺」李白写的就是秀峰这一条。
   </p>
   <p style="max-width:800px; color:var(--ink2); font-size:13px;">
+    地形有两条管线可切：<b>Nanite 式分簇</b>——地形切成 21,845 个四叉树簇（8 级 LOD），
+    每帧由 compute shader 在 GPU 上做屏幕空间误差选级 + 视锥剔除（AABB 含每簇真实高度包围盒），
+    原子写入可见簇列表后一次 drawIndirect 画完，簇间裂缝用裙边封住 —— 和 UE5 Nanite 同一套
+    「GPU 决定画什么」的思想（无软光栅/遮挡剔除的教学版）。勾「LOD 着色」看层级分布，
+    「冻结剔除 (G)」后飞出去，能看到视锥外的地形真的没被画。
     技术：程序化大气（Rayleigh/Mie 近似 + 卷云 + 星空）、高度/坡度驱动的地形材质
     （田畴/阔叶林/灌丛/草甸/花岗岩节理）、气溶胶远景透视、鄱阳湖菲涅尔水面与日光耀斑、
     13 万棵按海拔坡度散布的实例化树木（风摆 + 距离淡出）、滚动噪声瀑布 + 公告板雾气。
