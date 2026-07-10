@@ -43,7 +43,7 @@ const SCENES = {
     tps: ['hanpokou', 'dahanyang', 'wulao', 'sandiequan', 'guling', 'ruqin', 'xiufeng', 'shimen', 'bailu', 'poyang'],
   },
   luoyun: {
-    name: '罗云村 · 黄土塬漫游', sub: 'WebGPU · 真实 DEM 等比例（SRTM 30m） · 山西洪洞 · 17.9 × 17.8 km',
+    name: '罗云村 · 黄土塬漫游', sub: 'WebGPU · SRTM 30m + 沟壑算法增强 · 山西洪洞 · 11.0 × 11.1 km',
     data: 'luoyun', palette: 1, water: -999, fogDef: 26,
     treeN: 42000, treeLo: 540, treeHi: 1420, treeSlope: 46, broadleafHi: 9999,
     marks: MARKS_LUOYUN, falls: [], start: 'luoyun',

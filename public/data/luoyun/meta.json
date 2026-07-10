@@ -1,14 +1,14 @@
 {
  "n": 1024,
- "lon0": 111.39,
- "lon1": 111.59,
- "lat0": 36.33,
- "lat1": 36.49,
- "mx": 17917.8,
- "my": 17754.8,
+ "lon0": 111.452,
+ "lon1": 111.575,
+ "lat0": 36.362,
+ "lat1": 36.462,
+ "mx": 11019.2,
+ "my": 11096.8,
  "scale": 0.1,
  "offset": -100,
- "hmin": 515.7,
- "hmax": 1472.8,
- "source": "AWS Terrain Tiles (SRTM), terrarium z13"
+ "hmin": 614.3,
+ "hmax": 1409.9,
+ "source": "AWS Terrain Tiles (SRTM), terrarium z13 + loess enhancement (slope-selective ridged detail + thermal erosion)"
 }
