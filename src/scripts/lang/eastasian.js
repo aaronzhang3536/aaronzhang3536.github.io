@@ -66,17 +66,55 @@ const KO_JONG_R = ['', 'k', 'k', 'k', 'n', 'n', 'n', 't', 'l', 'k', 'm', 'l', 'l
 const koCompose = (ci, vi, ti) => String.fromCharCode(0xAC00 + (ci * 21 + vi) * 28 + ti);
 const koRom = (ci, vi, ti) => (KO_CHO_R[ci] || '') + KO_JUNG_R[vi] + (KO_JONG_R[ti] || '');
 
+/* ---------- 西里尔字母（[大写, 转写, 俄语字母名（供 TTS）]） ---------- */
+const RU_ALPHA = [
+  ['А', 'a', 'а'], ['Б', 'b', 'бэ'], ['В', 'v', 'вэ'], ['Г', 'g', 'гэ'], ['Д', 'd', 'дэ'],
+  ['Е', 'ye', 'е'], ['Ё', 'yo', 'ё'], ['Ж', 'zh', 'жэ'], ['З', 'z', 'зэ'], ['И', 'i', 'и'],
+  ['Й', 'y', 'и краткое'], ['К', 'k', 'ка'], ['Л', 'l', 'эль'], ['М', 'm', 'эм'], ['Н', 'n', 'эн'],
+  ['О', 'o', 'о'], ['П', 'p', 'пэ'], ['Р', 'r', 'эр'], ['С', 's', 'эс'], ['Т', 't', 'тэ'],
+  ['У', 'u', 'у'], ['Ф', 'f', 'эф'], ['Х', 'kh', 'ха'], ['Ц', 'ts', 'цэ'], ['Ч', 'ch', 'че'],
+  ['Ш', 'sh', 'ша'], ['Щ', 'shch', 'ща'], ['Ъ', '硬音符', 'твёрдый знак'], ['Ы', 'y(ɨ)', 'ы'], ['Ь', '软音符', 'мягкий знак'],
+  ['Э', 'e', 'э'], ['Ю', 'yu', 'ю'], ['Я', 'ya', 'я'],
+];
+const RU_TRAP = ['В', 'Е', 'Н', 'Р', 'С', 'У', 'Х', 'И', 'Я'];   /* 形似拉丁、发音迥异 */
+
 /* ---------- 语言配置 ---------- */
 const LANGS = {
   ja: {
     key: 'yzzn-ja', name: '日语', tts: 'ja-JP', pack: '/data/lang/ja-n5.json',
-    packName: 'N5 核心词', dojoName: '五十音道场',
+    packName: 'N5 核心词', dojoName: '五十音道场', hello: 'こんにちは',
     ttsHint: '未检测到日语语音包 —— Windows「设置 → 时间和语言 → 语音」可添加日语，Chrome/Edge 亦自带在线语音。',
   },
   ko: {
     key: 'yzzn-ko', name: '韩语', tts: 'ko-KR', pack: '/data/lang/ko-topik1.json',
-    packName: 'TOPIK I 核心词', dojoName: '谚文道场',
+    packName: 'TOPIK I 核心词', dojoName: '谚文道场', hello: '안녕하세요',
     ttsHint: '未检测到韩语语音包 —— Windows「设置 → 时间和语言 → 语音」可添加韩语，Chrome/Edge 亦自带在线语音。',
+  },
+  fr: {
+    key: 'yzzn-fr', name: '法语', tts: 'fr-FR', pack: '/data/lang/fr-a1.json', packName: 'A1 核心词', hello: 'Bonjour, enchanté !',
+    gender: { arts: ['le', 'la'], tags: { le: '阳性', la: '阴性' }, speakArt: true },
+    ttsHint: '未检测到法语语音包 —— Windows「设置 → 时间和语言 → 语音」可添加，Chrome/Edge 亦自带在线语音。',
+  },
+  de: {
+    key: 'yzzn-de', name: '德语', tts: 'de-DE', pack: '/data/lang/de-a1.json', packName: 'A1 核心词', hello: 'Guten Tag, freut mich!',
+    gender: { arts: ['der', 'die', 'das'], tags: { der: '阳性', die: '阴性', das: '中性' }, speakArt: true },
+    ttsHint: '未检测到德语语音包 —— Windows「设置 → 时间和语言 → 语音」可添加，Chrome/Edge 亦自带在线语音。',
+  },
+  es: {
+    key: 'yzzn-es', name: '西班牙语', tts: 'es-ES', pack: '/data/lang/es-a1.json', packName: 'A1 核心词', hello: '¡Hola, mucho gusto!',
+    gender: { arts: ['el', 'la'], tags: { el: '阳性', la: '阴性' }, speakArt: true },
+    ttsHint: '未检测到西班牙语语音包 —— Windows「设置 → 时间和语言 → 语音」可添加，Chrome/Edge 亦自带在线语音。',
+  },
+  it: {
+    key: 'yzzn-it', name: '意大利语', tts: 'it-IT', pack: '/data/lang/it-a1.json', packName: 'A1 核心词', hello: 'Ciao, piacere!',
+    gender: { arts: ['il', 'la'], tags: { il: '阳性', la: '阴性' }, speakArt: true },
+    ttsHint: '未检测到意大利语语音包 —— Windows「设置 → 时间和语言 → 语音」可添加，Chrome/Edge 亦自带在线语音。',
+  },
+  ru: {
+    key: 'yzzn-ru', name: '俄语', tts: 'ru-RU', pack: '/data/lang/ru-a1.json', packName: 'A1 核心词', hello: 'Здравствуйте!',
+    dojoName: '西里尔字母道场',
+    gender: { arts: ['м', 'ж', 'с'], tags: { 'м': '阳性', 'ж': '阴性', 'с': '中性' }, speakArt: false },
+    ttsHint: '未检测到俄语语音包 —— Windows「设置 → 时间和语言 → 语音」可添加，Chrome/Edge 亦自带在线语音。',
   },
 };
 
@@ -84,6 +122,10 @@ const CHUNK = 24;
 const STAGE_TYPES = ['配对', '选择', '听力'];
 
 export function boot(langId) {
+  if (!langId) {
+    const rootEl = document.querySelector('main.enx[data-lang]');
+    langId = rootEl && rootEl.getAttribute('data-lang');
+  }
   const L = LANGS[langId];
   if (!L || !document.querySelector('.enx-side')) return;
   const $ = (id) => document.getElementById(id);
@@ -125,6 +167,20 @@ export function boot(langId) {
     const v = voices.find((x) => x.name === cfg.voice) || voices[0];
     if (v) u.voice = v;
     speechSynthesis.speak(u);
+  }
+
+  /* 词条发音：日语读假名；法德西意连冠词一起读（听觉强化词性）；其余读本体 */
+  function speakWord(it) {
+    if (!it) return;
+    if (langId === 'ja') { speak(it.r || it.w); return; }
+    if (L.gender && L.gender.speakArt && it.r) { speak(it.r + ' ' + it.w); return; }
+    speak(it.w);
+  }
+  /* 词条展示头：带冠词/读音 */
+  function wordHead(it) {
+    if (L.gender && it.r) return it.r + ' ' + it.w;
+    if (it.r && it.r !== it.w) return it.w + ' · ' + it.r;
+    return it.w;
   }
 
   /* ---------- SRS（SM-2 简化） ---------- */
@@ -171,14 +227,14 @@ export function boot(langId) {
     el.innerHTML =
       '<div class="ea-w">' + esc(cur.w) + '</div>' +
       (revealed
-        ? '<div class="ea-r mono">' + esc(cur.r || '') + (cur.rom ? ' · ' + esc(cur.rom) : '') + '</div><div class="ea-def">' + esc(cur.def) + '</div>' +
+        ? '<div class="ea-r mono">' + esc(wordHead(cur)) + (cur.rom ? ' · ' + esc(cur.rom) : '') + '</div><div class="ea-def">' + esc(cur.def) + '</div>' +
           '<div class="bw-actions" style="justify-content:center;">' +
           '<button type="button" class="pie-btn" data-g="1">忘了 (1)</button>' +
           '<button type="button" class="pie-btn" data-g="2">模糊 (2)</button>' +
           '<button type="button" class="pie-btn primary" data-g="3">认识 (3)</button></div>'
         : '<div class="ea-hint mono">空格 显示答案 · P 发音</div>' +
           '<div class="bw-actions" style="justify-content:center;"><button type="button" class="pie-btn primary" id="ea-show">显示答案</button></div>');
-    if ($('ea-show')) $('ea-show').addEventListener('click', () => { revealed = true; renderCard(); speak(cur.r || cur.w); });
+    if ($('ea-show')) $('ea-show').addEventListener('click', () => { revealed = true; renderCard(); speakWord(cur); });
     el.querySelectorAll('[data-g]').forEach((b) => b.addEventListener('click', () => doGrade(parseInt(b.getAttribute('data-g'), 10))));
   }
   function doGrade(q) {
@@ -206,9 +262,9 @@ export function boot(langId) {
   function revKeys(ev) {
     const panel = document.querySelector('.enx-panel[data-p="rev"]');
     if (!panel || panel.hidden || !cur) return;
-    if (ev.key === ' ') { ev.preventDefault(); if (!revealed) { revealed = true; renderCard(); speak(cur.r || cur.w); } }
+    if (ev.key === ' ') { ev.preventDefault(); if (!revealed) { revealed = true; renderCard(); speakWord(cur); } }
     if (revealed && (ev.key === '1' || ev.key === '2' || ev.key === '3')) doGrade(parseInt(ev.key, 10));
-    if (ev.key === 'p' || ev.key === 'P') speak(cur.r || cur.w);
+    if (ev.key === 'p' || ev.key === 'P') speakWord(cur);
   }
 
   /* ---------- 道场 ---------- */
@@ -221,14 +277,21 @@ export function boot(langId) {
       { id: 'you-h', name: '拗音 · 平', items: KANA_YOUON.map((e) => [e[0], e[1]]) },
       { id: 'you-k', name: '拗音 · 片', items: KANA_YOUON.map((e) => [toKata(e[0]), e[1]]) },
     ]
-    : [
-      { id: 'cons', name: '基本辅音', items: KO_CONS.map((e) => [e[0], e[1], e[2]]) },
-      { id: 'tense', name: '紧音', items: KO_TENSE.map((e) => [e[0], e[1], e[2]]) },
-      { id: 'vow', name: '基本元音', items: KO_VOW.map((e) => [e[0], e[1], e[2]]) },
-      { id: 'vow2', name: '复合元音', items: KO_VOW2.map((e) => [e[0], e[1], e[2]]) },
-      { id: 'syl', name: '拼读（辅音×元音）', items: null },   /* 动态生成 CV 音节 */
-    ];
-  let dojoSet = dojoSets[0].id;
+    : langId === 'ko'
+      ? [
+        { id: 'cons', name: '基本辅音', items: KO_CONS.map((e) => [e[0], e[1], e[2]]) },
+        { id: 'tense', name: '紧音', items: KO_TENSE.map((e) => [e[0], e[1], e[2]]) },
+        { id: 'vow', name: '基本元音', items: KO_VOW.map((e) => [e[0], e[1], e[2]]) },
+        { id: 'vow2', name: '复合元音', items: KO_VOW2.map((e) => [e[0], e[1], e[2]]) },
+        { id: 'syl', name: '拼读（辅音×元音）', items: null },   /* 动态生成 CV 音节 */
+      ]
+      : langId === 'ru'
+        ? [
+          { id: 'alpha', name: '字母表 33', items: RU_ALPHA.map((e) => [e[0], e[1], e[2]]) },
+          { id: 'trap', name: '陷阱字母（形似拉丁）', items: RU_ALPHA.filter((e) => RU_TRAP.includes(e[0])).map((e) => [e[0], e[1], e[2]]) },
+        ]
+        : [];
+  let dojoSet = dojoSets.length ? dojoSets[0].id : '';
   function dojoItems(setId) {
     const s = dojoSets.find((x) => x.id === setId);
     if (!s) return [];
@@ -246,14 +309,12 @@ export function boot(langId) {
   }
   function dojoSpeakText(setId, item) {
     if (langId === 'ja') return item[0];
-    const s = dojoSets.find((x) => x.id === setId);
-    if (s && (s.id === 'cons' || s.id === 'tense')) return item[2];   /* 辅音读字母名 */
-    if (s && (s.id === 'vow' || s.id === 'vow2')) return item[2];     /* 元音读 아야어여 */
-    return item[0];
+    return item[2] || item[0];   /* 韩语辅音/元音、俄语字母读官方字母名，其余读本体 */
   }
   function mastery(key) { const m = dojoStore[key] || [0, 0]; return m[0] >= 3 && m[0] > m[1] ? 2 : (m[0] + m[1] > 0 ? 1 : 0); }
   function renderDojo() {
     const bar = $('dj-sets');
+    if (!bar) return;
     bar.innerHTML = dojoSets.map((s) =>
       '<button type="button" class="pie-btn mono' + (s.id === dojoSet ? ' primary' : '') + '" data-s="' + s.id + '">' + s.name + '</button>').join('');
     bar.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => { dojoSet = b.getAttribute('data-s'); renderDojo(); }));
@@ -325,7 +386,7 @@ export function boot(langId) {
       '<div class="qz-prompt">' +
       (isRead
         ? '<div class="dj-big">' + esc(cur[0]) + '</div><div class="mono" style="font-size:12px; color:var(--ink2);">选出读音</div>'
-        : '<button type="button" class="en-spkbtn" id="dj-spk" style="font-size:24px; padding:12px 24px;">🔊</button><div class="mono" style="font-size:12px; color:var(--ink2); margin-top:8px;">听发音，选' + (langId === 'ja' ? '假名' : '谚文') + '</div>') +
+        : '<button type="button" class="en-spkbtn" id="dj-spk" style="font-size:24px; padding:12px 24px;">🔊</button><div class="mono" style="font-size:12px; color:var(--ink2); margin-top:8px;">听发音，选' + (langId === 'ja' ? '假名' : langId === 'ko' ? '谚文' : '字母') + '</div>') +
       '</div><div class="qz-opts">' +
       opts.map((o) => '<button type="button" class="qz-opt' + (isRead ? ' mono' : ' dj-opt-big') + '" data-k="' + esc(o[0]) + '">' + esc(isRead ? o[1] : o[0]) + '</button>').join('') +
       '</div>';
@@ -426,7 +487,7 @@ export function boot(langId) {
       $('ea-gp-stage').querySelectorAll('#ea-mg-l .mg-it').forEach((x) => x.classList.remove('sel'));
       b.classList.add('sel'); selL = b;
       const e = seg.find((x) => x.w === b.getAttribute('data-w'));
-      if (e) speak(e.r || e.w);
+      if (e) speakWord(e);
     }));
     $('ea-gp-stage').querySelectorAll('#ea-mg-r .mg-it').forEach((b) => b.addEventListener('click', () => {
       if (!selL || b.classList.contains('ok')) return;
@@ -464,8 +525,8 @@ export function boot(langId) {
       opts.map((o) => '<button type="button" class="qz-opt" data-w="' + esc(o.w) + '">' + esc(o.w) + '</button>').join('') +
       '</div><div class="ea-reveal mono" id="ea-reveal" hidden></div>';
     if (isListen) {
-      $('ea-qz-spk').addEventListener('click', () => speak(cur.r || cur.w));
-      speak(cur.r || cur.w);
+      $('ea-qz-spk').addEventListener('click', () => speakWord(cur));
+      speakWord(cur);
     }
     let answered = false;
     $('ea-gp-stage').querySelectorAll('.qz-opt').forEach((b) => b.addEventListener('click', () => {
@@ -479,8 +540,8 @@ export function boot(langId) {
       } else G.right++;
       const rv = $('ea-reveal');
       rv.hidden = false;
-      rv.textContent = cur.w + (cur.r && cur.r !== cur.w ? ' · ' + cur.r : '') + (cur.rom ? ' · ' + cur.rom : '') + ' —— ' + cur.def;
-      if (!isListen) speak(cur.r || cur.w);
+      rv.textContent = wordHead(cur) + (cur.rom ? ' · ' + cur.rom : '') + ' —— ' + cur.def;
+      if (!isListen) speakWord(cur);
       G.qi++;
       setTimeout(quizAsk, okPick ? 700 : 1400);
     }));
@@ -518,6 +579,92 @@ export function boot(langId) {
     $('ea-back').addEventListener('click', renderGameMap);
   }
 
+  /* ---------- 词性竞技场：限时快答冠词/词性，连击计分 ---------- */
+  const ARENA_N = 20, ARENA_SEC = 5;
+  let AR = null;
+  function arenaWords() {
+    const g = L.gender;
+    return g ? stageList().filter((e) => g.arts.includes(e.r)) : [];
+  }
+  function renderArena() {
+    const el = $('ga-stage');
+    if (!el) return;
+    AR = null;
+    const list = arenaWords();
+    if (!list.length) { el.innerHTML = '<div class="mono" style="color:var(--ink2);">词汇包加载中…</div>'; return; }
+    const g = L.gender;
+    el.innerHTML = '<div class="gm-res">' +
+      '<div class="gm-stars">⚡</div>' +
+      '<div class="gm-acc mono">' + list.length + ' 个名词 · 每题 ' + ARENA_SEC + ' 秒 · 连击加分</div>' +
+      '<div class="gm-wrong mono">看到名词，抢答 ' + g.arts.join(' / ') + '（' + g.arts.map((a) => g.tags[a]).join('/') + '）—— 答完连冠词一起读给你听</div>' +
+      '<div class="gm-acc mono" style="color:var(--c-tool);">最佳成绩 ' + (gameStore.arenaBest || 0) + ' 分</div>' +
+      '<div class="bw-actions" style="justify-content:center;"><button type="button" class="pie-btn primary" id="ga-start">开始 ' + ARENA_N + ' 连答</button></div></div>';
+    $('ga-start').addEventListener('click', arenaStart);
+  }
+  function arenaStart() {
+    const list = arenaWords();
+    AR = { sample: shuffle(list).slice(0, Math.min(ARENA_N, list.length)), qi: 0, right: 0, streak: 0, maxStreak: 0 };
+    arenaAsk();
+  }
+  function arenaAsk() {
+    if (!AR) return;
+    const el = $('ga-stage');
+    if (AR.qi >= AR.sample.length) { arenaEnd(); return; }
+    const a = AR, cur = a.sample[a.qi], g = L.gender;
+    el.innerHTML =
+      '<div class="gm-hud mono"><span>' + (a.qi + 1) + ' / ' + a.sample.length + '</span>' +
+      '<span style="color:var(--good);">✓ ' + a.right + (a.streak > 1 ? ' · 连击 ' + a.streak : '') + '</span></div>' +
+      '<div class="gm-timer" id="ga-timer"></div>' +
+      '<div class="qz-prompt"><div class="dj-big">' + esc(cur.w) + '</div>' +
+      '<div class="mono" style="font-size:12px; color:var(--ink2);">' + esc(cur.def) + '</div></div>' +
+      '<div class="qz-opts ga-opts">' +
+      g.arts.map((art) => '<button type="button" class="qz-opt mono" data-a="' + esc(art) + '"><b>' + esc(art) + '</b><span>' + esc(g.tags[art]) + '</span></button>').join('') +
+      '</div><div class="ea-reveal mono" id="ga-reveal" hidden></div>';
+    const bar = $('ga-timer');
+    bar.style.transition = 'none'; bar.style.width = '100%';
+    void bar.offsetWidth;
+    bar.style.transition = 'width ' + ARENA_SEC + 's linear'; bar.style.width = '0%';
+    let answered = false;
+    const settle = (pick) => {
+      if (answered || AR !== a) return;
+      answered = true;
+      clearTimeout(a.tHandle);
+      const okPick = pick === cur.r;
+      el.querySelectorAll('.qz-opt').forEach((x) => {
+        if (x.getAttribute('data-a') === cur.r) x.classList.add('ok');
+        else if (x.getAttribute('data-a') === pick) x.classList.add('bad');
+      });
+      if (okPick) { a.right++; a.streak++; a.maxStreak = Math.max(a.maxStreak, a.streak); }
+      else a.streak = 0;
+      const rv = $('ga-reveal');
+      rv.hidden = false;
+      rv.textContent = cur.r + ' ' + cur.w + (cur.rom ? ' · ' + cur.rom : '') + ' —— ' + cur.def;
+      speakWord(cur);
+      a.qi++;
+      setTimeout(() => { if (AR === a) arenaAsk(); }, okPick ? 650 : 1300);
+    };
+    a.tHandle = setTimeout(() => settle('⏰'), ARENA_SEC * 1000);
+    el.querySelectorAll('.qz-opt').forEach((b) => b.addEventListener('click', () => settle(b.getAttribute('data-a'))));
+  }
+  function arenaEnd() {
+    if (!AR) return;
+    const score = AR.right * 10 + AR.maxStreak * 5;
+    const best = Math.max(gameStore.arenaBest || 0, score);
+    const isNew = score > (gameStore.arenaBest || 0);
+    gameStore.arenaBest = best;
+    store(K.game, gameStore);
+    const el = $('ga-stage');
+    el.innerHTML = '<div class="gm-res">' +
+      '<div class="gm-stars">' + score + ' 分' + (isNew ? ' 🏆' : '') + '</div>' +
+      '<div class="gm-acc mono">答对 ' + AR.right + ' / ' + AR.sample.length + ' · 最长连击 ' + AR.maxStreak + (isNew ? ' · 新纪录！' : ' · 最佳 ' + best) + '</div>' +
+      '<div class="bw-actions" style="justify-content:center;">' +
+      '<button type="button" class="pie-btn primary" id="ga-again">再来一轮</button>' +
+      '<button type="button" class="pie-btn" id="ga-back">返回</button></div></div>';
+    AR = null;
+    $('ga-again').addEventListener('click', arenaStart);
+    $('ga-back').addEventListener('click', renderArena);
+  }
+
   /* ---------- 设置 ---------- */
   function setupSettings() {
     const sel = $('ea-voice');
@@ -528,7 +675,7 @@ export function boot(langId) {
       rate.addEventListener('input', () => { cfg.rate = parseFloat(rate.value); store(K.cfg, cfg); $('ea-rate-v').textContent = rate.value; });
       $('ea-rate-v').textContent = rate.value;
     }
-    if ($('ea-test')) $('ea-test').addEventListener('click', () => speak(langId === 'ja' ? 'こんにちは' : '안녕하세요'));
+    if ($('ea-test')) $('ea-test').addEventListener('click', () => speak(L.hello || L.name));
     if ($('ea-wipe')) $('ea-wipe').addEventListener('click', () => {
       if (!confirm('清空 ' + L.name + ' 的全部学习数据（生词、道场、闯关进度）？')) return;
       [K.words, K.dojo, K.game, K.daily].forEach((k) => localStorage.removeItem(k));
@@ -548,6 +695,7 @@ export function boot(langId) {
       if (p === 'rev') buildQueue();
       if (p === 'dojo') renderDojo();
       if (p === 'game') renderGameMap();
+      if (p === 'gender') renderArena();
       if (window.speechSynthesis) speechSynthesis.cancel();
     }));
   }
@@ -557,15 +705,20 @@ export function boot(langId) {
     loadVoices();
     if (window.speechSynthesis) speechSynthesis.onvoiceschanged = loadVoices;
     document.addEventListener('keydown', revKeys);
-    $('dj-quiz-read').addEventListener('click', () => dojoQuiz('read'));
-    $('dj-quiz-listen').addEventListener('click', () => dojoQuiz('listen'));
+    if ($('dj-quiz-read')) $('dj-quiz-read').addEventListener('click', () => dojoQuiz('read'));
+    if ($('dj-quiz-listen')) $('dj-quiz-listen').addEventListener('click', () => dojoQuiz('listen'));
     if ($('ea-gp-quit')) $('ea-gp-quit').addEventListener('click', renderGameMap);
     renderDojo();
     revStats();
     try {
       pack = await (await fetch(L.pack)).json();
     } catch (e) { pack = null; }
+    packObjs = null;
     revStats();
+    /* 默认标签是复习的语言：首屏直接把队列建好 */
+    const onTab = document.querySelector('.enx-side button.on');
+    if (onTab && onTab.getAttribute('data-p') === 'rev') buildQueue();
+    if (onTab && onTab.getAttribute('data-p') === 'gender') renderArena();
   }
   init();
 }
