@@ -682,11 +682,20 @@ function renderGameSrcSel() {
     });
   }
 }
-function gameProg() { const id = gameSrcId(); if (!gameStore[id]) gameStore[id] = { stars: {} }; return gameStore[id]; }
+function gameProg() {
+  const id = gameSrcId();
+  if (!gameStore[id]) gameStore[id] = { stars: {}, exempt: {}, placed: false };
+  if (!gameStore[id].exempt) gameStore[id].exempt = {};   /* 兼容旧存档 */
+  return gameStore[id];
+}
 function starsTotal(prog, nStage) { let t = 0; for (let i = 0; i < nStage; i++) t += prog.stars[i] || 0; return t; }
+function stageDone(prog, i) { return (prog.stars[i] || 0) > 0 || !!prog.exempt[i]; }
+let gPick = false;   /* 「选择起点」模式 */
 async function renderGameMap() {
   const map = $('game-map');
   renderGameSrcSel();
+  if (G && G.tHandle) clearTimeout(G.tHandle);
+  G = null;
   $('game-play').hidden = true;
   $('game-result').hidden = true;
   map.hidden = false;
@@ -698,12 +707,21 @@ async function renderGameMap() {
     if (cont) cont.hidden = true;
     return;
   }
+  const src = gameSrcId();
   const nStage = Math.ceil(list.length / CHUNK);
   const prog = gameProg();
   let cleared = 0;
-  while (cleared < nStage && (prog.stars[cleared] || 0) > 0) cleared++;
-  const unlocked = Math.min(nStage - 1, cleared + 2);   /* 通关进度 + 前方 2 关可玩 */
-  $('game-lvlname').textContent = levelName(gameSrcId()) + ' · ' + list.length + ' 词 · ' + nStage + ' 关';
+  while (cleared < nStage && stageDone(prog, cleared)) cleared++;
+  /* 解锁：连续进度 + 2，且任一已完成关（含章挑战豁免的孤岛）之后 2 关也开放 */
+  const open = new Array(nStage).fill(false);
+  for (let i = 0; i < nStage; i++) {
+    if (i <= cleared + 2 || stageDone(prog, i)) open[i] = true;
+    if (stageDone(prog, i)) {
+      if (i + 1 < nStage) open[i + 1] = true;
+      if (i + 2 < nStage) open[i + 2] = true;
+    }
+  }
+  $('game-lvlname').textContent = levelName(src) + ' · ' + list.length + ' 词 · ' + nStage + ' 关';
   $('game-stars').textContent = '★ ' + starsTotal(prog, nStage) + ' / ' + nStage * 3;
   if (cont) {
     const allDone = cleared >= nStage;
@@ -716,18 +734,60 @@ async function renderGameMap() {
       cont.addEventListener('click', () => { if (!cont.disabled) startStage(parseInt(cont.dataset.i, 10)); });
     }
   }
-  map.innerHTML = list.length ? Array.from({ length: nStage }, (_, i) => {
-    const locked = i > unlocked;
+  const wantPlace = src !== 'book' && !prog.placed && nStage >= 6 && cleared === 0 && starsTotal(prog, nStage) === 0;
+  const chapters = nStage > 10;
+  let html = '';
+  if (gPick) {
+    html += '<div class="gm-place mono"><b style="color:var(--ink);">点一个关卡作为起点</b>' +
+      '<span style="font-size:11.5px; color:var(--ink2);">它之前的关全部标记豁免 ✓（随时可回打拿星）</span>' +
+      '<button type="button" class="pie-btn mono" id="gm-pick-cancel" style="margin-left:auto;">取消</button></div>';
+  } else if (wantPlace) {
+    html += '<div class="gm-place mono"><b style="color:var(--ink);">已经认识不少词？</b>' +
+      '<span style="font-size:11.5px; color:var(--ink2);">别从零磨——2 分钟摸底，跳过你已掌握的关卡</span>' +
+      '<span style="display:flex; gap:8px; margin-left:auto; flex-wrap:wrap;">' +
+      '<button type="button" class="pie-btn mono" id="gm-place-go" style="color:var(--accent); border-color:var(--accent);">⚡ 快速定级</button>' +
+      '<button type="button" class="pie-btn mono" id="gm-place-pick">选择起点</button>' +
+      '<button type="button" class="pie-btn mono" id="gm-place-skip">从头开始</button></span></div>';
+  }
+  for (let i = 0; i < nStage; i++) {
+    if (chapters && i % 10 === 0) {
+      const c = i / 10, e = Math.min(nStage, i + 10);
+      let allDone = true;
+      for (let j = i; j < e; j++) if (!stageDone(prog, j)) { allDone = false; break; }
+      html += '<div class="gm-ch mono"><span>第 ' + (c + 1) + ' 章 · 第 ' + (i + 1) + '–' + e + ' 关</span>' +
+        '<button type="button" class="pie-btn mono gm-boss" data-ch="' + c + '"' + (allDone ? ' disabled' : '') + '>' +
+        (allDone ? '✓ 已通过' : '⚔ 章挑战') + '</button></div>';
+    }
     const st = prog.stars[i] || 0;
-    return '<button type="button" class="gm-tile' + (locked ? ' lock' : '') + (st ? ' done' : '') + (i === cleared ? ' next' : '') + '" data-i="' + i + '"' + (locked ? ' disabled' : '') +
+    const ex = !!prog.exempt[i] && !st;
+    const locked = !gPick && !open[i];
+    html += '<button type="button" class="gm-tile' + (locked ? ' lock' : '') + (st ? ' done' : '') + (ex ? ' ex' : '') +
+      (i === cleared && !gPick ? ' next' : '') + (gPick ? ' pick' : '') + '" data-i="' + i + '"' + (locked ? ' disabled' : '') +
       ' title="第 ' + (i + 1) + ' 关 · 词 ' + (i * CHUNK + 1) + '–' + Math.min(list.length, (i + 1) * CHUNK) + '">' +
       '<b>' + (i + 1) + '</b>' +
-      '<i>' + '★'.repeat(st) + '☆'.repeat(Math.max(0, 3 - st)) + '</i>' +
+      '<i>' + (ex ? '✓ 豁免' : '★'.repeat(st) + '☆'.repeat(Math.max(0, 3 - st))) + '</i>' +
       '<em class="mono">' + (locked ? '🔒' : STAGE_TYPES[i % 3]) + '</em></button>';
-  }).join('') : '';
-  map.querySelectorAll('.gm-tile:not(.lock)').forEach((b) => b.addEventListener('click', () => startStage(parseInt(b.getAttribute('data-i'), 10))));
+  }
+  map.innerHTML = html;
+  map.querySelectorAll('.gm-tile:not(.lock)').forEach((b) => b.addEventListener('click', () => {
+    const i = parseInt(b.getAttribute('data-i'), 10);
+    if (gPick) {
+      const p2 = gameProg();
+      for (let j = 0; j < i; j++) if (!(p2.stars[j] > 0)) p2.exempt[j] = true;
+      p2.placed = true; gPick = false;
+      store(K.game, gameStore);
+      renderGameMap();
+    } else startStage(i);
+  }));
+  map.querySelectorAll('.gm-boss:not([disabled])').forEach((b) => b.addEventListener('click', () => startBoss(parseInt(b.getAttribute('data-ch'), 10))));
+  if ($('gm-place-go')) $('gm-place-go').addEventListener('click', startPlacement);
+  if ($('gm-place-pick')) $('gm-place-pick').addEventListener('click', () => { gPick = true; renderGameMap(); });
+  if ($('gm-place-skip')) $('gm-place-skip').addEventListener('click', () => { gameProg().placed = true; store(K.game, gameStore); renderGameMap(); });
+  if ($('gm-pick-cancel')) $('gm-pick-cancel').addEventListener('click', () => { gPick = false; renderGameMap(); });
   map.insertAdjacentHTML('beforeend',
-    '<div class="mono" style="grid-column:1/-1; font-size:11px; color:var(--ink2); padding-top:4px;">规则：正确率 ≥60% 得星过关；任意时刻开放「已通关进度 + 前方 2 关」。词按考纲词频从高到低切关——第 1 关就是最常用的 ' + CHUNK + ' 个词。</div>');
+    '<div class="mono" style="grid-column:1/-1; font-size:11px; color:var(--ink2); padding-top:4px;">规则：正确率 ≥60% 得星过关；任一已完成关之后 2 关开放。⚔ 章挑战：本章 500 词抽 20 题限时作答，错满 3 题失败，通过即豁免整章。豁免关 ✓ 不给星，随时可回打。词按考纲词频从高到低切关——第 1 关就是最常用的 ' + CHUNK + ' 个词。' +
+    (src !== 'book' && prog.placed && !gPick ? ' <a href="javascript:void 0" id="gm-replace" style="color:var(--accent);">重新定级</a>' : '') + '</div>');
+  if ($('gm-replace')) $('gm-replace').addEventListener('click', startPlacement);
   /* 关卡多时地图内滚动到当前进度（面板隐藏时 rect 为 0，自动跳过） */
   const nx = map.querySelector('.gm-tile.next');
   if (nx && map.scrollHeight > map.clientHeight + 4) {
@@ -765,6 +825,7 @@ function gUpdateHud() {
 function gWrong(w, def) { if (!G.wrongSet[w]) G.wrongSet[w] = def; }
 /* 配对：每轮 6 对 */
 function matchRound(start) {
+  if (!G) return;
   const seg = G.sample.slice(start, start + 6);
   if (!seg.length) { finishStage(); return; }
   G.matchStart = start;
@@ -805,6 +866,7 @@ function matchRound(start) {
 }
 /* 四选一 / 听音辨词 */
 function quizAsk() {
+  if (!G) return;
   if (G.qi >= G.sample.length) { finishStage(); return; }
   const cur = G.sample[G.qi];
   const opts = gShuffle([cur].concat(gShuffle(G.pool.filter((e) => e.w !== cur.w)).slice(0, 3)));
@@ -870,6 +932,189 @@ function finishStage() {
     '</div></div>';
   $('gm-retry').addEventListener('click', () => startStage(G.stage));
   if ($('gm-next')) $('gm-next').addEventListener('click', () => startStage(G.stage + 1));
+  $('gm-back').addEventListener('click', renderGameMap);
+}
+
+/* ---------- 快速定级：分层抽样摸底，豁免已掌握的段落 ---------- */
+async function startPlacement() {
+  const list = await gameWordList();
+  if (list.length < 12) return;
+  const nStage = Math.ceil(list.length / CHUNK);
+  const raw = [0.1, 0.3, 0.5, 0.7, 0.9].map((p) => Math.max(0, Math.min(nStage - 1, Math.round(nStage * p) - 1)));
+  const depths = raw.filter((v, i) => raw.indexOf(v) === i);
+  G = { mode: 'place', list, nStage, depths, di: 0, rq: 0, rr: 0, tq: 0, tr: 0, frontier: -1, used: {} };
+  $('game-map').hidden = true;
+  $('game-result').hidden = true;
+  $('game-play').hidden = false;
+  if ($('game-cont')) $('game-cont').hidden = true;
+  $('gp-title').textContent = '⚡ 快速定级';
+  placeAsk();
+}
+function placeAsk() {
+  if (!G || G.mode !== 'place') return;
+  const d = G.depths[G.di];
+  const pool = G.list.slice(d * CHUNK, (d + 1) * CHUNK);
+  let cur = pool[Math.floor(Math.random() * pool.length)];
+  for (let t = 0; t < 30 && G.used[cur.w]; t++) cur = pool[Math.floor(Math.random() * pool.length)];
+  G.used[cur.w] = 1;
+  const opts = gShuffle([cur].concat(gShuffle(pool.filter((e) => e.w !== cur.w)).slice(0, 3)));
+  $('gp-progress').textContent = '深度 ' + (G.di + 1) + '/' + G.depths.length + ' · 第 ' + (G.rq + 1) + '/4 题';
+  $('gp-score').textContent = '✓ ' + G.tr;
+  $('gp-stage').innerHTML =
+    '<div class="qz-prompt"><div class="qz-def">' + esc(cur.def.slice(0, 80)) + '</div>' +
+    '<div class="mono" style="font-size:12px; color:var(--ink2); margin-top:8px;">探测第 ' + (d + 1) + ' 关附近 —— 选出对应的单词</div></div>' +
+    '<div class="qz-opts">' + opts.map((o) => '<button type="button" class="qz-opt mono" data-w="' + esc(o.w) + '">' + esc(o.w) + '</button>').join('') + '</div>';
+  let answered = false;
+  const g = G;
+  $('gp-stage').querySelectorAll('.qz-opt').forEach((b) => b.addEventListener('click', () => {
+    if (answered || G !== g) return;
+    answered = true;
+    const okPick = b.getAttribute('data-w') === cur.w;
+    b.classList.add(okPick ? 'ok' : 'bad');
+    if (!okPick) $('gp-stage').querySelectorAll('.qz-opt').forEach((x) => { if (x.getAttribute('data-w') === cur.w) x.classList.add('ok'); });
+    if (okPick) { g.rr++; g.tr++; }
+    g.rq++; g.tq++;
+    setTimeout(() => {
+      if (G !== g) return;
+      if (g.rq >= 4) {
+        const pass = g.rr >= 3;
+        if (pass) g.frontier = g.depths[g.di];
+        g.di++; g.rq = 0; g.rr = 0;
+        if (!pass || g.di >= g.depths.length) { finishPlacement(); return; }
+      }
+      placeAsk();
+    }, okPick ? 350 : 900);
+  }));
+}
+function finishPlacement() {
+  const prog = gameProg();
+  const k = G.frontier, tr = G.tr, tq = G.tq, nStage = G.nStage;
+  G = null;
+  $('game-play').hidden = true;
+  const res = $('game-result');
+  res.hidden = false;
+  if (k < 0) {
+    prog.placed = true;
+    store(K.game, gameStore);
+    res.innerHTML = '<div class="gm-res"><div class="gm-stars">📍 第 1 关</div>' +
+      '<div class="gm-acc mono">从头开始最适合你 —— 高频词打牢，后面才省力。（答对 ' + tr + ' / ' + tq + '）</div>' +
+      '<div class="bw-actions" style="justify-content:center;"><button type="button" class="pie-btn primary" id="gm-back">进入地图</button></div></div>';
+    $('gm-back').addEventListener('click', renderGameMap);
+    return;
+  }
+  const upto = Math.min(k + 1, nStage - 1);   /* 豁免 0..k，从 k+1 关开始 */
+  res.innerHTML = '<div class="gm-res"><div class="gm-stars">📍 第 ' + (upto + 1) + ' 关</div>' +
+    '<div class="gm-acc mono">定级完成：答对 ' + tr + ' / ' + tq + ' —— 建议前 ' + (k + 1) + ' 关标记豁免 ✓，从第 ' + (upto + 1) + ' 关开始（豁免关随时可回打拿星）</div>' +
+    '<div class="bw-actions" style="justify-content:center;">' +
+    '<button type="button" class="pie-btn primary" id="gm-accept">就从这开始</button>' +
+    '<button type="button" class="pie-btn" id="gm-back0">不用，从头开始</button></div></div>';
+  $('gm-accept').addEventListener('click', () => {
+    for (let j = 0; j <= k; j++) if (!(prog.stars[j] > 0)) prog.exempt[j] = true;
+    prog.placed = true;
+    store(K.game, gameStore);
+    renderGameMap();
+  });
+  $('gm-back0').addEventListener('click', () => { prog.placed = true; store(K.game, gameStore); renderGameMap(); });
+}
+
+/* ---------- 章挑战：本章 500 词抽 20 题限时混合作答，通过豁免整章 ---------- */
+const BOSS_Q = 20, BOSS_MISS = 3, BOSS_SEC = 8;
+async function startBoss(ch) {
+  const list = await gameWordList();
+  const nStage = Math.ceil(list.length / CHUNK);
+  const s0 = ch * 10, s1 = Math.min(nStage, s0 + 10);
+  const pool = list.slice(s0 * CHUNK, s1 * CHUNK);
+  if (pool.length < 12) return;
+  G = {
+    mode: 'boss', ch, s0, s1, nStage, pool,
+    sample: gShuffle(pool).slice(0, Math.min(BOSS_Q, pool.length)),
+    qi: 0, right: 0, miss: 0, combo: 0, wrongSet: {},
+  };
+  $('game-map').hidden = true;
+  $('game-result').hidden = true;
+  $('game-play').hidden = false;
+  if ($('game-cont')) $('game-cont').hidden = true;
+  $('gp-title').textContent = '⚔ 第 ' + (ch + 1) + ' 章挑战';
+  bossAsk();
+}
+function bossAsk() {
+  if (!G || G.mode !== 'boss') return;
+  if (G.miss >= BOSS_MISS) { bossEnd(false); return; }
+  if (G.qi >= G.sample.length) { bossEnd(true); return; }
+  const g = G, cur = g.sample[g.qi];
+  const isListen = g.qi % 3 === 2;   /* 每 3 题 1 道听力 */
+  const opts = gShuffle([cur].concat(gShuffle(g.pool.filter((e) => e.w !== cur.w)).slice(0, 3)));
+  $('gp-progress').textContent = (g.qi + 1) + ' / ' + g.sample.length;
+  $('gp-score').textContent = '✓ ' + g.right + ' · ' + '❤'.repeat(Math.max(0, BOSS_MISS - g.miss)) + (g.combo > 1 ? ' · 连击 ' + g.combo : '');
+  $('gp-stage').innerHTML =
+    '<div class="gm-timer" id="gm-timer"></div>' +
+    '<div class="qz-prompt">' +
+    (isListen
+      ? '<button type="button" class="en-spkbtn" id="qz-spk" style="font-size:26px; padding:14px 26px;">🔊</button><div class="mono" style="font-size:12px; color:var(--ink2); margin-top:8px;">听发音，选单词 · ' + BOSS_SEC + ' 秒</div>'
+      : '<div class="qz-def">' + esc(cur.def.slice(0, 80)) + '</div><div class="mono" style="font-size:12px; color:var(--ink2); margin-top:8px;">选出对应的单词 · ' + BOSS_SEC + ' 秒</div>') +
+    '</div><div class="qz-opts">' +
+    opts.map((o) => '<button type="button" class="qz-opt mono" data-w="' + esc(o.w) + '">' + esc(o.w) + '</button>').join('') +
+    '</div>';
+  const bar = $('gm-timer');
+  bar.style.transition = 'none'; bar.style.width = '100%';
+  void bar.offsetWidth;
+  bar.style.transition = 'width ' + BOSS_SEC + 's linear'; bar.style.width = '0%';
+  if (isListen) {
+    $('qz-spk').addEventListener('click', () => pronounce(cur.w));
+    pronounce(cur.w);
+  }
+  let answered = false;
+  const settle = (okPick) => {
+    if (answered || G !== g) return;
+    answered = true;
+    clearTimeout(g.tHandle);
+    if (okPick) { g.right++; g.combo++; }
+    else {
+      g.miss++; g.combo = 0;
+      gWrong(cur.w, cur.def);
+      $('gp-stage').querySelectorAll('.qz-opt').forEach((x) => { if (x.getAttribute('data-w') === cur.w) x.classList.add('ok'); });
+    }
+    g.qi++;
+    setTimeout(() => { if (G === g) bossAsk(); }, okPick ? 400 : 1000);
+  };
+  g.tHandle = setTimeout(() => settle(false), BOSS_SEC * 1000);
+  $('gp-stage').querySelectorAll('.qz-opt').forEach((b) => b.addEventListener('click', () => {
+    const okPick = b.getAttribute('data-w') === cur.w;
+    if (!okPick) b.classList.add('bad'); else b.classList.add('ok');
+    settle(okPick);
+  }));
+}
+function bossEnd(pass) {
+  if (G.tHandle) clearTimeout(G.tHandle);
+  const prog = gameProg();
+  const ch = G.ch, s0 = G.s0, s1 = G.s1, nStage = G.nStage, right = G.right, total = G.sample.length;
+  const wrongs = Object.keys(G.wrongSet), wrongSet = G.wrongSet;
+  G = null;
+  let added = 0;
+  wrongs.forEach((w) => { if (addWord(w, wrongSet[w])) { words[words.length - 1].lv = cfg.level || ''; added++; } });
+  if (added) { saveWords(); revStats(); }
+  if (pass) {
+    for (let i = s0; i < s1; i++) if (!(prog.stars[i] > 0)) prog.exempt[i] = true;
+    prog.placed = true;
+    store(K.game, gameStore);
+  }
+  $('game-play').hidden = true;
+  const res = $('game-result');
+  res.hidden = false;
+  const hasNext = (ch + 1) * 10 < nStage;
+  res.innerHTML = '<div class="gm-res">' +
+    '<div class="gm-stars">' + (pass ? '⚔ 通过！' : '未通过') + '</div>' +
+    '<div class="gm-acc mono">' + (pass
+      ? '第 ' + (ch + 1) + ' 章 ' + (s1 - s0) + ' 关已全部豁免 ✓ · 答对 ' + right + ' / ' + total
+      : '错满 ' + BOSS_MISS + ' 题 —— 答对 ' + right + ' / ' + total + '，错词已进生词本，复习后再来') + '</div>' +
+    (wrongs.length ? '<div class="gm-wrong mono">错词：' + wrongs.slice(0, 8).map(esc).join(' · ') + (wrongs.length > 8 ? ' …' : '') + '</div>' : '') +
+    '<div class="bw-actions" style="justify-content:center;">' +
+    (pass
+      ? (hasNext ? '<button type="button" class="pie-btn primary" id="gm-boss-next">⚔ 挑战第 ' + (ch + 2) + ' 章 →</button>' : '')
+      : '<button type="button" class="pie-btn primary" id="gm-boss-retry">再来一次</button>') +
+    '<button type="button" class="pie-btn" id="gm-back">返回地图</button></div></div>';
+  if ($('gm-boss-next')) $('gm-boss-next').addEventListener('click', () => startBoss(ch + 1));
+  if ($('gm-boss-retry')) $('gm-boss-retry').addEventListener('click', () => startBoss(ch));
   $('gm-back').addEventListener('click', renderGameMap);
 }
 
