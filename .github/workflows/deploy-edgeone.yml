@@ -1,0 +1,43 @@
+# 国内镜像：腾讯云 EdgeOne Pages（与 deploy.yml 的 GitHub Pages 部署并行，互不影响）
+# 前置：EdgeOne Pages 控制台生成 API Token，存入仓库 Secret EDGEONE_API_TOKEN。
+# 未配置 Secret 时本 workflow 直接跳过，不会失败。
+name: Deploy EdgeOne Pages (国内镜像)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: edgeone-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+      PROJECT_NAME: within-one-frame
+    steps:
+      - name: 检查 Token
+        if: env.EDGEONE_API_TOKEN == ''
+        run: echo "::notice::EDGEONE_API_TOKEN 未配置，跳过国内镜像部署（EdgeOne Pages 控制台 → API Token → 创建后存入仓库 Secret）"
+
+      - uses: actions/checkout@v4
+        if: env.EDGEONE_API_TOKEN != ''
+
+      - uses: actions/setup-node@v4
+        if: env.EDGEONE_API_TOKEN != ''
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build
+        if: env.EDGEONE_API_TOKEN != ''
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to EdgeOne Pages
+        if: env.EDGEONE_API_TOKEN != ''
+        run: npx edgeone pages deploy dist -n "$PROJECT_NAME" -t "$EDGEONE_API_TOKEN"
