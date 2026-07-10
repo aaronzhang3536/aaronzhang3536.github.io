@@ -1,0 +1,157 @@
+---
+import Base from '../../layouts/Base.astro';
+
+export function getStaticPaths() {
+  return ['fr', 'de', 'es', 'it', 'ru'].map((lang) => ({ params: { lang } }));
+}
+const { lang } = Astro.params;
+
+const META = {
+  fr: {
+    title: '法语学习中心', native: 'Français', color: 'var(--c-base)',
+    desc: '法语 A1 核心词：词性竞技场（le/la 限时快答）、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    metaLine: '词性竞技场 le/la · A1 核心词 · 间隔重复 · 连冠词发音',
+    sub: '法语名词的性别没有完全规律，只能连着冠词一起背——所以这里的发音永远带冠词（la maison 而非 maison），并配一个专门的「词性竞技场」限时快答 le/la。闯关背词、错词进复习。',
+    arenaTitle: '词性竞技场 —— 5 秒一题抢答 le / la，连击加分',
+    dojo: false,
+  },
+  de: {
+    title: '德语学习中心', native: 'Deutsch', color: 'var(--c-tool)',
+    desc: '德语 A1 核心词：der/die/das 词性竞技场、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    metaLine: '词性竞技场 der/die/das · A1 核心词 · 间隔重复',
+    sub: 'der / die / das 是德语学习者的头号噩梦——性别基本无规律，必须连冠词整体记忆。「词性竞技场」限时快答专治这个；发音永远带冠词，闯关背词、错词进复习。',
+    arenaTitle: '词性竞技场 —— 5 秒一题抢答 der / die / das，连击加分',
+    dojo: false,
+  },
+  es: {
+    title: '西班牙语学习中心', native: 'Español', color: 'var(--c-render)',
+    desc: '西班牙语 A1 核心词：el/la 词性竞技场、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    metaLine: '词性竞技场 el/la · A1 核心词 · 间隔重复',
+    sub: '西语名词性别大多有规律（-o 阳 / -a 阴），但例外才是考点（el día, la mano…）。「词性竞技场」限时快答帮你把规律和例外都变成肌肉记忆；发音带冠词，闯关背词、错词进复习。',
+    arenaTitle: '词性竞技场 —— 5 秒一题抢答 el / la，连击加分',
+    dojo: false,
+  },
+  it: {
+    title: '意大利语学习中心', native: 'Italiano', color: 'var(--c-life)',
+    desc: '意大利语 A1 核心词：il/la 词性竞技场、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    metaLine: '词性竞技场 il/la · A1 核心词 · 间隔重复',
+    sub: '意语拼读极规则（怎么写就怎么读），入门负担小；性别是主要记忆点。「词性竞技场」限时快答 il/la；发音带冠词，闯关背词、错词进复习。',
+    arenaTitle: '词性竞技场 —— 5 秒一题抢答 il / la，连击加分',
+    dojo: false,
+  },
+  ru: {
+    title: '俄语学习中心', native: 'Русский', color: 'var(--c-char)',
+    desc: '俄语：西里尔字母道场（含陷阱字母）、м/ж/с 词性竞技场、A1 核心词复习与闯关；数据全存本地',
+    metaLine: '西里尔字母道场 · 陷阱字母 · 词性竞技场 м/ж/с · A1 核心词',
+    sub: '先攻字母——西里尔 33 个字母里最坑的是「陷阱字母」：В 读 v、Н 读 n、Р 读 r，长得像拉丁字母发音却完全不同，道场专设一组。名词分阳/阴/中三性，好在词尾基本决定性别（辅音结尾阳、-а/-я 阴、-о/-е 中），竞技场里把这条规律练成直觉。',
+    arenaTitle: '词性竞技场 —— 5 秒一题判断 м / ж / с（看词尾），连击加分',
+    dojo: true,
+    dojoTitle: '西里尔字母道场 —— 点字母听名称；「陷阱字母」组是形似拉丁的假朋友',
+  },
+};
+const m = META[lang];
+---
+<Base title={m.title} desc={m.desc}>
+<main class="wrap reader enx" data-lang={lang}>
+  <a class="back mono" href="/lang/">← 外语</a>
+  <h1 class="rd-title">{m.title}</h1>
+  <div class="meta mono">
+    <span class="sw" style={`background:${m.color};`}></span>
+    <span>{m.metaLine}</span>
+  </div>
+  <p class="enx-sub">{m.sub}</p>
+
+  <div class="enx-app">
+    <nav class="enx-side mono" aria-label="学习模块">
+      {m.dojo && <button type="button" class="on" data-p="dojo"><i class="sw" style={`background:${m.color};`}></i>字母道场</button>}
+      <button type="button" class={m.dojo ? '' : 'on'} data-p="gender"><i class="sw" style="background:var(--c-render);"></i>词性竞技场</button>
+      <button type="button" data-p="rev"><i class="sw" style="background:var(--c-ai);"></i>今日复习<em id="nav-due"></em></button>
+      <button type="button" data-p="game"><i class="sw" style="background:var(--c-tool);"></i>词汇闯关</button>
+      <button type="button" data-p="set"><i class="sw" style="background:var(--ink2);"></i>设置</button>
+    </nav>
+
+    <div class="enx-main">
+      {m.dojo && (
+      <section class="enx-panel" data-p="dojo">
+        <div class="enx-h">{m.dojoTitle}</div>
+        <p class="mono" id="ea-tts-warn" hidden style="color:var(--c-render); font-size:12px;"></p>
+        <div class="enx-bar slim" id="dj-sets"></div>
+        <div class="enx-bar slim">
+          <span class="mono" id="dj-prog" style="color:var(--ink);"></span>
+          <span style="margin-left:auto; display:flex; gap:8px;">
+            <button type="button" class="pie-btn mono" id="dj-quiz-read">✏ 认读测验</button>
+            <button type="button" class="pie-btn mono" id="dj-quiz-listen">🔊 听辨测验</button>
+          </span>
+        </div>
+        <div id="dj-quiz-area"></div>
+        <div class="dj-grid" id="dj-grid"></div>
+      </section>
+      )}
+
+      <!-- 词性竞技场 -->
+      <section class="enx-panel" data-p="gender" hidden={m.dojo}>
+        <div class="enx-h">{m.arenaTitle}</div>
+        {!m.dojo && <p class="mono" id="ea-tts-warn" hidden style="color:var(--c-render); font-size:12px;"></p>}
+        <div id="ga-stage"></div>
+      </section>
+
+      <!-- 复习 -->
+      <section class="enx-panel" data-p="rev" hidden>
+        <div class="enx-stats">
+          <div class="enx-tile hot"><b id="st-due">0</b><span>待复习</span></div>
+          <div class="enx-tile good"><b id="st-today">0</b><span>今日已复习</span></div>
+          <div class="enx-tile"><b id="st-total">0</b><span>生词总量</span></div>
+          <div class="enx-tile"><b id="st-new">—</b><span>词库剩余新词</span></div>
+        </div>
+        <div id="rev-card" class="en-card"></div>
+        <div class="en-hint mono"><kbd>空格</kbd> 显示答案　<kbd>1</kbd> 忘了　<kbd>2</kbd> 模糊　<kbd>3</kbd> 认识　<kbd>P</kbd> 发音</div>
+      </section>
+
+      <!-- 闯关 -->
+      <section class="enx-panel" data-p="game" hidden>
+        <div class="enx-h">词汇闯关 —— 核心词按频度切关，配对 / 选择 / 听力轮换，错词进复习</div>
+        <div class="enx-bar slim">
+          <span class="mono" id="ea-lvlname" style="color:var(--ink);"></span>
+          <span class="mono" id="ea-stars" style="margin-left:auto; color:var(--c-tool);"></span>
+        </div>
+        <div id="ea-map" class="gm-map"></div>
+        <div id="ea-play" hidden>
+          <div class="gm-hud mono">
+            <span id="ea-gp-title" style="color:var(--ink);"></span>
+            <span id="ea-gp-progress"></span>
+            <span id="ea-gp-score" style="color:var(--good);"></span>
+            <button type="button" class="pie-btn" id="ea-gp-quit" style="margin-left:auto;">✕ 退出</button>
+          </div>
+          <div id="ea-gp-stage"></div>
+        </div>
+        <div id="ea-result" hidden></div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="enx-panel" data-p="set" hidden>
+        <div class="enx-h">发音与数据</div>
+        <div class="enx-bar">
+          <label class="mono" style="font-size:12px;">语音
+            <select id="ea-voice" class="mono"></select>
+          </label>
+          <label class="mono" style="font-size:12px;">语速
+            <input id="ea-rate" type="range" min="0.5" max="1.3" step="0.05" style="width:110px;" />
+            <span class="mono" id="ea-rate-v"></span>
+          </label>
+          <button type="button" class="pie-btn mono" id="ea-test">🔊 试听</button>
+        </div>
+        <div class="enx-bar">
+          <button type="button" class="pie-btn mono" id="ea-wipe" style="color:var(--c-render); border-color:var(--c-render);">清空本语言全部数据</button>
+        </div>
+        <p class="mono" style="font-size:12px; color:var(--ink2); max-width:640px;">
+          发音使用浏览器语音合成（Web Speech API），零外链。生词、掌握度、闯关星数、竞技场纪录全部只存 localStorage。
+        </p>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+  import { boot } from '../../scripts/lang/eastasian.js';
+  boot();
+</script>
+</Base>
