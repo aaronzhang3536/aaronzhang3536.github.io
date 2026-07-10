@@ -20,6 +20,12 @@ import Base from '../../layouts/Base.astro';
   <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
 
   <div class="lab-ctl mono">
+    <label>场景
+      <select id="lu-scene">
+        <option value="lushan" selected>庐山（江西九江）</option>
+        <option value="luoyun">罗云村 · 黄土塬（山西洪洞）</option>
+      </select>
+    </label>
     <label>时刻
       <input id="lu-time" type="range" min="5.2" max="19.4" step="0.05" value="8.2" style="width:150px;" />
     </label>
@@ -54,21 +60,13 @@ import Base from '../../layouts/Base.astro';
     <label class="mono"><input type="checkbox" id="lu-fwd" /> 自动前进（触屏）</label>
   </div>
 
-  <div class="lab-ctl mono lu-tps">
-    <span style="color:var(--ink2);">传送：</span>
-    <button type="button" class="pie-btn lu-tp" data-m="hanpokou">含鄱口</button>
-    <button type="button" class="pie-btn lu-tp" data-m="dahanyang">大汉阳峰</button>
-    <button type="button" class="pie-btn lu-tp" data-m="wulao">五老峰</button>
-    <button type="button" class="pie-btn lu-tp" data-m="sandiequan">三叠泉</button>
-    <button type="button" class="pie-btn lu-tp" data-m="guling">牯岭镇</button>
-    <button type="button" class="pie-btn lu-tp" data-m="ruqin">如琴湖</button>
-    <button type="button" class="pie-btn lu-tp" data-m="xiufeng">秀峰瀑布</button>
-    <button type="button" class="pie-btn lu-tp" data-m="shimen">石门涧</button>
-    <button type="button" class="pie-btn lu-tp" data-m="bailu">白鹿洞书院</button>
-    <button type="button" class="pie-btn lu-tp" data-m="poyang">鄱阳湖</button>
-  </div>
+  <div class="lab-ctl mono lu-tps" id="lu-tps"></div>
 
   <p style="max-width:800px; color:var(--ink2); font-size:14px;">
+    双场景：<b>庐山</b>（江西九江，29×30km 青绿山水）与<b>罗云村</b>（山西洪洞刘家垣镇，
+    17.9×17.8km 黄土塬沟壑，村坐标取自 OpenStreetMap 36.4097°N 111.4916°E）——
+    左上「场景」下拉即可切换，两地共用同一套引擎与 Nanite 分簇管线，材质各有一套：
+    庐山是林海花岗岩，罗云村是塬面田块、梯田棱线与冲沟黄土层理。
     这是按<b>真实地形数据</b>等比例复刻的庐山全域 —— 高程来自 SRTM 30m 卫星测绘
     （构建期烘焙成 1024² 高程场自托管，运行时零外部请求），29.0 × 29.9 公里，
     从鄱阳湖平原（约 10m）到大汉阳峰（1474m）。<b>点击画面锁定鼠标</b>，

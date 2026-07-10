@@ -9,8 +9,8 @@ const $ = (id) => document.getElementById(id);
 const cvs = $('lab-cv');
 const hud = $('lab-hud');
 
-/* ---------- 地标（真实经纬度） ---------- */
-const MARKS = [
+/* ---------- 场景注册表 ---------- */
+const MARKS_LUSHAN = [
   { id: 'dahanyang', name: '大汉阳峰 1474m', lon: 115.9800, lat: 29.5069, dy: 4 },
   { id: 'wulao',     name: '五老峰 1436m',   lon: 116.0333, lat: 29.5522, dy: 4 },
   { id: 'hanpokou',  name: '含鄱口',          lon: 116.0192, lat: 29.5486, dy: 4 },
@@ -24,12 +24,36 @@ const MARKS = [
   { id: 'donglin',   name: '东林寺',          lon: 115.9439, lat: 29.6106, dy: 4 },
   { id: 'poyang',    name: '鄱阳湖',          lon: 116.1600, lat: 29.4900, dy: 6 },
 ];
+const MARKS_LUOYUN = [
+  { id: 'luoyun',   name: '罗云村',   lon: 111.49156, lat: 36.40973, dy: 4, tp: 1 },
+  { id: 'liujiayuan', name: '刘家垣镇', lon: 111.5352, lat: 36.4157, dy: 4, tp: 1 },
+];
 /* 瀑布：顶/底经纬度（沿真实溪谷走向，条带贴崖） */
-const FALLS = [
+const FALLS_LUSHAN = [
   { top: [116.0415, 29.5665], bot: [116.0455, 29.5716], w: 16 },   /* 三叠泉，155m 三级 */
   { top: [115.9915, 29.4740], bot: [115.9945, 29.4693], w: 13 },   /* 秀峰（开先）瀑布 */
   { top: [115.9420, 29.5575], bot: [115.9372, 29.5612], w: 11 },   /* 石门涧 */
 ];
+const SCENES = {
+  lushan: {
+    name: '庐山 · 自由漫游', sub: 'WebGPU · 真实 DEM 等比例（SRTM 30m） · 29.0 × 29.9 km',
+    data: 'lushan', palette: 0, water: 12.5, fogDef: 36,
+    treeN: 130000, treeLo: 25, treeHi: 1240, treeSlope: 55, broadleafHi: 750,
+    marks: MARKS_LUSHAN, falls: FALLS_LUSHAN, start: 'hanpokou',
+    tps: ['hanpokou', 'dahanyang', 'wulao', 'sandiequan', 'guling', 'ruqin', 'xiufeng', 'shimen', 'bailu', 'poyang'],
+  },
+  luoyun: {
+    name: '罗云村 · 黄土塬漫游', sub: 'WebGPU · 真实 DEM 等比例（SRTM 30m） · 山西洪洞 · 17.9 × 17.8 km',
+    data: 'luoyun', palette: 1, water: -999, fogDef: 26,
+    treeN: 42000, treeLo: 540, treeHi: 1420, treeSlope: 46, broadleafHi: 9999,
+    marks: MARKS_LUOYUN, falls: [], start: 'luoyun',
+    tps: ['luoyun', 'liujiayuan'],
+    derive: true,   /* 从 DEM 自动派生 塬上高点 / 深沟谷底 */
+  },
+};
+const SCN = SCENES[new URLSearchParams(location.search).get('scene') === 'luoyun' ? 'luoyun' : 'lushan'];
+const MARKS = SCN.marks;
+const FALLS = SCN.falls;
 
 /* ---------- WGSL ---------- */
 const COMMON = /* wgsl */`
@@ -65,6 +89,7 @@ fn hBilinear(wx: f32, wz: f32) -> f32 {
   return mix(mix(h00, h10, ax), mix(h01, h11, ax), az);
 }
 fn waterMask(wx: f32, wz: f32) -> f32 {
+  if (u.nan.w > 0.5) { return 0.0; }   /* 罗云村：无湖区 */
   let fx = wx / u.map.x;
   let fz = wz / u.map.y;
   return select(0.0, 1.0, fx > 0.63 || (fz > 0.76 && fx > 0.44));
@@ -177,12 +202,32 @@ const TER_FS = /* wgsl */`
     let d1 = fbm(v.wp.xz * 0.0016);
     let d2 = fbm(v.wp.xz * 0.02);
     let d3 = vnoise(v.wp.xz * 0.35);
+    var base: vec3f;
+    if (u.nan.w > 0.5) {
+      /* —— 黄土塬（罗云村）：塬面农田拼布 + 梯田台阶 + 冲沟黄土壁层理 —— */
+      let loess = vec3f(0.335, 0.255, 0.150) + (d2 - 0.5) * 0.10;
+      let wheat = vec3f(0.295, 0.270, 0.120);
+      let crop  = vec3f(0.185, 0.235, 0.085);
+      let cell = vnoise(floor(v.wp.xz / 210.0) + 0.5);          /* 田块拼布 */
+      let field = mix(wheat, crop, step(0.5, cell)) + (d3 - 0.5) * 0.05;
+      let gullyW = smoothstep(0.20, 0.42, slope + (d2 - 0.5) * 0.08);
+      base = mix(field, loess, smoothstep(0.09, 0.28, slope));
+      /* 梯田：缓坡按 ~4m 高程分级，棱线压暗 */
+      let terr = smoothstep(0.05, 0.14, slope) * (1.0 - smoothstep(0.30, 0.46, slope));
+      let tband = abs(fract(h * 0.25) - 0.5) * 2.0;
+      base = mix(base, base * 0.62, smoothstep(0.78, 0.97, tband) * terr);
+      /* 沟壁：黄土垂直层理 */
+      let strata = 0.82 + 0.18 * sin(h * 0.9 + d1 * 12.0);
+      base = mix(base, loess * strata * vec3f(1.05, 0.95, 0.82), gullyW);
+      /* 沟底稍润 */
+      base = mix(base, vec3f(0.19, 0.22, 0.10), (1.0 - smoothstep(u.nan.z + 15.0, u.nan.z + 120.0, h)) * (1.0 - gullyW) * 0.55);
+    } else {
     /* 材质分层：田畴 → 阔叶林 → 针叶/灌丛 → 山顶草甸；陡坡花岗岩 */
     let farm  = vec3f(0.19, 0.25, 0.09) + (d2 - 0.5) * 0.07;
     let forest= mix(vec3f(0.035, 0.125, 0.04), vec3f(0.08, 0.21, 0.07), smoothstep(0.3, 0.7, d1)) + (d3 - 0.5) * 0.035;
     let shrub = vec3f(0.12, 0.17, 0.07) + (d2 - 0.5) * 0.05;
     let meadow= vec3f(0.25, 0.26, 0.12) + (d2 - 0.5) * 0.07;
-    var base = mix(farm, forest, smoothstep(35.0, 120.0, h));
+    base = mix(farm, forest, smoothstep(35.0, 120.0, h));
     base = mix(base, shrub, smoothstep(950.0, 1150.0, h));
     base = mix(base, meadow, smoothstep(1230.0, 1380.0, h));
     /* 花岗岩：坡度 + 高频节理条带 */
@@ -190,9 +235,10 @@ const TER_FS = /* wgsl */`
     let rockC = (vec3f(0.33, 0.32, 0.31) + (d2 - 0.5) * 0.12) * band;
     let rockW = smoothstep(0.30, 0.52, slope + (d2 - 0.5) * 0.10);
     base = mix(base, rockC, rockW);
-    base = base * (0.74 + 0.52 * d2);
     /* 湖岸沙线 */
     base = mix(vec3f(0.40, 0.36, 0.26), base, max(smoothstep(u.fog.y + 0.3, u.fog.y + 4.0, h), 1.0 - waterMask(v.wp.x, v.wp.z)));
+    }
+    base = base * (0.74 + 0.52 * d2);
     /* 光照 */
     let sunI = u.sun.w;
     let ndl = clamp(dot(N, u.sun.xyz), 0.0, 1.0);
@@ -551,8 +597,8 @@ async function init() {
 
   hud.textContent = '加载庐山 DEM…';
   const [mj, hb] = await Promise.all([
-    fetch('/data/lushan/meta.json').then((r) => r.json()),
-    fetch('/data/lushan/height.bin').then((r) => r.arrayBuffer()),
+    fetch('/data/' + SCN.data + '/meta.json').then((r) => r.json()),
+    fetch('/data/' + SCN.data + '/height.bin').then((r) => r.arrayBuffer()),
   ]);
   meta = mj;
   const raw = new Uint16Array(hb);
@@ -688,6 +734,11 @@ async function init() {
     qsRead = device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   }
 
+  if (SCN.derive) deriveMarks();
+  renderTps();
+  document.querySelector('.rd-title').textContent = SCN.name;
+  const sub = document.querySelector('.meta.mono span:last-child');
+  if (sub) sub.textContent = SCN.sub;
   setupUI();
   applyQuery();
   buildMinimap();
@@ -695,8 +746,35 @@ async function init() {
 }
 
 /* ---------- 内容生成 ---------- */
+function deriveMarks() {
+  /* 从 DEM 找塬上高点与深沟谷底（避开边缘 12%） */
+  const n = meta.n, m0 = Math.floor(n * 0.12), m1 = n - m0;
+  let hiV = -1e9, hiI = 0, loV = 1e9, loI = 0;
+  for (let i = m0; i < m1; i += 2) {
+    for (let j = m0; j < m1; j += 2) {
+      const h = HGT[i * n + j];
+      if (h > hiV) { hiV = h; hiI = i * n + j; }
+      if (h < loV) { loV = h; loI = i * n + j; }
+    }
+  }
+  const toLL = (idx) => xz2lonlat((idx % n) / (n - 1) * meta.mx, Math.floor(idx / n) / (n - 1) * meta.my);
+  let [lo1, la1] = toLL(hiI);
+  let [lo2, la2] = toLL(loI);
+  MARKS.push({ id: 'high', name: '塬上高点 ' + Math.round(hiV) + 'm', lon: lo1, lat: la1, dy: 4, tp: 1 });
+  MARKS.push({ id: 'gully', name: '深沟谷底 ' + Math.round(loV) + 'm', lon: lo2, lat: la2, dy: 4, tp: 1 });
+  SCN.tps.push('high', 'gully');
+}
+function renderTps() {
+  const box = document.getElementById('lu-tps');
+  if (!box) return;
+  box.innerHTML = '<span style="color:var(--ink2);">传送：</span>' + SCN.tps.map((id) => {
+    const m = MARKS.find((x) => x.id === id);
+    return m ? '<button type="button" class="pie-btn lu-tp" data-m="' + id + '">' + m.name.replace(/ \d+m$/, '') + '</button>' : '';
+  }).join('');
+  box.querySelectorAll('.lu-tp').forEach((b) => b.addEventListener('click', () => teleport(b.getAttribute('data-m'))));
+}
 function buildTrees() {
-  const target = 130000;
+  const target = SCN.treeN;
   const out = new Float32Array(target * 8);
   let n = 0;
   let seed = 12345;
@@ -710,18 +788,18 @@ function buildTrees() {
     const x = rnd() * meta.mx;
     const z = rnd() * meta.my;
     const h = groundAt(x, z);
-    if (h < 16 || h > 1240) continue;
+    if (h < SCN.treeLo || h > SCN.treeHi) continue;
     const fx = x / meta.mx, fz = z / meta.my;
-    if (h < 14 && (fx > 0.63 || (fz > 0.76 && fx > 0.44))) continue;
+    if (SCN.palette === 0 && h < 14 && (fx > 0.63 || (fz > 0.76 && fx > 0.44))) continue;
     const e = 40;
     const sl = Math.abs(groundAt(x + e, z) - groundAt(x - e, z)) + Math.abs(groundAt(x, z + e) - groundAt(x, z - e));
-    if (sl > 55) continue;                                  // 陡崖不长树
+    if (sl > SCN.treeSlope) continue;                       // 陡崖不长树
     const patch = noise(Math.floor(x / 900), Math.floor(z / 900));
     if (rnd() > 0.35 + patch * 0.6) continue;               // 林斑
     const o = n * 8;
     out[o] = x; out[o + 1] = h - 0.4; out[o + 2] = z;
     out[o + 3] = 2.2 + rnd() * 2.6 + (h > 900 ? -0.8 : 0);  // 尺寸（高山树小）
-    out[o + 4] = (h > 750 || rnd() < 0.35) ? 0 : 1;         // 0 针叶 1 阔叶
+    out[o + 4] = (h > SCN.broadleafHi || rnd() < 0.35) ? 0 : 1;   // 0 针叶 1 阔叶
     out[o + 5] = rnd();
     out[o + 6] = rnd() * 6.283;
     out[o + 7] = 0;
@@ -770,6 +848,7 @@ function buildAtlas() {
 }
 function buildFalls() {
   const segs = 26, verts = [], mist = [];
+  if (!FALLS.length) return { verts: new Float32Array(8), count: 0, mist: new Float32Array(8) };
   for (const f of FALLS) {
     const [tx, tz] = lonlat2xz(f.top[0], f.top[1]);
     const [bx, bz] = lonlat2xz(f.bot[0], f.bot[1]);
@@ -838,6 +917,15 @@ function setupUI() {
 
   $('lu-time').addEventListener('input', () => { timeOfDay = parseFloat($('lu-time').value); autoTime = false; });
   $('lu-fog').addEventListener('input', () => { fogK = parseFloat($('lu-fog').value) * 1e-6; });
+  $('lu-fog').value = String(SCN.fogDef);
+  fogK = SCN.fogDef * 1e-6;
+  $('lu-scene').value = SCN === SCENES.luoyun ? 'luoyun' : 'lushan';
+  $('lu-scene').addEventListener('change', () => {
+    const q = new URLSearchParams(location.search);
+    q.set('scene', $('lu-scene').value);
+    q.delete('view'); q.delete('alt'); q.delete('pitch'); q.delete('yaw');
+    location.search = q.toString();
+  });
   $('lu-quality').addEventListener('change', () => { gridStep = parseInt($('lu-quality').value, 10); });
   $('lu-pipe').addEventListener('change', () => { pipeMode = $('lu-pipe').value; });
   $('lu-tau').addEventListener('input', () => { tauPx = parseFloat($('lu-tau').value); });
@@ -867,7 +955,7 @@ function applyQuery() {
   const q = new URLSearchParams(location.search);
   if (q.get('t')) { timeOfDay = parseFloat(q.get('t')) || timeOfDay; }
   if (q.get('q')) { gridStep = { high: 1, med: 2, low: 4 }[q.get('q')] || 1; $('lu-quality').value = String(gridStep); }
-  teleport(q.get('view') || 'hanpokou');
+  teleport(q.get('view') || SCN.start);
   if (q.get('t')) $('lu-time').value = String(timeOfDay);
   if (q.get('fog')) { fogK = parseFloat(q.get('fog')) * 1e-6; $('lu-fog').value = q.get('fog'); }
   if (q.get('alt')) cam.y = parseFloat(q.get('alt'));
@@ -896,12 +984,19 @@ function buildMinimap() {
       const dz = groundAt(x, z + e) - groundAt(x, z - e);
       const shade = Math.max(0.25, Math.min(1.25, 0.85 - dx * 0.004 + dz * 0.003));
       let r, gg, b;
-      const inLake = (j / (n - 1)) > 0.63 || ((i / (n - 1)) > 0.76 && (j / (n - 1)) > 0.44);
-      if (h < 12.5 && inLake) { r = 34; gg = 60; b = 78; }
-      else if (h < 120) { r = 74; gg = 96; b = 52; }
-      else if (h < 700) { r = 44; gg = 84; b = 44; }
-      else if (h < 1150) { r = 96; gg = 96; b = 70; }
-      else { r = 150; gg = 142; b = 128; }
+      if (SCN.palette === 1) {
+        const t = (h - meta.hmin) / Math.max(1, meta.hmax - meta.hmin);
+        if (t < 0.3) { r = 96; gg = 82; b = 52; }
+        else if (t < 0.7) { r = 132; gg = 106; b = 62; }
+        else { r = 122; gg = 118; b = 70; }
+      } else {
+        const inLake = (j / (n - 1)) > 0.63 || ((i / (n - 1)) > 0.76 && (j / (n - 1)) > 0.44);
+        if (h < 12.5 && inLake) { r = 34; gg = 60; b = 78; }
+        else if (h < 120) { r = 74; gg = 96; b = 52; }
+        else if (h < 700) { r = 44; gg = 84; b = 44; }
+        else if (h < 1150) { r = 96; gg = 96; b = 70; }
+        else { r = 150; gg = 142; b = 128; }
+      }
       const o = (i * n + j) * 4;
       img.data[o] = r * shade; img.data[o + 1] = gg * shade; img.data[o + 2] = b * shade; img.data[o + 3] = 255;
     }
@@ -1001,13 +1096,13 @@ function frame() {
   uni.set([cam.x, cam.y, cam.z, simT], 32);
   uni.set([sunDir[0], sunDir[1], sunDir[2], sunI], 36);
   uni.set([meta.mx, meta.my, meta.n, meta.mx / meta.n], 40);
-  uni.set([fogK, 12.5, gridStep, wind], 44);
+  uni.set([fogK, SCN.water, gridStep, wind], 44);
   uni.set([Math.sin(elev), 1.05, dbgMode, lodTint], 48);
   if (!cullFrozen || !cullVP) { cullVP = vp.slice(); cullEye = [cam.x, cam.y, cam.z]; }
   uni.set(cullVP, 52);
   uni.set([cullEye[0], cullEye[1], cullEye[2], 0], 68);
   const projScale = ph / (2 * Math.tan(31 * Math.PI / 180));
-  uni.set([tauPx, projScale, 7, 0], 72);
+  uni.set([tauPx, projScale, meta.hmin || 0, SCN.palette], 72);
   device.queue.writeBuffer(uniBuf, 0, uni);
 
   render();
@@ -1041,8 +1136,8 @@ function render() {
     pass.setPipeline(pTerrain); pass.setBindGroup(0, bgTerrain); pass.draw(cells * cells * 6);
   }
   pass.setPipeline(pTrees); pass.setBindGroup(0, bgTrees); pass.draw(12, treeCount);
-  pass.setPipeline(pFalls); pass.setBindGroup(0, bgFalls); pass.draw(fallVerts);
-  pass.setPipeline(pMist); pass.setBindGroup(0, bgMist); pass.draw(6, mistCount);
+  if (fallVerts > 0) { pass.setPipeline(pFalls); pass.setBindGroup(0, bgFalls); pass.draw(fallVerts); }
+  if (mistCount > 0) { pass.setPipeline(pMist); pass.setBindGroup(0, bgMist); pass.draw(6, mistCount); }
   pass.end();
   if (qsSet) {
     enc.resolveQuerySet(qsSet, 0, 2, qsBuf, 0);
