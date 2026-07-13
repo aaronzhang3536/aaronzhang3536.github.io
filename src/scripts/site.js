@@ -593,24 +593,57 @@
       }
       return LIGHTNING_PALS[0];
     }
-    /* 递归生长一条通道：随走随抖，沿途按概率分出更细的支（子支更弯更碎） */
-    function growChannel(x, y, ang, len, w, depth, jag, downBias, out) {
-      var pts = [[x, y]], remain = len;
-      while (remain > 0 && pts.length < 90) {
-        var step = 13 + Math.random() * 21;
-        remain -= step;
-        ang += (Math.random() - 0.5) * jag + downBias * 0.02;
-        x += Math.cos(ang) * step;
-        y += Math.sin(ang) * step;
-        pts.push([x, y]);
-        if (depth > 0 && out.length < 40 && Math.random() < 0.2) {
-          var side = Math.random() < 0.5 ? -1 : 1;
-          growChannel(x, y, ang + side * (0.35 + Math.random() * 0.8) + downBias * 0.35,
-            remain * (0.3 + Math.random() * 0.45), w * (0.42 + Math.random() * 0.18),
-            depth - 1, jag * 1.3, downBias, out);
+    /* 通道 = 中点位移分形折线：大弯里带小卷，多尺度蜿蜒，没有生硬的等长折角 */
+    function makeChannel(x0, y0, x1, y1, rough) {
+      var pts = [[x0, y0], [x1, y1]];
+      var levels = Math.max(3, Math.min(6, Math.round(Math.log(Math.hypot(x1 - x0, y1 - y0) / 6) / 0.693)));
+      for (var d = 0; d < levels; d++) {
+        var np = [pts[0]];
+        for (var i = 1; i < pts.length; i++) {
+          var a = pts[i - 1], b = pts[i];
+          var dx = b[0] - a[0], dy = b[1] - a[1];
+          var len = Math.sqrt(dx * dx + dy * dy) || 1;
+          var off = (Math.random() - 0.5) * len * rough;
+          np.push([(a[0] + b[0]) / 2 - dy / len * off, (a[1] + b[1]) / 2 + dx / len * off]);
+          np.push(b);
+        }
+        pts = np;
+      }
+      return pts;
+    }
+    /* 递归搭建：主干(br=1) → 支叉(×0.55) → 细枝(×0.55²) + 主干贴身毛发级卷须(×0.3)
+       亮度层级分明——主干白炽压场，末端纹路若隐若现，华丽而不乱 */
+    function buildBolt(x0, y0, x1, y1, w, br, depth, downBias, out) {
+      var pts = makeChannel(x0, y0, x1, y1, 0.32);
+      out.push({ pts: pts, w: w, br: br });
+      var total = Math.hypot(x1 - x0, y1 - y0);
+      var i, t, idx, p, p2, ang, len;
+      if (depth > 0) {
+        var nB = depth === 2 ? 3 + Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 2);
+        for (i = 0; i < nB && out.length < 46; i++) {
+          t = 0.15 + Math.random() * 0.6;
+          idx = Math.floor(pts.length * t);
+          p = pts[idx]; p2 = pts[Math.min(idx + 2, pts.length - 1)];
+          ang = Math.atan2(p2[1] - p[1], p2[0] - p[0]) +
+            (Math.random() < 0.5 ? -1 : 1) * (0.3 + Math.random() * 0.55) + downBias;
+          len = total * (1 - t) * (0.3 + Math.random() * 0.35);
+          buildBolt(p[0], p[1], p[0] + Math.cos(ang) * len, p[1] + Math.sin(ang) * len,
+            w * 0.42, br * 0.55, depth - 1, downBias, out);
         }
       }
-      out.push({ pts: pts, w: w });
+      if (depth === 2) {
+        /* 毛细卷须：直接从主干长出的短小纹路 */
+        var nT = 5 + Math.floor(Math.random() * 5);
+        for (i = 0; i < nT && out.length < 62; i++) {
+          p = pts[Math.floor(pts.length * Math.random())];
+          ang = Math.random() * 6.2832;
+          len = 18 + Math.random() * 50;
+          out.push({
+            pts: makeChannel(p[0], p[1], p[0] + Math.cos(ang) * len, p[1] + Math.sin(ang) * len * 0.6 + len * 0.35, 0.5),
+            w: Math.max(0.4, w * 0.16), br: br * 0.3
+          });
+        }
+      }
     }
     function makePulses() {
       /* 回击：主放电后通道随机再亮 1~3 次 */
@@ -621,32 +654,34 @@
     function makeStrike() {
       var pal = pickPal();
       var roll = Math.random();
-      var type = roll < 0.5 ? 'ground' : roll < 0.7 ? 'multi' : roll < 0.87 ? 'crawler' : 'sheet';
-      var items = [], segs, i, n = 1;
+      var type = roll < 0.5 ? 'ground' : roll < 0.68 ? 'multi' : roll < 0.86 ? 'crawler' : 'sheet';
+      var items = [], segs, i, n = 1, x0, y0;
       if (type === 'ground' || type === 'multi') {
-        n = type === 'multi' ? 2 + Math.floor(Math.random() * 2) : 1;
+        n = type === 'multi' ? 2 + (Math.random() < 0.3 ? 1 : 0) : 1;
         for (i = 0; i < n; i++) {
           segs = [];
-          growChannel(wxW * (0.1 + Math.random() * 0.8), wxH * (0.02 + Math.random() * 0.06),
-            Math.PI / 2 + (Math.random() - 0.5) * 0.5, wxH * (0.45 + Math.random() * 0.4),
-            2.2 + Math.random() * 1.3, 3, 0.55, 0, segs);
-          items.push({ segs: segs, delay: i === 0 ? 0 : Math.random() * 0.22, pulses: makePulses(),
-            pal: Math.random() < 0.25 ? pickPal() : pal });
+          x0 = wxW * (0.12 + Math.random() * 0.76);
+          y0 = wxH * (0.02 + Math.random() * 0.05);
+          buildBolt(x0, y0, x0 + (Math.random() - 0.5) * wxW * 0.3, wxH * (0.62 + Math.random() * 0.3),
+            2.6 + Math.random() * 0.9, 1, 2, 0, segs);
+          items.push({ segs: segs, origin: [x0, y0], delay: i === 0 ? 0 : Math.random() * 0.22,
+            pulses: makePulses(), pal: Math.random() < 0.25 ? pickPal() : pal });
         }
       } else if (type === 'crawler') {
         var dir = Math.random() < 0.5 ? 1 : -1;
+        x0 = wxW * (dir > 0 ? 0.05 + Math.random() * 0.2 : 0.75 + Math.random() * 0.2);
+        y0 = wxH * (0.06 + Math.random() * 0.14);
         segs = [];
-        growChannel(wxW * (dir > 0 ? 0.05 + Math.random() * 0.25 : 0.7 + Math.random() * 0.25),
-          wxH * (0.06 + Math.random() * 0.16),
-          dir > 0 ? (Math.random() - 0.5) * 0.4 : Math.PI + (Math.random() - 0.5) * 0.4,
-          wxW * (0.4 + Math.random() * 0.4), 1.5 + Math.random() * 0.7, 2, 0.4, 1, segs);
-        items.push({ segs: segs, delay: 0, pulses: makePulses(), pal: pal });
+        buildBolt(x0, y0, x0 + dir * wxW * (0.4 + Math.random() * 0.4),
+          y0 + wxH * (Math.random() * 0.16 - 0.04), 1.7 + Math.random() * 0.5, 0.95, 2, 0.5, segs);
+        items.push({ segs: segs, origin: [x0, y0], delay: 0, pulses: makePulses(), pal: pal });
         if (Math.random() < 0.6) {
           /* 蛛闪常拖一条垂到地面的枝 */
-          var host = segs[segs.length - 1].pts;
+          var host = segs[0].pts;
           var p = host[Math.floor(host.length * (0.3 + Math.random() * 0.5))];
           var down = [];
-          growChannel(p[0], p[1], Math.PI / 2, wxH * (0.25 + Math.random() * 0.3), 1.6, 2, 0.5, 0, down);
+          buildBolt(p[0], p[1], p[0] + (Math.random() - 0.5) * wxW * 0.12,
+            p[1] + wxH * (0.3 + Math.random() * 0.3), 1.7, 0.9, 1, 0, down);
           items.push({ segs: down, delay: 0.1 + Math.random() * 0.15, pulses: makePulses(), pal: pal });
           n = 2;
         }
@@ -658,8 +693,9 @@
         });
         if (Math.random() < 0.5) {
           segs = [];
-          growChannel(wxW * (0.2 + Math.random() * 0.6), wxH * 0.08,
-            Math.PI / 2 + (Math.random() - 0.5) * 0.9, wxH * (0.12 + Math.random() * 0.12), 1.4, 1, 0.7, 0, segs);
+          x0 = wxW * (0.2 + Math.random() * 0.6);
+          buildBolt(x0, wxH * 0.08, x0 + (Math.random() - 0.5) * wxW * 0.14,
+            wxH * (0.18 + Math.random() * 0.1), 1.4, 0.55, 1, 0, segs);
           items.push({ segs: segs, delay: 0.05, pulses: [], pal: pal });
         }
       }
@@ -1215,23 +1251,42 @@
                   ctx.fill();
                   ctx.restore();
                 }
+                if (it.origin) {
+                  /* 出云处大范围染色泛光：把云层照亮成本次雷击的颜色 */
+                  var gr = wxW * 0.24;
+                  var g3 = ctx.createRadialGradient(it.origin[0], it.origin[1], 0, it.origin[0], it.origin[1], gr);
+                  g3.addColorStop(0, it.pal.glow);
+                  g3.addColorStop(1, 'rgba(0,0,0,0)');
+                  ctx.globalAlpha = al * 0.3;
+                  ctx.fillStyle = g3;
+                  ctx.fillRect(it.origin[0] - gr, it.origin[1] - gr, gr * 2, gr * 2);
+                }
                 for (s2 = 0; s2 < it.segs.length; s2++) {
                   var sg = it.segs[s2], pp = sg.pts;
+                  var ab = al * sg.br;   /* 亮度层级：主干 1 → 支叉 → 毛细纹路 */
+                  if (ab < 0.015) continue;
                   ctx.beginPath();
                   ctx.moveTo(pp[0][0], pp[0][1]);
                   for (q2 = 1; q2 < pp.length; q2++) ctx.lineTo(pp[q2][0], pp[q2][1]);
-                  ctx.globalAlpha = al * 0.35;
+                  ctx.globalAlpha = ab * 0.28;
                   ctx.strokeStyle = it.pal.glow;
-                  ctx.lineWidth = sg.w * 6;
+                  ctx.lineWidth = sg.w * 7;
                   ctx.stroke();
-                  ctx.globalAlpha = al * 0.7;
+                  ctx.globalAlpha = ab * 0.6;
                   ctx.strokeStyle = it.pal.mid;
-                  ctx.lineWidth = sg.w * 2.4;
+                  ctx.lineWidth = sg.w * 2.6;
                   ctx.stroke();
-                  ctx.globalAlpha = al;
+                  ctx.globalAlpha = ab;
                   ctx.strokeStyle = it.pal.core;
                   ctx.lineWidth = sg.w;
                   ctx.stroke();
+                  if (sg.br >= 0.95) {
+                    /* 主干再叠一道纯白炽芯，压住全场 */
+                    ctx.globalAlpha = al;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = sg.w * 0.45;
+                    ctx.stroke();
+                  }
                 }
               }
               ctx.restore();
