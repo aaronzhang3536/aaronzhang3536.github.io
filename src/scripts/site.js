@@ -82,7 +82,7 @@
     var curStyle = 'cat';
     try { curStyle = localStorage.getItem('yzzn-cursor') || 'cat'; } catch (err) {}
     var CUR_NAMES = {
-      cat: '橙猫头', girl: '粉发美少女 Mimi', girl2: '双马尾美少女 Nana',
+      cat: '橙猫头', girl: '粉发碧瞳少女（悬停变爱心）', girl2: '蓝发金瞳少女（悬停变爱心）',
       arrow: '可爱箭头', classic: '系统原生'
     };
     function setCursorStyle(m) {
@@ -140,8 +140,7 @@
       if (v.indexOf('cursor') === 0) {
         var cs = v.slice(6).trim();
         if (setCursorStyle(cs)) {
-          echo.textContent = '光标切换：' + CUR_NAMES[cs] +
-            (cs.indexOf('girl') === 0 ? '（DiceBear Adventurer · Lisa Wischofsky · CC BY 4.0）' : '');
+          echo.textContent = '光标切换：' + CUR_NAMES[cs];
         } else {
           echo.textContent = '用法：cursor cat | girl | girl2 | arrow | classic（当前：' + CUR_NAMES[curStyle] + '）';
         }
