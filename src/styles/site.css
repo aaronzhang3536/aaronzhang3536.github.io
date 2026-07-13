@@ -1413,19 +1413,6 @@
     filter: brightness(0.8) saturate(0.8);
   }
   #bg-layer img.show { opacity: var(--bgimg); }
-  /* 位移帧加一点 scale，让 body 始终略大于视口，抖动时边缘不露空（否则底部会被抬起露出空隙） */
-  @keyframes thunder-shake {
-    0%, 100% { transform: none; }
-    15% { transform: scale(1.02) translate(3px, -3px); }
-    30% { transform: scale(1.02) translate(-3px, 2px); }
-    45% { transform: scale(1.02) translate(2px, 2px); }
-    60% { transform: scale(1.02) translate(-2px, -1px); }
-    75% { transform: scale(1.01) translate(1px, 1px); }
-  }
-  body.thunder-shake { animation: thunder-shake 0.45s ease-out; }
-  @media (prefers-reduced-motion: reduce) {
-    body.thunder-shake { animation: none; }
-  }
   #wx-flash {
     position: fixed; inset: 0; z-index: 40;
     pointer-events: none; opacity: 0;
