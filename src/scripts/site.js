@@ -5988,8 +5988,11 @@
     var fxW = 0, fxH = 0;
     function fxResize() {
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      fxW = window.innerWidth; fxH = window.innerHeight;
-      fxCvs.width = fxW * dpr; fxCvs.height = fxH * dpr;
+      /* 量元素实际渲染尺寸（可能因滚动条比视口窄），缓冲与之一致才能 1:1 对齐 clientX/Y */
+      var rc = fxCvs.getBoundingClientRect();
+      fxW = rc.width || window.innerWidth;
+      fxH = rc.height || window.innerHeight;
+      fxCvs.width = Math.round(fxW * dpr); fxCvs.height = Math.round(fxH * dpr);
       fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     fxResize();
