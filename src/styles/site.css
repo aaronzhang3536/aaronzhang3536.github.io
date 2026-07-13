@@ -1225,6 +1225,7 @@
   }
   #cursor-fx {
     position: fixed; inset: 0;
+    width: 100%; height: 100%;   /* canvas 是 replaced element，inset 不拉伸，必须显式撑满（dpr≠1 时否则整体偏移） */
     pointer-events: none;
     z-index: 45;               /* 星屑飘在内容上方、娱乐区覆盖层(70)之下 */
   }
