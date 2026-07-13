@@ -5972,22 +5972,169 @@
     var fine = window.matchMedia('(pointer: fine)').matches;
     if (!fine) return;
 
-    /* 1. MegaLights 光标点光：带惯性跟随 */
+    /* 1. 光标特效：三层惯性光（大光晕 + 亮核）+ 星屑尾迹 + 点击涟漪迸发
+       尾迹发射量随移动速度——静止阅读时完全安静，快速掠过时拖出一串星火 */
     var light = document.createElement('div');
     light.id = 'cursor-light';
     document.body.appendChild(light);
+    var curCore = document.createElement('div');
+    curCore.id = 'cursor-core';
+    document.body.appendChild(curCore);
+    var fxCvs = document.createElement('canvas');
+    fxCvs.id = 'cursor-fx';
+    fxCvs.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(fxCvs);
+    var fxCtx = fxCvs.getContext('2d');
+    var fxW = 0, fxH = 0;
+    function fxResize() {
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      fxW = window.innerWidth; fxH = window.innerHeight;
+      fxCvs.width = fxW * dpr; fxCvs.height = fxH * dpr;
+      fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    fxResize();
+    window.addEventListener('resize', fxResize);
+
+    /* 火花配色：主题 accent 家族 + 金 + 冷青点缀 + 纯白闪星，每秒随主题刷新 */
+    var fxAccent = [255, 166, 60], fxLastPal = 0;
+    function fxRefreshPal() {
+      var v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+      var m = v.match(/^#([0-9a-f]{6})$/i);
+      if (m) {
+        fxAccent = [parseInt(m[1].slice(0, 2), 16), parseInt(m[1].slice(2, 4), 16), parseInt(m[1].slice(4, 6), 16)];
+      }
+    }
+    fxRefreshPal();
+    function sparkColor() {
+      var r = Math.random();
+      if (r < 0.62) return fxAccent;
+      if (r < 0.82) return [255, 216, 150];
+      if (r < 0.94) return [140, 220, 255];
+      return [255, 255, 255];
+    }
+    var sparks = [], rings = [];
+    function emitSpark(x, y, vx, vy, boost) {
+      if (sparks.length > 180) return;
+      var ang = Math.random() * 6.2832;
+      var sp = (0.2 + Math.random() * 0.9) * (boost || 1);
+      sparks.push({
+        x: x, y: y,
+        vx: vx * 0.25 + Math.cos(ang) * sp * 30,
+        vy: vy * 0.25 + Math.sin(ang) * sp * 30 - 12,
+        life: 0, tl: 0.45 + Math.random() * 0.65,
+        s: 0.8 + Math.random() * 1.7,
+        c: sparkColor(),
+        tw: Math.random() < 0.16   /* 少数是四芒闪星 */
+      });
+    }
+
     var tx = 0, ty = 0, lx = -9999, ly = -9999, lit = false;
+    var pvx = 0, pvy = 0, lastMX = 0, lastMY = 0, lastMT = 0, idleAcc = 0;
     document.addEventListener('mousemove', function (e) {
+      var now = performance.now();
+      var dx = e.clientX - lastMX, dy = e.clientY - lastMY;
+      var dtm = Math.max(8, now - lastMT);
+      pvx = dx / dtm * 1000; pvy = dy / dtm * 1000;
+      if (lit && !reduced) {
+        /* 沿轨迹插值撒星火，快速移动撒得多 */
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var n = Math.min(5, Math.floor(dist / 14));
+        for (var i = 0; i < n; i++) {
+          var t = (i + 1) / (n + 1);
+          if (Math.random() < 0.75) emitSpark(lastMX + dx * t, lastMY + dy * t, pvx, pvy, 1);
+        }
+      }
+      lastMX = e.clientX; lastMY = e.clientY; lastMT = now;
       tx = e.clientX; ty = e.clientY;
-      if (!lit) { lit = true; lx = tx; ly = ty; light.style.opacity = '1'; }
+      if (!lit) {
+        lit = true; lx = tx; ly = ty;
+        light.style.opacity = '1'; curCore.style.opacity = '1';
+      }
     });
     document.documentElement.addEventListener('mouseleave', function () {
-      light.style.opacity = '0'; lit = false;
+      light.style.opacity = '0'; curCore.style.opacity = '0'; lit = false;
     });
+    document.addEventListener('mousedown', function (e) {
+      if (e.button !== 0 || reduced || e.target.closest('.pie-layer')) return;
+      rings.push({ x: e.clientX, y: e.clientY, life: 0 });
+      for (var i = 0; i < 12; i++) emitSpark(e.clientX, e.clientY, 0, 0, 1.8);
+    });
+
+    var fxPrev = performance.now(), fxDirty = false;
     (function tick() {
+      var now = performance.now();
+      var fdt = Math.min(0.05, (now - fxPrev) / 1000);
+      fxPrev = now;
+      if (now - fxLastPal > 1000) { fxLastPal = now; fxRefreshPal(); }
       if (reduced) { lx = tx; ly = ty; }
       else { lx += (tx - lx) * 0.12; ly += (ty - ly) * 0.12; }
       light.style.transform = 'translate(' + lx + 'px,' + ly + 'px)';
+      /* 亮核跟得更紧，速度越快越亮越大 */
+      var cx2 = reduced ? tx : lx + (tx - lx) * 0.6;
+      var cy2 = reduced ? ty : ly + (ty - ly) * 0.6;
+      var speed = Math.min(1, Math.sqrt(pvx * pvx + pvy * pvy) / 1400);
+      pvx *= 0.9; pvy *= 0.9;
+      curCore.style.transform = 'translate(' + cx2 + 'px,' + cy2 + 'px) scale(' + (0.7 + speed * 1.1).toFixed(3) + ')';
+      curCore.style.opacity = lit ? String(0.35 + speed * 0.65) : '0';
+      /* 静止时偶尔升起一粒微尘，页面不至于完全死寂 */
+      if (lit && !reduced && speed < 0.04) {
+        idleAcc += fdt;
+        if (idleAcc > 1.4) {
+          idleAcc = 0;
+          emitSpark(tx + (Math.random() - 0.5) * 26, ty + (Math.random() - 0.5) * 26, 0, -30, 0.35);
+        }
+      } else idleAcc = 0;
+      /* 星屑与涟漪 */
+      if (sparks.length || rings.length) {
+        fxDirty = true;
+        fxCtx.clearRect(0, 0, fxW, fxH);
+        fxCtx.save();
+        fxCtx.globalCompositeOperation = 'lighter';
+        for (var i = sparks.length - 1; i >= 0; i--) {
+          var p = sparks[i];
+          p.life += fdt;
+          if (p.life >= p.tl) { sparks.splice(i, 1); continue; }
+          p.x += p.vx * fdt; p.y += p.vy * fdt;
+          p.vx *= 0.96; p.vy = p.vy * 0.96 - 14 * fdt;   /* 微微上飘的余烬感 */
+          var k = 1 - p.life / p.tl;
+          var a = k * k;
+          var rr = p.s * (0.6 + k * 0.9);
+          var c = p.c;
+          if (p.tw) {
+            /* 四芒闪星 */
+            fxCtx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (a * 0.9).toFixed(3) + ')';
+            fxCtx.lineWidth = 1;
+            var ray = rr * 3.4;
+            fxCtx.beginPath();
+            fxCtx.moveTo(p.x - ray, p.y); fxCtx.lineTo(p.x + ray, p.y);
+            fxCtx.moveTo(p.x, p.y - ray); fxCtx.lineTo(p.x, p.y + ray);
+            fxCtx.stroke();
+          }
+          fxCtx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (a * 0.28).toFixed(3) + ')';
+          fxCtx.beginPath();
+          fxCtx.arc(p.x, p.y, rr * 2.6, 0, 6.2832);
+          fxCtx.fill();
+          fxCtx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a.toFixed(3) + ')';
+          fxCtx.beginPath();
+          fxCtx.arc(p.x, p.y, rr, 0, 6.2832);
+          fxCtx.fill();
+        }
+        for (i = rings.length - 1; i >= 0; i--) {
+          var rg = rings[i];
+          rg.life += fdt;
+          var rk = rg.life / 0.5;
+          if (rk >= 1) { rings.splice(i, 1); continue; }
+          fxCtx.strokeStyle = 'rgba(' + fxAccent[0] + ',' + fxAccent[1] + ',' + fxAccent[2] + ',' + ((1 - rk) * 0.55).toFixed(3) + ')';
+          fxCtx.lineWidth = 1.5 * (1 - rk) + 0.4;
+          fxCtx.beginPath();
+          fxCtx.arc(rg.x, rg.y, 6 + rk * 52, 0, 6.2832);
+          fxCtx.stroke();
+        }
+        fxCtx.restore();
+      } else if (fxDirty) {
+        fxDirty = false;
+        fxCtx.clearRect(0, 0, fxW, fxH);
+      }
       requestAnimationFrame(tick);
     })();
 
