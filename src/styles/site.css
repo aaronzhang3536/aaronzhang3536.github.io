@@ -1199,6 +1199,14 @@
   .console .hint b { color: var(--ink); }
 
   /* ---------- 鼠标交互 ---------- */
+  /* ---------- 自绘可爱光标：橙猫肉球主题（数据 URI 内联，零外链；文本框保留原生 I-beam） ---------- */
+  html, body { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cpath d='M6.5 3.6 L6.5 21.5 Q6.5 23.6 8.2 22.2 L11.8 19.2 L14.4 24.9 Q15.2 26.6 16.9 25.8 L18.9 24.9 Q20.6 24.1 19.8 22.4 L17.3 17.1 L21.9 16.6 Q24.1 16.3 22.5 14.8 L9.2 2.5 Q7.2 0.9 6.5 3.6 Z' fill='%23ffb057' stroke='%232b1a05' stroke-width='2' stroke-linejoin='round'/%3E%3Ccircle cx='10.6' cy='8.2' r='1.3' fill='%23fff' opacity='0.85'/%3E%3C/svg%3E") 6 3, auto !important; }
+  a, button, select, summary, label, [role="button"],
+  input[type="checkbox"], input[type="range"], input[type="file"], input[type="submit"],
+  [style*="cursor:pointer"], [style*="cursor: pointer"] {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cg stroke='%232b1a05' stroke-width='1.8' fill='%23ffb057' stroke-linejoin='round'%3E%3Cellipse cx='6.4' cy='9.6' rx='3' ry='3.5' transform='rotate(-14 6.4 9.6)'/%3E%3Cellipse cx='14' cy='7.2' rx='3.1' ry='3.7'/%3E%3Cellipse cx='21.6' cy='9.6' rx='3' ry='3.5' transform='rotate(14 21.6 9.6)'/%3E%3Cpath d='M14 12.2 Q20.6 12.2 21.7 17.6 Q22.5 22.6 17.9 24.7 Q14 26.5 10.1 24.7 Q5.5 22.6 6.3 17.6 Q7.4 12.2 14 12.2 Z'/%3E%3C/g%3E%3Cellipse cx='11.4' cy='17' rx='2' ry='2.5' fill='%23ff8fae' opacity='0.75'/%3E%3Cellipse cx='16.6' cy='17' rx='2' ry='2.5' fill='%23ff8fae' opacity='0.75'/%3E%3Cellipse cx='14' cy='20.8' rx='2.4' ry='1.8' fill='%23ff8fae' opacity='0.75'/%3E%3Ccircle cx='6' cy='8.6' r='0.9' fill='%23fff' opacity='0.8'/%3E%3Ccircle cx='13.6' cy='6' r='0.9' fill='%23fff' opacity='0.8'/%3E%3C/svg%3E") 14 6, pointer !important;
+  }
+
   #cursor-light {
     position: fixed; left: 0; top: 0;
     width: 640px; height: 640px;
