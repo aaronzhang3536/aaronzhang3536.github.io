@@ -81,11 +81,14 @@
     /* 光标样式：默认橙猫头，可切小美女/箭头/系统原生（cursor 命令），偏好持久化 */
     var curStyle = 'cat';
     try { curStyle = localStorage.getItem('yzzn-cursor') || 'cat'; } catch (err) {}
-    var CUR_NAMES = { cat: '橙猫头 🐱', girl: '小美女 👧', arrow: '可爱箭头', classic: '系统原生' };
+    var CUR_NAMES = {
+      cat: '橙猫头', girl: '粉发美少女 Mimi', girl2: '双马尾美少女 Nana',
+      arrow: '可爱箭头', classic: '系统原生'
+    };
     function setCursorStyle(m) {
       if (!CUR_NAMES[m]) return false;
       curStyle = m;
-      document.body.classList.remove('cur-girl', 'cur-arrow', 'cur-classic');
+      document.body.classList.remove('cur-girl', 'cur-girl2', 'cur-arrow', 'cur-classic');
       if (m !== 'cat') document.body.classList.add('cur-' + m);
       try { localStorage.setItem('yzzn-cursor', m); } catch (err) {}
       return true;
@@ -136,8 +139,12 @@
       }
       if (v.indexOf('cursor') === 0) {
         var cs = v.slice(6).trim();
-        if (setCursorStyle(cs)) echo.textContent = '光标切换：' + CUR_NAMES[cs];
-        else echo.textContent = '用法：cursor cat | girl | arrow | classic（当前：' + CUR_NAMES[curStyle] + '）';
+        if (setCursorStyle(cs)) {
+          echo.textContent = '光标切换：' + CUR_NAMES[cs] +
+            (cs.indexOf('girl') === 0 ? '（DiceBear Adventurer · Lisa Wischofsky · CC BY 4.0）' : '');
+        } else {
+          echo.textContent = '用法：cursor cat | girl | girl2 | arrow | classic（当前：' + CUR_NAMES[curStyle] + '）';
+        }
         return;
       }
       if (v.indexOf('play') === 0) {
