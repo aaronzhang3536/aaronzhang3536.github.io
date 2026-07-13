@@ -41,3 +41,7 @@ jobs:
       - name: Deploy to EdgeOne Makers
         if: env.EDGEONE_API_TOKEN != ''
         run: npx edgeone makers deploy dist -n "$PROJECT_NAME" -t "$EDGEONE_API_TOKEN"
+
+      - name: Deploy sync API (yzzn-sync, overseas)
+        if: env.EDGEONE_API_TOKEN != ''
+        run: npx edgeone makers deploy sync-api -n yzzn-sync -a overseas -t "$EDGEONE_API_TOKEN"
