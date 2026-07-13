@@ -1210,6 +1210,24 @@
     opacity: 0;
     transition: opacity 0.4s;
   }
+  #cursor-core {
+    position: fixed; left: 0; top: 0;
+    width: 22px; height: 22px;
+    margin: -11px 0 0 -11px;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, var(--accent) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 44;
+    opacity: 0;
+    mix-blend-mode: screen;
+    filter: blur(1px);
+    transition: opacity 0.3s;
+  }
+  #cursor-fx {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 45;               /* 星屑飘在内容上方、娱乐区覆盖层(70)之下 */
+  }
   #marquee {
     position: fixed; z-index: 30;
     border: 1px solid var(--accent);
