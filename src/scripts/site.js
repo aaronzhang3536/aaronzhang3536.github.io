@@ -993,14 +993,6 @@
         burst(0.1, 4.5 + strikes * 0.5, 80, 45, 'lowpass', 0.7 * power);  /* 次声滚雷 */
         burst(1.0, 2.2, 260, 70, 'lowpass', 0.4 * power);                 /* 第一次回滚 */
         burst(2.1, 2.6, 180, 55, 'lowpass', 0.22 * power);                /* 天边折返 */
-
-        /* 头顶的雷把屏幕也震一下 */
-        if (close > 0.55 && !reduced) {
-          document.body.classList.add('thunder-shake');
-          setTimeout(function () {
-            document.body.classList.remove('thunder-shake');
-          }, 500);
-        }
       }, delay);
     }
     function sndRefreshBtn() {
