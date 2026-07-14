@@ -41,11 +41,21 @@
         document.documentElement.setAttribute('data-theme', m);
         lastLit = m;
       }
-      btnTheme.innerHTML = icons[m];
       var tl = '主题：' + themeZh[m] + '（点击切换）';
       btnTheme.title = tl;
       btnTheme.setAttribute('aria-label', tl);
     }
+    /* 日月变形图标：只注入一次，形态由 data-theme 的 CSS 过渡驱动（Josh 式主题切换） */
+    btnTheme.innerHTML =
+      '<svg class="sunmoon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<mask id="sm-mask"><rect width="24" height="24" fill="#fff"/><circle class="mcut" cx="28" cy="2" r="7.5" fill="#000"/></mask>' +
+      '<circle class="core" cx="12" cy="12" r="5.4" fill="currentColor" mask="url(#sm-mask)"/>' +
+      '<g class="rays" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">' +
+      '<line x1="12" y1="1.6" x2="12" y2="3.8"/><line x1="12" y1="20.2" x2="12" y2="22.4"/>' +
+      '<line x1="1.6" y1="12" x2="3.8" y2="12"/><line x1="20.2" y1="12" x2="22.4" y2="12"/>' +
+      '<line x1="4.7" y1="4.7" x2="6.3" y2="6.3"/><line x1="17.7" y1="17.7" x2="19.3" y2="19.3"/>' +
+      '<line x1="4.7" y1="19.3" x2="6.3" y2="17.7"/><line x1="17.7" y1="6.3" x2="19.3" y2="4.7"/>' +
+      '</g></svg>';
     btnTheme.addEventListener('click', function () {
       setTheme(themeOrder[(themeOrder.indexOf(curTheme) + 1) % themeOrder.length]);
     });
@@ -5967,6 +5977,43 @@
         }
       });
     }
+
+    /* ---------- Josh 式玩心：星光 ✨ 与 logo boop（触屏也生效） ---------- */
+    (function whimsy() {
+      var SPARK_PATH = 'M26.5 25.5C19.0043 33.3697 0 34 0 34C0 34 19.1013 35.3684 26.5 43.5C33.234 50.901 34 68 34 68C34 68 36.9884 50.7065 44.5 43.5C51.6431 36.647 68 34 68 34C68 34 51.6947 32.0939 44.5 25.5C36.5605 18.2235 34 0 34 0C34 0 33.6591 17.9837 26.5 25.5Z';
+      function sparkleHost(el) {
+        el.style.position = 'relative';
+        function burst() {
+          if (document.hidden || el.querySelectorAll('.spark-star').length >= 3) return;
+          var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          var size = 12 + Math.random() * 16;
+          s.setAttribute('viewBox', '0 0 68 68');
+          s.setAttribute('class', 'spark-star');
+          s.setAttribute('aria-hidden', 'true');
+          s.style.width = s.style.height = size + 'px';
+          s.style.left = (Math.random() * 96) + '%';
+          s.style.top = (Math.random() * 96 - 10) + '%';
+          s.style.color = Math.random() < 0.6 ? '#ffd214' : 'var(--accent2)';
+          s.innerHTML = '<path d="' + SPARK_PATH + '" fill="currentColor"/>';
+          el.appendChild(s);
+          setTimeout(function () { s.remove(); }, 900);
+        }
+        setInterval(burst, 1100 + Math.random() * 500);
+        setTimeout(burst, 300);
+      }
+      if (!reduced) {
+        document.querySelectorAll('[data-sparkle]').forEach(sparkleHost);
+      }
+      var logoA = document.querySelector('a.logo');
+      var logoMark = document.querySelector('.logo-mark');
+      if (logoA && logoMark && !reduced) {
+        logoA.addEventListener('mouseenter', function () {
+          logoMark.classList.remove('boop');
+          void logoMark.offsetWidth;
+          logoMark.classList.add('boop');
+        });
+      }
+    })();
 
     /* ---------- 鼠标交互（仅精确指针设备） ---------- */
     var fine = window.matchMedia('(pointer: fine)').matches;
