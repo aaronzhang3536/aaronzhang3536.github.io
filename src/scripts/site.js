@@ -130,6 +130,10 @@
         location.href = '/search/?q=' + encodeURIComponent(v.slice(7).trim());
         return;
       }
+      if (v.indexOf('music') === 0) {
+        echo.textContent = musicCmd(v.slice(5).trim());
+        return;
+      }
       if (v.indexOf('play') === 0) {
         var pm = v.slice(4).trim();
         var alias = {
@@ -156,7 +160,7 @@
         case 'sound on': if (!sndOn) sndToggle(); echo.textContent = '环境音已开启。'; break;
         case 'sound off': if (sndOn) sndToggle(); echo.textContent = '环境音已关闭。'; break;
         case 'stat fps': echo.textContent = '60.2 FPS — 16.61 ms（稳如老狗）'; break;
-        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather auto|rain|… | bg on|off|next|<秒> | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
+        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather auto|rain|… | bg on|off|next|<秒> | music lofi|ambient|chip|off | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
         case 'quit':
           if (pieMode) exitPie(false);
           else echo.textContent = '想得美。写完这周的博客再走。';
@@ -5976,6 +5980,322 @@
           a.rel = 'noopener';
         }
       });
+    }
+
+
+    /* ---------- 音乐电台：三个生成式频道（Lo-fi/氛围/芯片，Web Audio 实时合成）+ 本地文件 ----------
+       零采样零外链：和声进行 + 鼓组 + 贝斯全部程序生成，无限不重复；本地模式播用户自己的音频文件 */
+    var MU = {
+      ctx: null, master: null, playing: false, ch: 'lofi', vol: 0.6,
+      timer: 0, nextT: 0, delayIn: null, vinyl: null,
+      files: [], fileIdx: 0, audioEl: null, track: '',
+    };
+    var MU_CH = { lofi: 'Lo-fi 慢拍', ambient: '钢琴氛围', chip: '8-bit 芯片', file: '本地音乐' };
+    var MU_TITLES = {
+      lofi: ['雨檐', '回南天', '晚自习', '天台', '褪色胶片', '慢车', '空教室', '梅雨季'],
+      ambient: ['湖面', '远山', '呼吸', '星群', '融雪', '和风', '林间'],
+      chip: ['像素晨跑', '第一关', '金币雨', '存档点', '隐藏房间', '通关演职员表'],
+    };
+    var muSt = {};
+    try {
+      var mSaved = JSON.parse(localStorage.getItem('yzzn-music') || 'null');
+      if (mSaved) {
+        if (MU_CH[mSaved.ch] && mSaved.ch !== 'file') MU.ch = mSaved.ch;
+        if (typeof mSaved.vol === 'number') MU.vol = Math.min(1, Math.max(0, mSaved.vol));
+      }
+    } catch (err) {}
+    function muSave() { try { localStorage.setItem('yzzn-music', JSON.stringify({ ch: MU.ch === 'file' ? 'lofi' : MU.ch, vol: MU.vol })); } catch (err) {} }
+    function midiHz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+    var muNoiseBuf = null;
+    function muCtx() {
+      if (!MU.ctx) {
+        MU.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        MU.master = MU.ctx.createGain();
+        MU.master.gain.value = MU.vol * MU.vol * 0.9;
+        var comp = MU.ctx.createDynamicsCompressor();
+        comp.threshold.value = -18; comp.ratio.value = 6;
+        MU.master.connect(comp);
+        comp.connect(MU.ctx.destination);
+        var nb = MU.ctx.createBuffer(1, MU.ctx.sampleRate, MU.ctx.sampleRate);
+        var d = nb.getChannelData(0);
+        for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        muNoiseBuf = nb;
+        /* 氛围频道的羽化延迟网络 */
+        var dl = MU.ctx.createDelay(1.2); dl.delayTime.value = 0.46;
+        var fb = MU.ctx.createGain(); fb.gain.value = 0.42;
+        var df = MU.ctx.createBiquadFilter(); df.type = 'lowpass'; df.frequency.value = 2600;
+        var wet = MU.ctx.createGain(); wet.gain.value = 0.5;
+        dl.connect(df); df.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(MU.master);
+        MU.delayIn = dl;
+      }
+      if (MU.ctx.state === 'suspended') MU.ctx.resume();
+      return MU.ctx;
+    }
+    function muTone(t, freq, dur, type, gain, filtHz, dest, detune) {
+      var c = MU.ctx;
+      var o = c.createOscillator(); o.type = type; o.frequency.value = freq;
+      if (detune) o.detune.value = detune;
+      var f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = filtHz || 4000;
+      var g = c.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(gain, t + 0.014);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+      o.connect(f); f.connect(g); g.connect(dest || MU.master);
+      o.start(t); o.stop(t + dur + 0.08);
+    }
+    function muNoiseHit(t, dur, filtType, filtHz, gain, q) {
+      var c = MU.ctx;
+      var s = c.createBufferSource(); s.buffer = muNoiseBuf; s.loop = true;
+      s.playbackRate.value = 0.9 + Math.random() * 0.2;
+      var f = c.createBiquadFilter(); f.type = filtType; f.frequency.value = filtHz; f.Q.value = q || 0.8;
+      var g = c.createGain();
+      g.gain.setValueAtTime(gain, t);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+      s.connect(f); f.connect(g); g.connect(MU.master);
+      s.start(t); s.stop(t + dur + 0.05);
+    }
+    function muKick(t, g) {
+      var c = MU.ctx;
+      var o = c.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(120, t);
+      o.frequency.exponentialRampToValueAtTime(44, t + 0.09);
+      var gn = c.createGain();
+      gn.gain.setValueAtTime(g, t);
+      gn.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      o.connect(gn); gn.connect(MU.master);
+      o.start(t); o.stop(t + 0.3);
+    }
+    function muSnare(t, g) {
+      muNoiseHit(t, 0.14, 'bandpass', 1900, g, 0.9);
+      muTone(t, 196, 0.09, 'triangle', g * 0.55, 1200);
+    }
+    /* Lo-fi：76 BPM 摇摆十六分，ii-V-I 系进行，Rhodes 和弦 + 贝斯 + 鼓 + 黑胶噪 */
+    var LOFI_PROG = [
+      [[50, 53, 57, 60], [43, 47, 50, 53], [48, 52, 55, 59], [45, 48, 52, 55]],
+      [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]],
+      [[45, 48, 52, 55], [50, 53, 57, 60], [43, 47, 50, 53], [48, 52, 55, 59]],
+    ];
+    var PENTA = [0, 2, 4, 7, 9];
+    function muLofiStep() {
+      var sd = 60 / 76 / 4;
+      var st = muSt.step % 16, bar = (muSt.step / 16) | 0;
+      var t = MU.nextT + (st % 2 ? sd * 0.3 : 0);
+      var prog = LOFI_PROG[muSt.seed % LOFI_PROG.length];
+      var chord = prog[bar % prog.length];
+      var i;
+      if (st === 0) {
+        for (i = 0; i < chord.length; i++) {
+          muTone(t + i * 0.022, midiHz(chord[i] + 12), 2.1, 'triangle', 0.15, 1350, null, (Math.random() - 0.5) * 7);
+        }
+      }
+      if (st === 10 && Math.random() < 0.45) {
+        for (i = 1; i < chord.length; i++) muTone(t + i * 0.015, midiHz(chord[i] + 12), 0.5, 'triangle', 0.07, 1200);
+      }
+      if (st === 0 || st === 8) muTone(t, midiHz(chord[0]), 0.7, 'sine', 0.3, 420);
+      if (st === 11 && Math.random() < 0.4) muTone(t, midiHz(chord[0] + 7), 0.35, 'sine', 0.2, 420);
+      if (st === 0 || st === 10 || (st === 6 && Math.random() < 0.3)) muKick(t, 0.5);
+      if (st === 4 || st === 12) muSnare(t, 0.16);
+      if (st % 2 === 0 && Math.random() < 0.88) muNoiseHit(t, st % 8 === 6 ? 0.22 : 0.05, 'highpass', 7200, 0.035 + Math.random() * 0.03);
+      if (st === 12 && Math.random() < 0.34) {
+        var root = chord[0] + 24;
+        for (i = 0; i < 3; i++) {
+          muTone(t + i * sd * 1.5, midiHz(root + PENTA[(Math.random() * 5) | 0]), 0.8, 'triangle', 0.08, 2200, MU.delayIn);
+        }
+      }
+      muSt.step++; MU.nextT += sd;
+    }
+    /* 氛围：无节拍，长音垫 + 五声琶音珠子进延迟网络 */
+    function muAmbientEvent() {
+      var t = MU.nextT;
+      muSt.evt = (muSt.evt || 0) + 1;
+      var roots = [48, 45, 50, 43];
+      var root = roots[((muSt.evt / 6) | 0) % roots.length];
+      if (muSt.evt % 6 === 1) {
+        var pad = [root, root + 7, root + 12, root + 16];
+        for (var i = 0; i < pad.length; i++) {
+          var c = MU.ctx;
+          var o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = midiHz(pad[i]);
+          o.detune.value = (Math.random() - 0.5) * 10;
+          var f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 620;
+          var g = c.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(0.05, t + 2.8);
+          g.gain.exponentialRampToValueAtTime(0.0008, t + 9.5);
+          o.connect(f); f.connect(g); g.connect(MU.master);
+          o.start(t); o.stop(t + 10);
+        }
+        muTone(t, midiHz(root - 12), 8, 'sine', 0.12, 300);
+      }
+      if (Math.random() < 0.85) {
+        muTone(t + Math.random() * 0.3, midiHz(root + 24 + PENTA[(Math.random() * 5) | 0] + (Math.random() < 0.3 ? 12 : 0)),
+          2.2, 'triangle', 0.09, 3200, MU.delayIn);
+      }
+      MU.nextT += 1.0 + Math.random() * 2.0;
+    }
+    /* 芯片：132 BPM，方波旋律 + 三角贝斯 + 噪声鼓 */
+    var CHIP_PROG = [[45, 48, 52], [41, 45, 48], [48, 52, 55], [43, 47, 50]];
+    function muChipStep() {
+      var sd = 60 / 132 / 4;
+      var st = muSt.step % 16, bar = (muSt.step / 16) | 0;
+      var t = MU.nextT;
+      var chord = CHIP_PROG[bar % CHIP_PROG.length];
+      if (st % 2 === 0) {
+        var pool = [chord[0] + 24, chord[1] + 24, chord[2] + 24, chord[0] + 36, chord[2] + 12];
+        muSt.lead = (muSt.lead || 0) + ((Math.random() * 3) | 0) - 1;
+        if (muSt.lead < 0) muSt.lead = pool.length - 1;
+        var note = pool[muSt.lead % pool.length];
+        if (Math.random() < 0.85) muTone(t, midiHz(note), sd * 1.7, 'square', 0.055, 5200);
+      }
+      if (st % 4 === 0) muTone(t, midiHz(chord[0] + (st % 8 === 4 ? 12 : 0)), sd * 3.4, 'triangle', 0.2, 900);
+      if (st === 0 || st === 8) muKick(t, 0.42);
+      if (st === 4 || st === 12) muSnare(t, 0.14);
+      if (Math.random() < 0.5) muNoiseHit(t, 0.03, 'highpass', 8000, 0.03);
+      muSt.step++; MU.nextT += sd;
+    }
+    function muVinylOn() {
+      if (MU.vinyl) return;
+      var c = MU.ctx;
+      var s = c.createBufferSource(); s.buffer = muNoiseBuf; s.loop = true;
+      var f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 3400; f.Q.value = 0.4;
+      var g = c.createGain(); g.gain.value = 0.012;
+      s.connect(f); f.connect(g); g.connect(MU.master);
+      s.start();
+      MU.vinyl = s;
+    }
+    function muVinylOff() { if (MU.vinyl) { try { MU.vinyl.stop(); } catch (err) {} MU.vinyl = null; } }
+    function muPump() {
+      if (!MU.playing || MU.ch === 'file' || !MU.ctx) return;
+      var horizon = MU.ctx.currentTime + 0.28;
+      var guard = 0;
+      while (MU.nextT < horizon && guard++ < 80) {
+        if (MU.ch === 'lofi') muLofiStep();
+        else if (MU.ch === 'chip') muChipStep();
+        else muAmbientEvent();
+      }
+    }
+    function muNewTrack() {
+      muSt = { step: 0, evt: 0, seed: (Math.random() * 997) | 0, lead: 2 };
+      var pool = MU_TITLES[MU.ch] || [''];
+      MU.track = pool[(Math.random() * pool.length) | 0];
+    }
+    function muStart() {
+      if (MU.ch === 'file') { muFilePlay(); return; }
+      muCtx();
+      if (!MU.track) muNewTrack();
+      MU.playing = true;
+      MU.nextT = MU.ctx.currentTime + 0.08;
+      if (MU.ch === 'lofi') muVinylOn(); else muVinylOff();
+      clearInterval(MU.timer);
+      MU.timer = setInterval(muPump, 55);
+      muUiSync();
+    }
+    function muStop() {
+      MU.playing = false;
+      clearInterval(MU.timer);
+      muVinylOff();
+      if (MU.audioEl) MU.audioEl.pause();
+      if (MU.ctx && MU.ctx.state === 'running') MU.ctx.suspend();
+      muUiSync();
+    }
+    function muSetCh(ch) {
+      if (!MU_CH[ch]) return false;
+      var was = MU.playing;
+      muStop();
+      MU.ch = ch;
+      MU.track = '';
+      muSave();
+      if (ch === 'file' && !MU.files.length) { muPickFiles(); muUiSync(); return true; }
+      if (was || ch === 'file') muStart();
+      muUiSync();
+      return true;
+    }
+    /* 本地文件模式 */
+    function muPickFiles() {
+      var inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'audio/*'; inp.multiple = true;
+      inp.addEventListener('change', function () {
+        if (!inp.files.length) { muUiSync(); return; }
+        MU.files = Array.prototype.slice.call(inp.files);
+        MU.fileIdx = 0;
+        MU.ch = 'file';
+        muFilePlay();
+      });
+      inp.click();
+    }
+    function muFilePlay() {
+      if (!MU.files.length) { muPickFiles(); return; }
+      if (!MU.audioEl) {
+        MU.audioEl = new Audio();
+        MU.audioEl.addEventListener('ended', function () { muFileNext(); });
+      }
+      var f = MU.files[MU.fileIdx % MU.files.length];
+      if (MU.audioEl.dataset.idx !== String(MU.fileIdx)) {
+        if (MU.audioEl.src) URL.revokeObjectURL(MU.audioEl.src);
+        MU.audioEl.src = URL.createObjectURL(f);
+        MU.audioEl.dataset.idx = String(MU.fileIdx);
+      }
+      MU.audioEl.volume = MU.vol;
+      MU.audioEl.play();
+      MU.playing = true;
+      MU.track = f.name.replace(/\.[a-z0-9]+$/i, '');
+      muUiSync();
+    }
+    function muFileNext() { MU.fileIdx = (MU.fileIdx + 1) % Math.max(1, MU.files.length); if (MU.audioEl) MU.audioEl.dataset.idx = ''; muFilePlay(); }
+    /* UI */
+    var mpEl = null;
+    function muUiSync() {
+      if (!mpEl) return;
+      mpEl.classList.toggle('playing', MU.playing);
+      var pb = document.getElementById('mp-play');
+      if (pb) pb.textContent = MU.playing ? '⏸' : '▶';
+      var tt = document.getElementById('mp-title');
+      if (tt) tt.textContent = MU_CH[MU.ch] + (MU.track ? ' · ' + MU.track : '');
+      var sel = document.getElementById('mp-ch');
+      if (sel && sel.value !== MU.ch) sel.value = MU.ch;
+    }
+    (function muInit() {
+      mpEl = document.createElement('div');
+      mpEl.id = 'mplayer';
+      mpEl.innerHTML =
+        '<div class="mp-panel">' +
+        '<span class="mp-eq" aria-hidden="true"><i></i><i></i><i></i></span>' +
+        '<span class="mp-title" id="mp-title"></span>' +
+        '<button type="button" id="mp-play" title="播放 / 暂停">▶</button>' +
+        '<button type="button" id="mp-next" title="换一首">⏭</button>' +
+        '<select id="mp-ch" class="mono" title="频道">' +
+        '<option value="lofi">Lo-fi</option><option value="ambient">氛围</option>' +
+        '<option value="chip">8-bit</option><option value="file">本地…</option></select>' +
+        '<input id="mp-vol" type="range" min="0" max="1" step="0.02" title="音量" />' +
+        '</div>' +
+        '<button type="button" id="mp-disc" title="音乐电台" aria-label="音乐电台"></button>';
+      document.body.appendChild(mpEl);
+      document.getElementById('mp-vol').value = String(MU.vol);
+      document.getElementById('mp-disc').addEventListener('click', function () {
+        mpEl.classList.toggle('open');
+        muUiSync();
+      });
+      document.getElementById('mp-play').addEventListener('click', function () {
+        if (MU.playing) muStop(); else muStart();
+      });
+      document.getElementById('mp-next').addEventListener('click', function () {
+        if (MU.ch === 'file') { muFileNext(); return; }
+        var was = MU.playing;
+        muNewTrack();
+        if (was) { muStop(); muStart(); } else muUiSync();
+      });
+      document.getElementById('mp-ch').addEventListener('change', function (e) { muSetCh(e.target.value); });
+      document.getElementById('mp-vol').addEventListener('input', function (e) {
+        MU.vol = parseFloat(e.target.value);
+        if (MU.master) MU.master.gain.value = MU.vol * MU.vol * 0.9;
+        if (MU.audioEl) MU.audioEl.volume = MU.vol;
+        muSave();
+      });
+      muUiSync();
+    })();
+    function musicCmd(arg) {
+      if (arg === 'off' || arg === 'stop') { muStop(); return '音乐电台已停。'; }
+      if (MU_CH[arg]) { mpEl.classList.add('open'); muSetCh(arg); if (!MU.playing && arg !== 'file') muStart(); return '电台切换：' + MU_CH[arg] + (MU.track ? ' · ' + MU.track : ''); }
+      return '用法：music lofi | ambient | chip | file | off（当前：' + MU_CH[MU.ch] + (MU.playing ? ' · 播放中' : ' · 已停') + '）';
     }
 
     /* ---------- Josh 式玩心：星光 ✨ 与 logo boop（触屏也生效） ---------- */

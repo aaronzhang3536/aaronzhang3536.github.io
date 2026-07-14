@@ -1547,3 +1547,58 @@
   @media (prefers-reduced-motion: reduce) {
     .signoff .heart, .logo-mark.boop, .spark-star { animation: none; }
   }
+
+  /* ================= 音乐电台悬浮播放器 ================= */
+  #mplayer {
+    position: fixed; right: 20px; bottom: 88px; z-index: 46;
+    display: flex; align-items: center; gap: 10px;
+  }
+  #mp-disc {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 1px solid var(--line); cursor: pointer; padding: 0;
+    background:
+      radial-gradient(circle at 50% 50%, var(--bg) 0 14%, transparent 15%),
+      repeating-radial-gradient(circle at 50% 50%, #1c2434 0 2px, #141a28 2px 4px);
+    box-shadow: var(--shadow-pop);
+    position: relative;
+    transition: transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1), border-color 0.15s;
+  }
+  #mp-disc::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%;
+    background: var(--grad);
+  }
+  #mp-disc:hover { transform: scale(1.08); border-color: var(--accent2); }
+  #mplayer.playing #mp-disc { animation: mp-spin 3.2s linear infinite; }
+  @keyframes mp-spin { to { transform: rotate(360deg); } }
+  #mplayer .mp-panel {
+    display: none; align-items: center; gap: 9px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 14px;
+    box-shadow: var(--shadow-pop);
+  }
+  #mplayer.open .mp-panel { display: flex; }
+  .mp-title { font-size: 12px; color: var(--ink); max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mp-eq { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+  .mp-eq i { width: 3px; background: var(--accent2); border-radius: 2px; height: 4px; }
+  #mplayer.playing .mp-eq i { animation: mp-eq 0.9s ease-in-out infinite; }
+  #mplayer.playing .mp-eq i:nth-child(2) { animation-delay: 0.15s; animation-duration: 0.7s; }
+  #mplayer.playing .mp-eq i:nth-child(3) { animation-delay: 0.3s; animation-duration: 1.1s; }
+  @keyframes mp-eq { 0%, 100% { height: 4px; } 50% { height: 14px; } }
+  .mp-panel button {
+    appearance: none; border: 1px solid var(--line); background: transparent;
+    color: var(--ink); width: 28px; height: 28px; border-radius: 50%;
+    cursor: pointer; font-size: 12px; line-height: 1; padding: 0;
+    transition: transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1), border-color 0.15s, color 0.15s;
+  }
+  .mp-panel button:hover { border-color: var(--accent2); color: var(--accent2); transform: translateY(-1px); }
+  .mp-panel button:active { transform: scale(0.92); }
+  .mp-panel select {
+    background: transparent; color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; font: 11px inherit; padding: 4px 6px; max-width: 96px;
+  }
+  .mp-panel input[type="range"] { width: 64px; accent-color: var(--accent2); }
+  @media (max-width: 720px) { #mplayer { bottom: 74px; } .mp-title { max-width: 90px; } .mp-panel input[type="range"] { width: 44px; } }
+  @media (prefers-reduced-motion: reduce) { #mplayer.playing #mp-disc, #mplayer.playing .mp-eq i { animation: none; } }
