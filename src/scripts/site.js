@@ -78,23 +78,6 @@
       }, 500);
     }
 
-    /* 光标样式：默认橙猫头，可切小美女/箭头/系统原生（cursor 命令），偏好持久化 */
-    var curStyle = 'cat';
-    try { curStyle = localStorage.getItem('yzzn-cursor') || 'cat'; } catch (err) {}
-    var CUR_NAMES = {
-      cat: '橙猫头', girl: '粉发碧瞳少女（悬停变爱心）', girl2: '蓝发金瞳少女（悬停变爱心）',
-      arrow: '可爱箭头', classic: '系统原生'
-    };
-    function setCursorStyle(m) {
-      if (!CUR_NAMES[m]) return false;
-      curStyle = m;
-      document.body.classList.remove('cur-girl', 'cur-girl2', 'cur-arrow', 'cur-classic');
-      if (m !== 'cat') document.body.classList.add('cur-' + m);
-      try { localStorage.setItem('yzzn-cursor', m); } catch (err) {}
-      return true;
-    }
-    if (curStyle !== 'cat') setCursorStyle(curStyle);
-
     /* 控制台 */
     var cmd = document.getElementById('cmd');
     var echo = document.getElementById('echo');
@@ -137,15 +120,6 @@
         location.href = '/search/?q=' + encodeURIComponent(v.slice(7).trim());
         return;
       }
-      if (v.indexOf('cursor') === 0) {
-        var cs = v.slice(6).trim();
-        if (setCursorStyle(cs)) {
-          echo.textContent = '光标切换：' + CUR_NAMES[cs];
-        } else {
-          echo.textContent = '用法：cursor cat | girl | girl2 | arrow | classic（当前：' + CUR_NAMES[curStyle] + '）';
-        }
-        return;
-      }
       if (v.indexOf('play') === 0) {
         var pm = v.slice(4).trim();
         var alias = {
@@ -172,7 +146,7 @@
         case 'sound on': if (!sndOn) sndToggle(); echo.textContent = '环境音已开启。'; break;
         case 'sound off': if (sndOn) sndToggle(); echo.textContent = '环境音已关闭。'; break;
         case 'stat fps': echo.textContent = '60.2 FPS — 16.61 ms（稳如老狗）'; break;
-        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather auto|rain|… | bg on|off|next|<秒> | cursor cat|girl|arrow|classic | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
+        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather auto|rain|… | bg on|off|next|<秒> | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
         case 'quit':
           if (pieMode) exitPie(false);
           else echo.textContent = '想得美。写完这周的博客再走。';
