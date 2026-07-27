@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>巴别塔 · Tower of Babel</title>
+<meta name="description" content="用英语词汇筑成的杀戮尖塔式卡牌 Roguelike：爬塔、构筑牌组，在战斗中学习单词。" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<div id="app">
+  <!-- 屏幕由 JS 注入：title / map / combat / reward / campfire / shop / event / gameover -->
+  <div id="screen"></div>
+  <div id="fx" aria-hidden="true"></div>
+  <div id="toast" aria-live="polite"></div>
+</div>
+<div id="modal" hidden></div>
+<script src="./data.js"></script>
+<script src="./game.js"></script>
+<script src="./ui.js"></script>
+</body>
+</html>
