@@ -399,6 +399,7 @@
     ev.preventDefault();
     C.dragging = { c: c, node: node, type: G.cardType(c) };
     node.classList.add('dragging');
+    node.style.pointerEvents = 'none';   /* 关键：让 elementFromPoint 穿透卡片看到背后的敌人 */
     $('cb-drop').classList.toggle('show', C.dragging.type !== 'attack');
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', onDragUp);
@@ -435,14 +436,17 @@
     if (!d) return;
     var played = false;
     if (d.type === 'attack') {
-      if (C.hovering) { doPlay(d.c, C.hovering, d.node); played = true; }
+      var tgt = C.hovering;
+      /* 兜底：单敌时拖到战斗区任意处即锁定唯一敌人，避免非要精准压中 */
+      if (!tgt && !needsTarget() && inStage(ev)) tgt = soleEnemy();
+      if (tgt) { doPlay(d.c, tgt, d.node); played = true; }
     } else {
-      if (inStage(ev)) { doPlay(d.c, needsTarget() ? null : null, d.node); played = true; }
+      if (inStage(ev)) { doPlay(d.c, null, d.node); played = true; }
     }
     if (!played) { d.node.classList.remove('dragging'); resetCardPos(d.node); renderHand(); }
     C.hovering = null;
   }
-  function resetCardPos(node) { node.style.position = ''; node.style.left = ''; node.style.top = ''; node.style.zIndex = ''; node.style.transform = ''; }
+  function resetCardPos(node) { node.style.position = ''; node.style.left = ''; node.style.top = ''; node.style.zIndex = ''; node.style.transform = ''; node.style.pointerEvents = ''; }
 
   function doPlay(c, targetUid, node) {
     var type = G.cardType(c), e = G.cardEff(c);
