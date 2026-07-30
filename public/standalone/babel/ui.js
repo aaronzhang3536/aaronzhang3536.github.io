@@ -223,7 +223,7 @@
     var cb = G.state.combat, p = cb.player, box = $('cb-player');
     clear(box);
     var fig = el('div', 'unit-fig player-fig', '<div class="fig-art art-player" data-emoji="' + EMOJI.player + '"></div>');
-    var hpbar = unitHpBar(G.state.hp, G.state.maxHp, p.block, p.buffs, '旅人 Randir');
+    var hpbar = unitHpBar(G.state.hp, G.state.maxHp, p.block, p.buffs, '旅人 Wanderer');
     box.appendChild(fig);
     box.appendChild(hpbar);
   }
@@ -609,7 +609,7 @@
     var wrap = el('div', 'room-wrap fire-room');
     wrap.appendChild(topBar());
     var inner = el('div', 'room-inner');
-    inner.innerHTML = '<div class="room-art art-fire"></div><h2>篝火 · Echadnor</h2><p class="dim">在火边休息，或复习词汇以精通卡牌。</p>';
+    inner.innerHTML = '<div class="room-art art-fire"></div><h2>篝火 · Campfire</h2><p class="dim">在火边休息，或复习词汇以精通卡牌。</p>';
     var btns = el('div', 'room-btns');
     var canRest = !G.hasRelic('coffeedripper');
     if (canRest) {
@@ -702,7 +702,7 @@
     var wrap = el('div', 'room-wrap shop-room');
     wrap.appendChild(topBar());
     var inner = el('div', 'shop-inner');
-    inner.innerHTML = '<h2>商店 · Pethron</h2><p class="dim mono">金币 ' + st.gold + '</p>';
+    inner.innerHTML = '<h2>商店 · Merchant</h2><p class="dim mono">金币 ' + st.gold + '</p>';
     /* 卖 3 卡 + 2 圣物 + 删牌 */
     var cardRow = el('div', 'shop-row');
     var pool = G.CARD_DEFS.filter(function (d) { return !d.starter; });
@@ -775,7 +775,7 @@
     var wrap = el('div', 'room-wrap');
     wrap.appendChild(topBar());
     var inner = el('div', 'room-inner');
-    inner.innerHTML = '<div class="room-art art-treasure"></div><h2>宝藏 · Mîr</h2>';
+    inner.innerHTML = '<div class="room-art art-treasure"></div><h2>宝藏 · Treasure</h2>';
     var rid = G.rollRelic();
     if (rid) {
       var r = G.relicById[rid];
@@ -802,10 +802,10 @@
     var wrap = el('div', 'room-wrap');
     wrap.appendChild(topBar());
     var inner = el('div', 'room-inner');
-    /* 低血触发献祭事件 Iagad garan */
+    /* 低血触发献祭事件 Crimson Altar */
     var lowHp = st.hp < st.maxHp * 0.4;
     if (lowHp && Math.random() < 0.7) {
-      inner.innerHTML = '<div class="room-art art-altar"></div><h2>殷红的祭坛 · Iagad garan</h2><p class="dim">祭坛渴求一张卡牌。献上它，或许能换回气力——但结果无人知晓。</p>';
+      inner.innerHTML = '<div class="room-art art-altar"></div><h2>殷红的祭坛 · Crimson Altar</h2><p class="dim">祭坛渴求一张卡牌。献上它，或许能换回气力——但结果无人知晓。</p>';
       var give = el('button', 'btn primary', '献祭一张牌');
       give.onclick = function () {
         var body = el('div', 'review-wrap');
@@ -834,7 +834,7 @@
       /* 普通奇遇：迷光 / 废弃书库 */
       var kind = G.pick(['gwath', 'partham']);
       if (kind === 'gwath') {
-        inner.innerHTML = '<div class="room-art art-event"></div><h2>迷光 · Gwath</h2><p class="dim">幽微的光引你深入。</p>';
+        inner.innerHTML = '<div class="room-art art-event"></div><h2>迷光 · Wisp</h2><p class="dim">幽微的光引你深入。</p>';
         var a = el('button', 'btn', '追随（失 6 血，得 60 金）');
         a.onclick = function () { G.damagePlayerRaw ? (st.hp = Math.max(1, st.hp - 6)) : null; st.gold += 60; toast('+60 金'); G.go('map'); };
         var b = el('button', 'btn', '一张随机卡进入弱强化');
@@ -842,7 +842,7 @@
         var c = el('button', 'btn ghost', '离开'); c.onclick = function () { G.go('map'); };
         inner.appendChild(a); inner.appendChild(b); inner.appendChild(c);
       } else {
-        inner.innerHTML = '<div class="room-art art-event"></div><h2>废弃书库 · Partham</h2><p class="dim">尘封的书架间藏着知识。</p>';
+        inner.innerHTML = '<div class="room-art art-event"></div><h2>废弃书库 · Lost Library</h2><p class="dim">尘封的书架间藏着知识。</p>';
         var a2 = el('button', 'btn', '研读（升级随机一张卡）');
         a2.onclick = function () { var cs = st.deck.filter(function (x) { return x.lvl < 2; }); if (cs.length) { var c = G.pick(cs); c.lvl = Math.min(2, c.lvl + 1); G.manualSet(c.word.w, c.lvl); } toast('一张卡获得强化'); G.go('map'); };
         var b2 = el('button', 'btn', '休息（回 20% 血）');
@@ -860,7 +860,7 @@
     var wrap = el('div', 'over-wrap' + (arg.win ? ' win' : ' lose'));
     wrap.innerHTML =
       '<div class="over-glow"></div>' +
-      '<h1>' + (arg.win ? 'I amarth orthornen.' : 'I varad rêth eno.') + '</h1>' +
+      '<h1>' + (arg.win ? 'The Tower is Conquered.' : 'The Tower Still Stands.') + '</h1>' +
       '<p class="over-cn">' + (arg.win ? '命运被征服了 —— 你登顶了巴别塔。' : '塔仍矗立 —— 但你会再来。') + '</p>' +
       '<p class="mono dim">生词手册已保存本局学到的词汇</p>' +
       '<button class="btn primary" id="over-again">回到塔前</button>';

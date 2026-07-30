@@ -249,11 +249,11 @@ window.G = window.G || {};
   };
   /* 三首领各具机制 */
   G.BOSS_DEFS = {
-    amarth:  { cn: '命运 · Amarth', kind: 'boss', hp: [155, 155], art: 'amarth', ai: 'amarth',
+    amarth:  { cn: '命运 · Fate', kind: 'boss', hp: [155, 155], art: 'amarth', ai: 'amarth',
       lines: { open: '停下，凡人。念出你命运的词语。', pass: '……可命运无法夺走你的词语。', fail: '你的舌头背叛了你。这就是你的命运。' } },
-    bauglir: { cn: '暴君 · Bauglir', kind: 'boss', hp: [168, 168], art: 'bauglir', ai: 'bauglir',
+    bauglir: { cn: '暴君 · Tyrant', kind: 'boss', hp: [168, 168], art: 'bauglir', ai: 'bauglir',
       lines: { open: '跪下，囚徒。把你的词语交给我的锁链。', pass: '走开！凡人竟诵出了枷锁之词！', fail: '啊！如同盲者，你在黑暗中低语。' } },
-    dagnir:  { cn: '灾祸 · Dagnir', kind: 'boss', hp: [180, 180], art: 'dagnir', ai: 'dagnir',
+    dagnir:  { cn: '灾祸 · Bane', kind: 'boss', hp: [180, 180], art: 'dagnir', ai: 'dagnir',
       lines: { open: '良言，或毒语。抉择吧！', pass: '……你的词语锋利如剑。致命的美。', fail: '啊！毒液缠住了你的舌。你的词语枯萎，你的时辰将尽。' } },
   };
 
