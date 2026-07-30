@@ -680,7 +680,8 @@
   }
   function openFormQuiz(quiz, done) {
     var body = el('div', 'learn-wrap');
-    body.innerHTML = '<h3>复习 · ' + quiz.label + '</h3><div class="learn-word">' + quiz.q + ' <span class="mono dim">' + (quiz.card.word.pos === 'verb' ? 'v.' : 'n.') + '</span></div><div class="learn-opts" id="fo"></div>';
+    var posLbl = { verb: 'v.', adj: 'a.', noun: 'n.' }[quiz.card.word.pos] || 'n.';
+    body.innerHTML = '<h3>复习 · ' + quiz.label + '</h3><div class="learn-word">' + quiz.q + ' <span class="mono dim">' + posLbl + '</span></div><div class="learn-opts" id="fo"></div>';
     var box = body.querySelector('#fo');
     quiz.opts.forEach(function (o) {
       var b = el('button', 'learn-opt', o);

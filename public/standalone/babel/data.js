@@ -12,56 +12,24 @@ window.G = window.G || {};
   G.uid = (function () { var n = 0; return function () { return 'u' + (++n); }; })();
 
   /* ---------- 词库加载：合并多考纲，按词频给出难度分层 ---------- */
-  G.LEVELS = ['zk', 'gk', 'cet4', 'cet6', 'ky', 'toefl', 'ielts', 'gre'];
-  G.words = [];        /* [{w, ipa, def, pos, cn, freq, tier}] */
+  G.words = [];        /* [{w, ipa, cn, pos, tier}] */
   G.wordByKey = {};
+  G.wordTiers = [[], [], [], [], [], [], [], []];
 
-  function shortCn(def) {
-    /* 取第一条中文释义，去掉词性前缀 */
-    var s = def.replace(/\[[^\]]*\]/g, '');
-    var parts = s.split(/[;；]/);
-    var first = parts[0] || s;
-    first = first.replace(/^\s*(n|v|vt|vi|a|ad|adj|adv|prep|conj|pron|art|num|aux|int|abbr)\.?\s*/i, '');
-    first = first.split(/[,，]/).slice(0, 2).join('，').trim();
-    return first || def.slice(0, 8);
-  }
-  function posOf(def) {
-    var d = def.toLowerCase();
-    /* 优先判定动词（时态测验），其次名词（复数测验） */
-    if (/\bv[ti]?\./.test(d) || /\bv\./.test(d)) return 'verb';
-    if (/\bn\./.test(d)) return 'noun';
-    if (/\ba(dj)?\./.test(d)) return 'adj';
-    return 'noun';
-  }
-
+  /* 加载构建期瘦身的合并词包（8 档各高频前 450 词，已算好简短中文+词性，
+     ~170KB 一个请求，取代原先 8 文件 3.5MB —— 秒开） */
   G.loadWords = function () {
-    return Promise.all(G.LEVELS.map(function (lv, li) {
-      return fetch('/data/en/levels/' + lv + '.json').then(function (r) { return r.json(); }).then(function (j) {
-        return { lv: lv, li: li, words: (j && j.words) || [] };
-      }).catch(function () { return { lv: lv, li: li, words: [] }; });
-    })).then(function (packs) {
-      var seen = {};
-      packs.forEach(function (p) {
-        p.words.forEach(function (e, idx) {
-          var w = (e[0] || '').toLowerCase();
-          if (!w || !/^[a-z][a-z'-]{1,13}$/.test(w) || seen[w]) return;
-          if (/\s/.test(e[0])) return;
-          seen[w] = 1;
-          var rec = {
-            w: e[0], ipa: e[1] || '', def: e[2] || '', pos: posOf(e[2] || ''),
-            cn: shortCn(e[2] || ''), freq: e[3] || 0,
-            tier: p.li,                 /* 0 中考 … 7 GRE，作难度分层 */
-            rank: idx,
-          };
+    return fetch('/data/babel-words.json').then(function (r) { return r.json(); }).then(function (pack) {
+      (pack.tiers || []).forEach(function (bucket, ti) {
+        bucket.forEach(function (e) {
+          var rec = { w: e[0], ipa: e[1] || '', cn: e[2] || '', pos: e[3] || 'noun', tier: ti };
           G.words.push(rec);
-          G.wordByKey[w] = rec;
+          G.wordByKey[e[0].toLowerCase()] = rec;
+          G.wordTiers[ti].push(rec);
         });
       });
-      /* 每个 tier 分桶，供分层抽词 */
-      G.wordTiers = [[], [], [], [], [], [], [], []];
-      G.words.forEach(function (r) { G.wordTiers[r.tier].push(r); });
       return G.words.length;
-    });
+    }).catch(function () { return 0; });
   };
 
   /* 按塔层深度抽一个词：越高层越难 */
@@ -107,12 +75,22 @@ window.G = window.G || {};
     if (/^[^aeiou]*[aeiou][^aeiouwxy]$/.test(lw)) return w + lw.slice(-1) + 'ed';
     return w + 'ed';
   };
+  G.comparative = function (w) {
+    var lw = w.toLowerCase();
+    if (/e$/.test(lw)) return w + 'r';
+    if (/[^aeiou]y$/.test(lw)) return w.slice(0, -1) + 'ier';
+    if (/^[^aeiou]*[aeiou][^aeiouwxy]$/.test(lw)) return w + lw.slice(-1) + 'er';
+    return w + 'er';
+  };
   /* 生成一道构词多选题：{q, correct, opts[]} —— 多选避免自由输入判错的老 bug */
   G.formQuiz = function (rec) {
     var base = rec.w, correct, label, wrongs;
     if (rec.pos === 'verb') {
       correct = G.pastTense(base); label = '过去式';
       wrongs = [base + 'ed', base + 'd', base + 's', base + (base.slice(-1)) + 'ed'];
+    } else if (rec.pos === 'adj') {
+      correct = G.comparative(base); label = '比较级';
+      wrongs = [base + 'er', base + 'est', base + 'r', base.slice(0, -1) + 'ier'];
     } else {
       correct = G.pluralize(base); label = '复数';
       wrongs = [base + 's', base + 'es', base + (/y$/.test(base) ? base.slice(0, -1) + 'ies' : 'ies'), base.slice(0, -1) + 'ves'];
