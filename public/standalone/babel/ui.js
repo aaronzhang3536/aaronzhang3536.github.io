@@ -94,9 +94,9 @@
     var scroll = el('div', 'map-scroll');
     var canvas = el('div', 'map-canvas');
     var grid = st.map.grid, ROWS = grid.length;
-    var COLW = 100, ROWH = 84, PADX = 40;
+    var COLS = 7, COLW = 82, ROWH = 84, PADX = 34;
     canvas.style.height = (ROWS * ROWH + 60) + 'px';
-    canvas.style.width = (5 * COLW + PADX * 2) + 'px';
+    canvas.style.width = (COLS * COLW + PADX * 2) + 'px';
     /* 连线（SVG） */
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('class', 'map-lines');

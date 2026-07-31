@@ -99,82 +99,156 @@
     return base + G.rnd(40) - 20;
   };
 
-  /* ================= 地图生成（StS 式分支网格） ================= */
+  /* ================= 地图生成（杀戮尖塔式路径播撒 + 规则化房间分配） =================
+     结构原则（对齐 StS Act）：
+       · 底行全是普通战、顶行首领、首领前一行全篝火、中段一行宝藏；
+       · 多条路径从底部向上游走，落点限 c±1 且禁止连线交叉 → 路线清晰不缠绕；
+       · 房间类型按规则+权重：前 5 层无精英、前 4 层无篝火/商店、
+         篝火不连续、精英不连续、同类不紧邻；全图恰好 3 商店；
+       · 每条根→首领路径的篝火数 1~5 且尽量均衡。 */
+  var ROWS = 15, COLS = 7, PATHS = 6;
   G.genMap = function () {
-    var ROWS = 15, COLS = 5;
-    var grid = [];
-    for (var r = 0; r < ROWS; r++) {
-      var count = (r === 0) ? 3 : (r === ROWS - 1) ? 1 : 2 + G.rnd(COLS - 1);
-      var cols = G.shuffle([0, 1, 2, 3, 4]).slice(0, count).sort(function (a, b) { return a - b; });
-      grid.push(cols.map(function (c) { return { r: r, c: c, type: 'fight', edges: [], id: r + '_' + c, cleared: false }; }));
+    for (var attempt = 0; attempt < 30; attempt++) {
+      var map = tryGenMap();
+      if (map) return map;
     }
-    /* 连边：每个节点向下一行最近的 1~2 个节点连线 */
-    for (var ri = 0; ri < ROWS - 1; ri++) {
-      var cur = grid[ri], nxt = grid[ri + 1];
-      cur.forEach(function (n) {
-        var sorted = nxt.slice().sort(function (a, b) { return Math.abs(a.c - n.c) - Math.abs(b.c - n.c); });
-        var k = 1 + (Math.random() < 0.5 ? 1 : 0);
-        for (var i = 0; i < k && i < sorted.length; i++) if (n.edges.indexOf(sorted[i].id) < 0) n.edges.push(sorted[i].id);
-      });
-      /* 保证下一行每个节点都有入边 */
-      nxt.forEach(function (m) {
-        var has = cur.some(function (n) { return n.edges.indexOf(m.id) >= 0; });
-        if (!has) {
-          var near = cur.slice().sort(function (a, b) { return Math.abs(a.c - m.c) - Math.abs(b.c - m.c); })[0];
-          near.edges.push(m.id);
-        }
-      });
-    }
-    /* 类型分配 */
-    var flat = [];
-    grid.forEach(function (row) { row.forEach(function (n) { flat.push(n); }); });
-    flat.forEach(function (n) {
-      if (n.r === 0) { n.type = 'fight'; n.sub = 'normal'; return; }
-      if (n.r === ROWS - 1) { n.type = 'boss'; return; }
-      if (n.r === 8) { n.type = 'treasure'; return; }
-      if (n.r === ROWS - 2) { n.type = 'fire'; return; }
-      var roll = Math.random(), fl = n.r;
-      if (fl >= 5 && roll < 0.16) n.type = 'elite';
-      else if (roll < 0.12) n.type = 'fire';
-      else if (roll < 0.20) n.type = 'event';
-      else if (roll < 0.26) n.type = 'treasure';
-      else { n.type = 'fight'; n.sub = fl < 4 ? 'normal' : (Math.random() < 0.4 ? 'pack' : 'normal'); }
-    });
-    /* 约束 1：全图恰好 3 个商店（替换若干 event/fight） */
-    var shopCands = flat.filter(function (n) { return n.r >= 3 && n.r <= 12 && (n.type === 'event' || n.type === 'fight'); });
-    G.shuffle(shopCands).slice(0, 3).forEach(function (n) { n.type = 'shop'; });
-    /* 约束 2：每条根→boss 路径火堆数 1~5 且均衡（迭代修正） */
-    balanceFires(grid);
-    return { grid: grid, rows: ROWS };
+    return tryGenMap(true);
   };
+  function tryGenMap(force) {
+    var nodes = {};                 /* id -> node */
+    function nodeAt(r, c) {
+      var id = r + '_' + c;
+      if (!nodes[id]) nodes[id] = { r: r, c: c, type: 'fight', edges: [], id: id, cleared: false };
+      return nodes[id];
+    }
+    var edgeSet = {};               /* 记录 r 行 c1->c2 边，用于查交叉 */
+    function crosses(r, c1, c2) {
+      if (c1 === c2) return false;
+      var lo = Math.min(c1, c2), hi = Math.max(c1, c2);
+      /* 若已存在一条同行边 (a->b) 与 (c1->c2) 交叉（区间相交但端点相反）则禁止 */
+      var list = edgeSet[r] || [];
+      for (var i = 0; i < list.length; i++) {
+        var a = list[i][0], b = list[i][1];
+        if (a === b) continue;
+        if ((c1 < a && c2 > b) || (c1 > a && c2 < b)) return true;   /* X 形交叉 */
+      }
+      return false;
+    }
+    function addEdge(r, c1, c2) {
+      var from = nodeAt(r, c1), to = nodeAt(r + 1, c2);
+      if (from.edges.indexOf(to.id) < 0) from.edges.push(to.id);
+      (edgeSet[r] = edgeSet[r] || []).push([c1, c2]);
+    }
+    /* 播撒 PATHS 条路径：每条从底行随机列出发，逐行选 c-1/c/c+1（不越界不交叉） */
+    var starts = [];
+    for (var p = 0; p < PATHS; p++) {
+      var c = (p === 0) ? 1 + G.rnd(COLS - 2) : G.rnd(COLS);
+      nodeAt(0, c);
+      starts.push(c);
+      /* 只播到倒数第二行（ROWS-2）；首领行单独汇聚，避免多首领与交叉 */
+      for (var r = 0; r < ROWS - 2; r++) {
+        var opts = [];
+        [-1, 0, 1].forEach(function (dc) {
+          var nc = c + dc;
+          if (nc < 0 || nc >= COLS) return;
+          if (crosses(r, c, nc)) return;
+          opts.push(nc);
+        });
+        if (!opts.length) opts = [c];
+        var nc = G.pick(opts);
+        addEdge(r, c, nc);
+        c = nc;
+      }
+    }
+    /* 顶部：所有到达倒数第二行的节点汇入唯一 boss 节点 */
+    var boss = nodeAt(ROWS - 1, 3);
+    Object.keys(nodes).forEach(function (id) {
+      var n = nodes[id];
+      if (n.r === ROWS - 2) { if (n.edges.indexOf(boss.id) < 0) n.edges.push(boss.id); }
+    });
+    /* 收集分行网格 */
+    var grid = [];
+    for (var rr = 0; rr < ROWS; rr++) grid.push([]);
+    Object.keys(nodes).forEach(function (id) { grid[nodes[id].r].push(nodes[id]); });
+    grid.forEach(function (row) { row.sort(function (a, b) { return a.c - b.c; }); });
+    if (!grid[0].length || !grid[ROWS - 2].length) return null;
+
+    /* ---------- 房间类型分配 ---------- */
+    var byId = nodes;
+    function parentsOf(n) {
+      var ps = [];
+      var prev = grid[n.r - 1] || [];
+      prev.forEach(function (m) { if (m.edges.indexOf(n.id) >= 0) ps.push(m); });
+      return ps;
+    }
+    grid.forEach(function (row, r) {
+      row.forEach(function (n) {
+        if (r === 0) { n.type = 'fight'; n.sub = 'normal'; return; }
+        if (r === ROWS - 1) { n.type = 'boss'; return; }
+        if (r === ROWS - 2) { n.type = 'fire'; return; }        /* 首领前必有篝火 */
+        if (r === 8) { n.type = 'treasure'; return; }           /* 中段宝藏层 */
+        /* 规则权重 */
+        var ps = parentsOf(n);
+        var parentTypes = ps.map(function (m) { return m.type; });
+        var noRest = r < 5 || parentTypes.indexOf('fire') >= 0;         /* 前 5 层无篝火 / 篝火不连续 */
+        var noElite = r < 5 || parentTypes.indexOf('elite') >= 0;       /* 前 5 层无精英 / 精英不连续 */
+        var noShop = r < 4 || parentTypes.indexOf('shop') >= 0;
+        var w = [];
+        function add(t, wt) { for (var i = 0; i < wt; i++) w.push(t); }
+        add('fight', 42);
+        add('event', 22);
+        if (!noElite) add('elite', 10);
+        if (!noRest) add('fire', 12);
+        if (!noShop) add('shop', 8);
+        add('treasure', 6);
+        n.type = G.pick(w);
+        if (n.type === 'fight') n.sub = r < 4 ? 'normal' : (Math.random() < 0.4 ? 'pack' : 'normal');
+      });
+    });
+    var flat = Object.keys(nodes).map(function (id) { return nodes[id]; });
+    /* 约束：全图恰好 3 商店 */
+    var shops = flat.filter(function (n) { return n.type === 'shop'; });
+    if (shops.length > 3) {
+      G.shuffle(shops).slice(3).forEach(function (n) { n.type = 'fight'; n.sub = 'normal'; });
+    } else if (shops.length < 3) {
+      var cand = flat.filter(function (n) { return n.type === 'fight' && n.r >= 4 && n.r <= 12; });
+      G.shuffle(cand).slice(0, 3 - shops.length).forEach(function (n) { n.type = 'shop'; });
+    }
+    /* 约束：每条路径篝火数 1~5 且均衡 */
+    if (!balanceFires(grid) && !force) return null;
+    return { grid: grid, rows: ROWS };
+  }
   function pathsOf(grid) {
     var byId = {}; grid.forEach(function (row) { row.forEach(function (n) { byId[n.id] = n; }); });
     var out = [];
     function walk(n, acc) {
       acc = acc.concat([n]);
       if (!n.edges.length) { out.push(acc); return; }
-      n.edges.forEach(function (eid) { walk(byId[eid], acc); });
+      n.edges.forEach(function (eid) { if (byId[eid]) walk(byId[eid], acc); });
     }
     grid[0].forEach(function (n) { walk(n, []); });
     return out;
   }
   function balanceFires(grid) {
     var byId = {}; grid.forEach(function (row) { row.forEach(function (n) { byId[n.id] = n; }); });
-    for (var iter = 0; iter < 40; iter++) {
+    for (var iter = 0; iter < 60; iter++) {
       var paths = pathsOf(grid), bad = null;
-      paths.forEach(function (p) {
-        var fires = p.filter(function (n) { return n.type === 'fire'; });
-        if (fires.length === 0) bad = { p: p, need: 'add' };
-        else if (fires.length > 5) bad = { p: p, need: 'del', fires: fires };
+      paths.forEach(function (path) {
+        var fires = path.filter(function (n) { return n.type === 'fire' && n.r < ROWS - 2; });   /* 不含首领前强制篝火 */
+        var total = path.filter(function (n) { return n.type === 'fire'; });
+        if (total.length > 5) bad = { need: 'del', fires: fires.length ? fires : total };
+        else if (total.length === 0) bad = { need: 'add', path: path };
       });
-      if (!bad) break;
+      if (!bad) return true;
       if (bad.need === 'add') {
-        var cand = bad.p.filter(function (n) { return n.type === 'fight' && n.r > 1 && n.r < 13; });
-        if (cand.length) G.pick(cand).type = 'fire';
+        var c = bad.path.filter(function (n) { return n.type === 'fight' && n.r > 1 && n.r < ROWS - 2; });
+        if (c.length) G.pick(c).type = 'fire'; else return true;
       } else {
-        bad.fires[G.rnd(bad.fires.length)].type = 'fight';
+        if (bad.fires.length) bad.fires[G.rnd(bad.fires.length)].type = 'fight';
+        else return true;
       }
     }
+    return true;
   }
 
   /* ================= 战斗 ================= */
