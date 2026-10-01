@@ -1,0 +1,15 @@
+---
+import Icon from './Icon.astro';
+import {formatDate,postUrl,postKind,postCategory,postExcerpt} from '../lib/posts';
+const {post,mode='gallery',index=0}=Astro.props;
+const kind=postKind(post);
+---
+<a href={postUrl(post)} class={mode==='story'?'gx-story':'gx-entry'} data-kind={kind} data-post-id={post.id} data-post-card>
+  <span class={mode==='story'?'gx-story-image':'gx-entry-cover'}><span class={`gx-image gx-image-${kind}`} aria-hidden="true"></span>{mode!=='story'&&<span class="gx-entry-index">{String(index+1).padStart(2,'0')}</span>}</span>
+  <span class={mode==='story'?'gx-story-copy':'gx-entry-copy'}>
+    <span class={mode==='story'?'gx-story-kind':'gx-entry-category'}>{postCategory(post)}</span>
+    {mode==='story'?<h3>{post.data.title}</h3>:<h2>{post.data.title}</h2>}
+    {mode!=='story'&&<p>{postExcerpt(post)}</p>}
+    <span class={mode==='story'?'gx-story-meta':'gx-entry-footer'}><span><time datetime={formatDate(post.data.date)}>{formatDate(post.data.date).replaceAll('-','.')}</time> · {post.data.mins} min</span>{mode!=='story'&&<Icon/>}</span>
+  </span>
+</a>

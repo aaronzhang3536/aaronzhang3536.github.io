@@ -1,0 +1,8 @@
+---
+import Studio from '../layouts/Studio.astro';
+import Icon from '../components/Icon.astro';
+import PostCollection from '../components/PostCollection.astro';
+import {getPosts} from '../lib/posts';
+const posts=await getPosts();
+---
+<Studio title="文字与碎片" desc="技术笔记、生活记录与交互实验，按主题浏览全部文章。"><main class="as-wrap as-page gx-library"><div class="gx-library-heading"><div><span class="gx-kicker">THE COLLECTION</span><h1>文字与碎片。</h1><p>有的向里钻，有的向外看。</p></div><a class="gx-link" href="/search/">找一篇内容<Icon name="search"/></a></div><PostCollection posts={posts}/></main></Studio>

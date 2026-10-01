@@ -1,0 +1,42 @@
+---
+import StudioHeader from '../components/StudioHeader.astro';
+import StudioFooter from '../components/StudioFooter.astro';
+import '../styles/studio.css';
+import '../styles/studio-content.css';
+import 'katex/dist/katex.min.css';
+const { title, desc, type='website', published, noindex=false, legacy=false }=Astro.props;
+const pageTitle=title?`${title} · 一帧之内`:'一帧之内 · Within One Frame';
+const pageDesc=desc||'Aaron Zhang 的技术笔记、交互实验与生活记录。Unreal Engine、实时渲染、角色与几何，以及工作之外的好奇心。';
+const canonical=new URL(Astro.url.pathname,Astro.site);
+const cover=new URL('/images/editorial/cover-atlas.webp',Astro.site);
+const isArticle=type==='article';
+---
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="generator" content={Astro.generator}/>
+  <title>{pageTitle}</title><meta name="description" content={pageDesc}/>
+  {noindex?<meta name="robots" content="noindex"/>:<link rel="canonical" href={canonical}/>}
+  <link rel="alternate" type="application/rss+xml" title="一帧之内" href="/rss.xml"/>
+  <meta property="og:type" content={isArticle?'article':'website'}/><meta property="og:title" content={pageTitle}/><meta property="og:description" content={pageDesc}/>
+  {!noindex&&<meta property="og:url" content={canonical}/>}
+  {isArticle&&published&&<meta property="article:published_time" content={new Date(published).toISOString()}/>}
+  <meta property="og:site_name" content="一帧之内 Within One Frame"/><meta property="og:image" content={cover}/><meta name="twitter:card" content="summary_large_image"/>
+  <meta name="theme-color" content="#f8fafb"/>
+</head>
+<body class:list={['studio',{'studio-legacy':legacy}]} data-design="gallery-v1">
+  <a class="studio-skip" href="#main-content">跳到正文</a>
+  <script is:inline>
+    try {
+      const hash=location.hash;
+      if(location.pathname==='/'&&hash==='#about')location.replace('/about/');
+      if(hash.startsWith('#/post/'))location.replace('/posts/'+decodeURIComponent(hash.slice(7))+'/');
+      else if(hash.startsWith('#/cat/'))location.replace('/cat/'+decodeURIComponent(hash.slice(6))+'/');
+    } catch {}
+  </script>
+  <div class="as-wrap"><StudioHeader/></div>
+  <div id="main-content" tabindex="-1"><slot/></div>
+  <div class="as-wrap"><StudioFooter/></div>
+  <script>import '../scripts/studio.js';</script>
+</body>
+</html>

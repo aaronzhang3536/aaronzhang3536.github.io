@@ -1,0 +1,13 @@
+---
+import Icon from './Icon.astro';
+const path = Astro.url.pathname;
+const current = path === '/' ? 'home' : /^\/(notes|posts|cat|tags|archive|search)/.test(path) ? 'notes' : /^\/(play|lab|extras)/.test(path) ? 'play' : path.startsWith('/about') ? 'about' : '';
+const primary = [{ id: 'home', href: '/', label: '随处看看' }, { id: 'notes', href: '/notes/', label: '文字' }, { id: 'play', href: '/play/', label: '做点好玩的' }, { id: 'about', href: '/about/', label: '关于我' }];
+const more = [{href:'/life/',label:'生活入口'},{href:'/music/',label:'音乐练习'},{href:'/lang/',label:'语言学习'},{href:'/lab/',label:'全部图形实验'},{href:'/extras/',label:'游戏与放松'},{href:'/shu/',label:'术数工具'},{href:'/archive/',label:'文章归档'},{href:'/rss.xml',label:'RSS 订阅'}];
+---
+<header class="as-top studio-header" id="studio-header">
+  <a class="as-brand" href="/" aria-label="Aaron 首页"><span class="as-brand-name">aaron<em>.</em></span><span class="as-brand-sub">一帧之内</span></a>
+  <nav class="as-nav" aria-label="主导航">{primary.map(item=><a href={item.href} aria-current={current===item.id?'page':undefined}>{item.label}</a>)}</nav>
+  <div class="studio-header-actions"><a href="/search/" class="as-search-button" aria-label="搜索内容"><Icon name="search"/></a>
+  <details class="studio-menu"><summary class="studio-menu-button" aria-label="更多页面"><Icon name="menu"/></summary><nav class="studio-menu-panel" aria-label="更多导航"><div class="studio-mobile-primary">{primary.map(item=><a href={item.href} aria-current={current===item.id?'page':undefined}>{item.label}</a>)}</div>{more.map(item=><a href={item.href}>{item.label}<Icon name="arrow-up-right" size={13}/></a>)}</nav></details></div>
+</header>

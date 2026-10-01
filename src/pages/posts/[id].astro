@@ -1,101 +1,29 @@
 ---
-import Base from '../../layouts/Base.astro';
-import { getCollection, render } from 'astro:content';
-
-export async function getStaticPaths() {
-  const posts = (await getCollection('posts')).sort((a, b) => +b.data.date - +a.data.date);
-  return posts.map((post, i) => ({
-    params: { id: post.id },
-    props: {
-      post,
-      newer: i > 0 ? posts[i - 1] : null,
-      older: i < posts.length - 1 ? posts[i + 1] : null,
-      related: (post.data.sub
-        ? posts.filter((p) => p.data.sub === post.data.sub && p.id !== post.id)
-        : posts.filter((p) => p.data.cat === post.data.cat && p.id !== post.id)
-      ).slice(0, 3),
-    },
-  }));
-}
-
-const { post, newer, older, related } = Astro.props;
-const { Content, headings } = await render(post);
-const toc = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
-const fmt = (d: Date) => d.toISOString().slice(0, 10);
-const CAT_SW: Record<string, string> = {
-  'UE 剖析': '--c-render', '读渲染': '--accent', 'AI 与认知': '--c-ai', '音乐与生活': '--c-life', '基础知识': '--c-base',
-};
-const SUB_SW: Record<string, string> = {
-  '渲染': '--c-render', '角色': '--c-char', '几何': '--c-engine', '系统': '--c-tool',
-};
-const swOf = (p: any) => (p.data.sub ? SUB_SW[p.data.sub] : CAT_SW[p.data.cat] || '--accent');
+import Studio from '../../layouts/Studio.astro';
+import Icon from '../../components/Icon.astro';
+import PostCard from '../../components/PostCard.astro';
+import {render} from 'astro:content';
+import {getPosts,postKind,postCategory,postExcerpt,postUrl,formatDate} from '../../lib/posts';
+export async function getStaticPaths(){const posts=await getPosts();return posts.map((post,index)=>({params:{id:post.id},props:{post,older:posts[index+1]||null,newer:posts[index-1]||null,related:posts.filter(p=>p.id!==post.id&&(post.data.sub?p.data.sub===post.data.sub:p.data.cat===post.data.cat)).slice(0,3)}}));}
+const {post,older,newer,related}=Astro.props;
+const {Content,headings}=await render(post);
+const toc=headings.filter(heading=>heading.depth>=2&&heading.depth<=3);
+const hasToc=toc.length>=3;
+const kind=postKind(post);
 ---
-<Base title={post.data.title} desc={`「${post.data.cat}」专栏 · 约 ${post.data.mins} 分钟读完 · 一帧之内的引擎技术笔记`}>
-<main class="wrap reader">
-  <a class="back mono" href="/">← 返回首页</a>
-  <h1 class="rd-title">{post.data.title}</h1>
-  <div class="meta mono">
-    <span class="sw" style={`background:var(${swOf(post)});`}></span>
-    <a href={`/cat/${post.data.cat}/`}>{post.data.cat}</a>
-    {post.data.sub && <span>· {post.data.sub}</span>}
-    <span>{fmt(post.data.date)} · {post.data.mins} min</span>
-    {post.data.tags.map((t) => (
-      <a href={`/tags/${t}/`} style="color:var(--ink2);">#{t}</a>
-    ))}
+<Studio title={post.data.title} desc={postExcerpt(post)} type="article" published={post.data.date}>
+<main class:list={['as-wrap','as-page','gx-reader',{'reader-with-toc':hasToc}]} data-reader>
+  <a class="as-back" href="/notes/"><Icon name="arrow-left"/>所有记录</a>
+  <div class="gx-article-hero" data-kind={kind}><div class="as-reader-heading"><a class="as-reader-label" href={`/cat/${encodeURIComponent(post.data.cat)}/`}>{postCategory(post)}</a><h1>{post.data.title}</h1><p class="as-reader-summary">{postExcerpt(post,72)}</p><div class="as-reader-meta"><span class="as-mini-avatar" aria-hidden="true">AZ</span><a href="/about/">Aaron Zhang</a><time datetime={formatDate(post.data.date)}>{formatDate(post.data.date).replaceAll('-','.')}</time><span>{post.data.mins} min</span><div class="as-reader-actions"><button type="button" data-bookmark={post.id} aria-pressed="false"><Icon name="bookmark"/><span data-bookmark-label>稍后读</span></button><button type="button" data-text-size aria-label="调整正文字号">A＋</button></div></div></div><div class="gx-reader-cover"><span class={`gx-image gx-image-${kind}`} aria-hidden="true"></span></div></div>
+  <div class:list={['gx-reading-layout',{'studio-no-toc':!hasToc}]}><div class="reader-content"><article class="md-body as-reader-body"><Content/></article>
+    {post.data.iframe&&<section class="studio-embedded"><a class="gx-link" href={post.data.iframe} target="_blank" rel="noopener">在独立页面打开<Icon/></a><iframe class="rd-frame" src={post.data.iframe} title={post.data.title} loading="lazy" allowfullscreen></iframe></section>}
+    <div class="studio-post-tags" aria-label="文章标签">{post.data.tags.map(tag=><a href={`/tags/${encodeURIComponent(tag)}/`}>#{tag}</a>)}</div>
+    <nav class="studio-post-neighbors" aria-label="相邻文章">{older?<a href={postUrl(older)}><span>← 较早</span><strong>{older.data.title}</strong></a>:<span/>}{newer?<a href={postUrl(newer)}><span>较新 →</span><strong>{newer.data.title}</strong></a>:<span/>}</nav>
+    {related.length>0&&<section class="studio-related"><h2>沿着这个主题，继续读。</h2><div class="studio-related-list">{related.map(item=><PostCard post={item} mode="story"/>)}</div></section>}
+    <section class="cmt studio-comments" id="cmt"><h2>讨论</h2><div id="cmt-box"></div><noscript><p>评论需要 JavaScript。也可以前往<a href="https://github.com/aaronzhang3536/aaronzhang3536.github.io/discussions" target="_blank" rel="noopener">GitHub Discussions</a>。</p></noscript></section>
   </div>
-  {toc.length >= 3 && (
-    <nav class="toc" aria-label="文章目录">
-      <div class="toc-t mono">目录 / CONTENTS</div>
-      <ul>
-        {toc.map((h) => (
-          <li class={`d${h.depth}`}><a href={`#${h.slug}`}>{h.text}</a></li>
-        ))}
-      </ul>
-    </nav>
-  )}
-  <article class="md-body">
-    <Content />
-  </article>
-  {post.data.iframe && (
-    <iframe class="rd-frame" src={post.data.iframe} title={post.data.title}></iframe>
-  )}
-
-  <nav class="post-nav" aria-label="相邻文章">
-    {older ? (
-      <a href={`/posts/${older.id}/`}>
-        <span class="mono dir">← 较早</span>
-        <span class="pn-t">{older.data.title}</span>
-      </a>
-    ) : <span></span>}
-    {newer ? (
-      <a href={`/posts/${newer.id}/`} style="text-align:right;">
-        <span class="mono dir">较新 →</span>
-        <span class="pn-t">{newer.data.title}</span>
-      </a>
-    ) : <span></span>}
-  </nav>
-
-  {related.length > 0 && (
-    <section class="related">
-      <div class="mono rel-t">「{post.data.sub ? `${post.data.cat} · ${post.data.sub}` : post.data.cat}」的更多文章</div>
-      {related.map((p) => (
-        <a class="post" href={`/posts/${p.id}/`}>
-          <span class="sw" style={`background:var(${swOf(p)});`}></span>
-          <span class="t">{p.data.title}</span>
-          <span class="d mono">{fmt(p.data.date)} · {p.data.mins} min</span>
-        </a>
-      ))}
-    </section>
-  )}
-
-  <section id="cmt" class="cmt">
-    <div class="mono cmt-h">评论 / COMMENTS</div>
-    <div id="cmt-box"></div>
-    <noscript><p class="mono cmt-empty">评论基于 GitHub Discussions，需启用 JavaScript。</p></noscript>
-  </section>
-</main>
-</Base>
-
-<script>
-  import '../../scripts/comments.js';
-</script>
+  {hasToc&&<aside class="as-outline toc-sidebar" id="article-outline"><nav class="toc" aria-label="文章目录"><details class="toc-disclosure"><summary class="toc-t"><span>篇内目录</span><Icon name="chevron"/></summary><ul class="toc-links">{toc.map(heading=><li class={`d${heading.depth}`}><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ul></details></nav><div class="gx-reader-side-note"><span>换一个角度</span><a class="gx-link" href="/play/">去做点好玩的<Icon/></a></div></aside>}
+  </div>
+  <nav class="studio-reading-shortcuts" data-reading-shortcuts aria-label="阅读快捷入口" hidden>{hasToc&&<a href="#article-outline" data-show-outline>目录</a>}<a href="#studio-header" aria-label="返回顶部">↑ 顶部</a></nav>
+</main></Studio>
+<script>import '../../scripts/article-toc.js';import '../../scripts/comments.js';</script>

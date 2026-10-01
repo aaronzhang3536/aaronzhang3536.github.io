@@ -1,16 +1,5 @@
 ---
-import Base from '../layouts/Base.astro';
+import Studio from '../layouts/Studio.astro';
+import Icon from '../components/Icon.astro';
 ---
-<Base title="404">
-<main class="wrap reader" style="text-align:center; padding-top:100px;">
-  <h1 class="rd-title mono">404 — Actor Not Found</h1>
-  <p style="color:var(--ink2);">这个地址指向的对象已被垃圾回收，或者从未被 Spawn 过。</p>
-  <p class="mono">
-    <a href="/" style="color:var(--accent);">← 返回首页</a>
-    　·
-    <a href="/search/" style="color:var(--accent);">去搜索</a>
-    　·
-    <a href="/archive/" style="color:var(--accent);">看归档</a>
-  </p>
-</main>
-</Base>
+<Studio title="页面未找到" noindex><main class="as-wrap as-page studio-not-found"><span class="gx-kicker">404 / PAGE NOT FOUND</span><h1>这条路，暂时没有内容。</h1><p>地址可能发生了变化。回到首页，或者搜索一篇笔记。</p><div><a href="/" class="as-solid">回到首页<Icon name="arrow-left"/></a><a href="/search/" class="as-text-link">去搜索<Icon name="search"/></a></div></main></Studio>

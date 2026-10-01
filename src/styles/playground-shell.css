@@ -1,0 +1,19 @@
+/* The original arcade keeps its own visual effects and theme controls. */
+body {overflow-wrap:anywhere}
+header.site .site-bar {width:calc(100% - 42px)}
+nav.main a {white-space:nowrap}
+@media(max-width:1050px){
+  header.site .site-bar {flex-wrap:wrap;gap:12px 18px}
+  header.site nav.main {order:3;flex:1 0 100%;flex-wrap:wrap;gap:7px 19px}
+  header.site .ctrls {margin-left:auto}
+  #pie-menu {max-width:calc(100vw - 42px)}
+}
+@media(max-width:560px){
+  header.site .site-bar {width:calc(100% - 30px);gap:10px 8px}
+  header.site .logo {gap:8px}
+  header.site .logo-name {font-size:15px}
+  header.site .ctrls {gap:5px}
+  header.site .viewmode button {padding:8px 10px}
+  header.site nav.main {font-size:12px;gap:6px 16px}
+  .console-line input {min-width:0}
+}

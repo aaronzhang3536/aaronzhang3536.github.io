@@ -1,0 +1,16 @@
+---
+import Icon from './Icon.astro';
+import PostCard from './PostCard.astro';
+import {kindLabels} from '../lib/posts';
+const {posts,mode='gallery',filters=true,id='collection'}=Astro.props;
+---
+<section class:list={['studio-collection',{'gx-library':mode==='gallery'}]} data-collection data-browse="gallery" aria-label="文章列表" id={id}>
+  <div class="gx-library-toolbar">
+    {filters&&<div class="as-filters gx-filterbar" aria-label="内容分类">{Object.entries(kindLabels).map(([kind,label])=><button type="button" data-filter-kind={kind} aria-pressed={kind==='all'} class:list={[{'is-active':kind==='all'}]}>{label}</button>)}</div>}
+    {mode==='gallery'&&<div class="gx-view-switch" aria-label="浏览方式"><button type="button" data-browse-mode="gallery" aria-label="图文浏览" aria-pressed="true"><Icon name="grid"/></button><button type="button" data-browse-mode="list" aria-label="列表浏览" aria-pressed="false"><Icon name="list"/></button></div>}
+  </div>
+  <p class="studio-result-count" data-collection-count aria-live="polite">{posts.length} 篇文章</p>
+  <div class={mode==='story'?'as-feed gx-feed':'as-collection-grid gx-collection'} data-post-list>{posts.map((post:any,index:number)=><PostCard post={post} mode={mode} index={index}/>)}</div>
+  <div class="studio-empty" data-collection-empty hidden><h2>这里的笔记还在慢慢积累。</h2><p>换一个主题继续浏览，或先去音乐、语言页面逛逛。</p><div><a href="/life/">生活入口 <Icon/></a>{posts.length>0?<button type="button" data-filter-kind="all">查看全部文章</button>:<a href="/notes/">查看全部文章</a>}</div></div>
+  <noscript><p class="studio-help">启用 JavaScript 后可筛选与切换视图；所有文章均可直接打开。</p></noscript>
+</section>

@@ -1,0 +1,5 @@
+---
+import Playground from '../layouts/Playground.astro';
+---
+<Playground title="游戏与放松" desc="小游戏、音乐电台、茶歇和放空，一点工作之外的乐趣。"><main class="wrap reader"><a class="back mono" href="/play/">← 回到做点好玩的</a><h1 class="rd-title">游戏与放松</h1><p>打开右上角的娱乐区，选择小游戏、茶歇、伸展或禅模式。右下角的音乐电台也在这里。</p><button type="button" class="pie-btn primary" id="open-arcade">进入游戏厅</button></main></Playground>
+<script>document.getElementById('open-arcade')?.addEventListener('click',()=>{document.querySelector<HTMLElement>('[data-gm="arcade"]')?.click();});</script>

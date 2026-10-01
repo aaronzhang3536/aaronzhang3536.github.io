@@ -1,0 +1,8 @@
+---
+import Studio from '../layouts/Studio.astro';
+import Icon from '../components/Icon.astro';
+import PostCollection from '../components/PostCollection.astro';
+import {getPosts,postKind} from '../lib/posts';
+const posts=(await getPosts()).filter(post=>postKind(post)==='life');
+---
+<Studio title="日常，也值得认真喜欢" desc="音乐练习、语言学习，以及工作之外的日常记录。"><main class="as-wrap as-page"><div class="studio-life-hero"><div class="gx-image gx-image-life" aria-hidden="true"></div><div class="gx-shade" aria-hidden="true"></div><div><span>OFF THE SCREEN</span><h1>日常，也值得<br/>认真喜欢。</h1><p>音乐、语言，与工作之外的好奇心。</p></div></div><div class="studio-explore-links"><a href="/music/"><span>给今天，一点音乐</span><p>尤克里里、和弦、音色与节奏练习。</p><Icon/></a><a href="/lang/"><span>用另一种语言看世界</span><p>单词、发音、间隔重复与学习记录。</p><Icon/></a><a href="/about/"><span>屏幕背后的我</span><p>我的工作、兴趣，以及这个小空间。</p><Icon/></a></div>{posts.length>0&&<><div class="gx-section-heading"><h2>生活笔记</h2></div><PostCollection posts={posts} filters={false}/></>}</main></Studio>

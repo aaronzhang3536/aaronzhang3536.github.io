@@ -1,0 +1,17 @@
+export const experiments = [
+  { href: '/lab/lushan/', sw: '--c-engine', name: '庐山 · 自由漫游', desc: '真实 DEM 等比例 29×30km：大气天空、鄱阳湖、三处瀑布、13 万棵树，WASD 飞行', tag: 'WebGPU', live: true },
+  { href: '/lab/gpu-particles/', sw: '--c-render', name: 'GPU 粒子', desc: '4K~400 万粒子的 compute 模拟 + 拖尾累积，真实 timestamp-query 计时', tag: 'WebGPU', live: true },
+  { href: '/lab/path-tracer/', sw: '--c-tool', name: '路径追踪 Cornell Box', desc: 'compute 逐像素路径追踪，累积渐进收敛，可拖拽环绕', tag: 'WebGPU', live: true },
+  { href: '/lab/fluid/', sw: '--c-char', name: '2D 流体模拟', desc: 'Stable Fluids：平流 + Jacobi 压力投影 + 涡量约束，鼠标搅动', tag: 'WebGPU', live: true },
+  { href: '/lab/fluid3d/', sw: '--c-engine', name: '3D 流体（烟雾）', desc: '三维欧拉网格 + 浮力/涡量约束，体积光线步进渲染自阴影烟雾', tag: 'WebGPU', live: true },
+  { href: '/lab/water3d/', sw: '--c-char', name: '3D 水体（SPH）', desc: '拉格朗日粒子流体：空间哈希邻居搜索 + 压力/粘性，拖拽搅水', tag: 'WebGPU', live: true },
+  { href: '/lab/cloth/', sw: '--c-render', name: '布料试验场', desc: 'XPBD / PBD / 质点弹簧三种解算器热切换，五种场景，应力热图', tag: 'WebGPU', live: true },
+  { href: '/lab/ipc-cloth/', sw: '--play', name: 'IPC 布料（无穿透保证）', desc: '屏障势能 + 保守 CCD：数学保证永不穿模的离线多层布料', tag: '离线求解', live: true },
+  { href: '/lab/cpu8/', sw: '--c-ai', name: '八位流水线 CPU', desc: '周期精确五级流水线：前递/停顿/冲刷，加法下沉到全加器进位涟漪', tag: '体系结构', live: true },
+  { href: '/lab/reaction/', sw: '--c-life', name: '反应扩散', desc: 'Gray-Scott 图灵斑图：改两个参数长出斑点、条纹、珊瑚、迷宫', tag: 'WebGPU', live: true },
+  { href: '/lab/pendulum/', sw: '--c-ai', name: '双摆混沌系综', desc: '上万个初值只差 10⁻⁷ 的双摆同时积分，看蝴蝶效应炸开', tag: 'WebGPU', live: true },
+  { href: '/lab/radiance/', sw: '--c-ai', name: 'Radiance Cascades GI', desc: '级联辐射度 2D 全局光照：画光源画墙，当帧收敛的软阴影', tag: 'WebGPU', live: true },
+  { href: '/lab/meshlet/', sw: '--c-engine', name: 'Nanite-like Meshlet', desc: 'GPU 驱动剔除 + compute 软光栅可见性缓冲，可冻结剔除相机', tag: 'WebGPU', live: true },
+  { href: '/lab/megalights/', sw: '--c-render', name: 'MegaLights（数千动态光源）', desc: 'ReSTIR 时空蓄水池重采样 + 追踪阴影，对照暴力全采样看开销差异', tag: 'WebGPU', live: true },
+  { href: '/lab/pipeline/', sw: '--c-render', name: '现代渲染管线（Nanite × MegaLights）', desc: 'Nanite 可见性缓冲 → G-buffer → ReSTIR 多光源着色 + 屏幕空间阴影', tag: 'WebGPU', live: true },
+];

@@ -61,32 +61,7 @@
     });
     setTheme(curTheme);
 
-    /* stat unit HUD：数字轻微抖动 */
     var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var hudSuspend = false;   /* PIE 部分模式会挂起引擎计时 */
-    if (!reduced) {
-      var els = {
-        frame: document.getElementById('ms-frame'),
-        game: document.getElementById('ms-game'),
-        draw: document.getElementById('ms-draw'),
-        gpu: document.getElementById('ms-gpu')
-      };
-      var base = { game: 4.2, draw: 3.0, gpu: 8.9 };
-      setInterval(function () {
-        if (hudSuspend) {
-          els.game.textContent = els.draw.textContent = els.gpu.textContent = '-- ms';
-          els.frame.textContent = 'suspended';
-          return;
-        }
-        var g = base.game + (Math.random() - 0.5) * 0.6;
-        var d = base.draw + (Math.random() - 0.5) * 0.4;
-        var p = base.gpu + wxLoad + (Math.random() - 0.5) * 1.2;
-        els.game.textContent = g.toFixed(2) + ' ms';
-        els.draw.textContent = d.toFixed(2) + ' ms';
-        els.gpu.textContent = p.toFixed(2) + ' ms';
-        els.frame.textContent = Math.max(16.61, g + d + p * 0.55).toFixed(2) + ' ms';
-      }, 500);
-    }
 
     /* 控制台 */
     var cmd = document.getElementById('cmd');
@@ -159,8 +134,7 @@
         case 'lit': setTheme(lastLit); echo.textContent = 'Theme: ' + themeNames[lastLit]; break;
         case 'sound on': if (!sndOn) sndToggle(); echo.textContent = '环境音已开启。'; break;
         case 'sound off': if (sndOn) sndToggle(); echo.textContent = '环境音已关闭。'; break;
-        case 'stat fps': echo.textContent = '60.2 FPS — 16.61 ms（稳如老狗）'; break;
-        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather auto|rain|… | bg on|off|next|<秒> | music lofi|ambient|chip|off | play arcade|tea|workout|idle|zen | sound on|off | stat fps | quit'; break;
+        case 'help': echo.textContent = 'dark | light | wireframe | lit | weather auto|rain|… | bg on|off|next|<秒> | music lofi|ambient|chip|off | play arcade|tea|workout|idle|zen | sound on|off | quit'; break;
         case 'quit':
           if (pieMode) exitPie(false);
           else echo.textContent = '想得美。写完这周的博客再走。';
@@ -1424,7 +1398,6 @@
       pieStage.innerHTML = '';
       pieEl.classList.remove('on', 'zen', 'incognito');
       body.classList.remove('pie-on', 'zen-hide');
-      hudSuspend = false;
       var name = GM[pieMode].zh;
       pieMode = null;
       if (!silent) echo.textContent = '已退出「' + name + '」。';
@@ -1458,7 +1431,6 @@
     GM.tea = {
       bp: 'TeaBreak', zh: '茶歇 · 烘焙光照',
       start: function (stage) {
-        hudSuspend = true;
         var prevWx = wxSel;
         if (!reduced && wxMode !== 'rain') setVisual('rain');   /* 只切视觉，不覆盖用户的天气偏好 */
         stage.innerHTML =
@@ -2425,7 +2397,6 @@
     GM.idle = {
       bp: 'Idle', zh: '摸鱼 · 3D 鱼缸',
       start: function (stage) {
-        hudSuspend = true;
         return fishTankGPU(stage);
       }
     };
@@ -3911,7 +3882,7 @@
       };
     }
 
-    /* ---------- 游戏厅 · 游戏 1：帧预算保卫战 ---------- */
+    /* ---------- 游戏厅 · 游戏 1：能量收集站 ---------- */
     /* 彩纸庆祝：从宿主元素底部两角向上喷彩纸 */
     function confettiBurst(host) {
       var rect = host.getBoundingClientRect();
@@ -3975,7 +3946,7 @@
           '<div style="text-align:center;">' +
             '<canvas id="ag" style="border:1px solid var(--line); background:var(--surface); max-width:100%;"></canvas>' +
             '<div class="mono" style="font-size:11.5px; color:var(--ink2); margin-top:10px;">' +
-              '← → / A D 或鼠标移动　·　接住 pass 攒满一帧（≥14ms 自动提交，15.5ms 以上双倍分）　·　超过 16.67ms = 掉帧，掉 3 帧游戏结束' +
+              '← → / A D 或鼠标移动　·　接住能量块（达到 84 自动收集，93 以上双倍分）　·　超过 100 会过载，过载 3 次游戏结束' +
             '</div>' +
           '</div>';
         var cvs = stage.querySelector('#ag');
@@ -3987,14 +3958,14 @@
         var g = cvs.getContext('2d');
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        var BUDGET = 16.67, SUBMIT = 14;
+        var CAPACITY = 100, SUBMIT = 84;
         var PASSES = [
-          ['ShadowDepth', 2.1, '--c-render'], ['BasePass', 3.4, '--c-char'],
-          ['Lumen GI', 4.2, '--c-render'],    ['VSM Update', 2.8, '--c-engine'],
-          ['MegaLights', 3.0, '--c-tool'],    ['PostFX', 1.6, '--c-char'],
-          ['Nanite Cull', 1.2, '--c-engine'], ['TSR', 2.4, '--c-tool']
+          ['ShadowDepth', 12.6, '--c-render'], ['BasePass', 20.4, '--c-char'],
+          ['Lumen GI', 25.2, '--c-render'],    ['VSM Update', 16.8, '--c-engine'],
+          ['MegaLights', 18, '--c-tool'],     ['PostFX', 9.6, '--c-char'],
+          ['Nanite Cull', 7.2, '--c-engine'], ['TSR', 14.4, '--c-tool']
         ];
-        var OPTS = [['LOD 切换', -2.4], ['Nanite 启用', -3.0], ['剔除优化', -1.8]];
+        var OPTS = [['LOD 切换', -14.4], ['Nanite 启用', -18], ['剔除优化', -10.8]];
         var col = {};
         function sampleColors() {
           var cs = getComputedStyle(document.body);
@@ -4023,9 +3994,9 @@
           var src = isOpt
             ? OPTS[Math.floor(Math.random() * OPTS.length)]
             : PASSES[Math.floor(Math.random() * PASSES.length)];
-          var w = 60 + Math.abs(src[1]) * 15;
+          var w = 60 + Math.abs(src[1]) * 2.5;
           blocks.push({
-            name: src[0], ms: src[1],
+            name: src[0], charge: src[1],
             c: isOpt ? col['--play'] : col[src[2]],
             x: 10 + Math.random() * (W - w - 20), y: -30, w: w, h: 26
           });
@@ -4073,8 +4044,8 @@
                            b.x + b.w > px - PW / 2 && b.x < px + PW / 2;
               if (caught) {
                 blocks.splice(i, 1);
-                acc = Math.max(0, acc + b.ms);
-                if (acc > BUDGET) {
+                acc = Math.max(0, acc + b.charge);
+                if (acc > CAPACITY) {
                   lives--; acc = 0; shakeT = 0.35; flashT = 0.35;
                   if (lives <= 0) {
                     over = true;
@@ -4084,7 +4055,7 @@
                     }
                   }
                 } else if (acc >= SUBMIT) {
-                  score += acc >= 15.5 ? 2 : 1;
+                  score += acc >= 93 ? 2 : 1;
                   acc = 0; submitT = 0.25;
                 }
               } else if (b.y > H) {
@@ -4119,28 +4090,28 @@
             g.fillRect(bb.x, bb.y, bb.w, bb.h);
             g.globalAlpha = 1;
             g.fillStyle = col['--ink'];
-            g.fillText(bb.name + ' ' + (bb.ms > 0 ? '+' : '') + bb.ms.toFixed(1), bb.x + bb.w / 2, bb.y + 17);
+            g.fillText(bb.name + ' ' + (bb.charge > 0 ? '+' : '') + bb.charge.toFixed(1), bb.x + bb.w / 2, bb.y + 17);
           }
 
-          /* 帧槽（挡板即预算条） */
+          /* 能量槽（挡板即容量条） */
           var padTop2 = H - 60, padL = px - PW / 2;
           g.strokeStyle = submitT > 0 ? col['--play'] : col['--ink2'];
           g.lineWidth = submitT > 0 ? 2.5 : 1.5;
           g.strokeRect(padL, padTop2, PW, PH);
           g.fillStyle = acc < SUBMIT ? col['--play'] : col['--accent'];
           g.globalAlpha = 0.75;
-          g.fillRect(padL + 2, padTop2 + 2, (PW - 4) * Math.min(1, acc / BUDGET), PH - 4);
+          g.fillRect(padL + 2, padTop2 + 2, (PW - 4) * Math.min(1, acc / CAPACITY), PH - 4);
           g.globalAlpha = 1;
           /* 提交线刻度 */
-          var sx = padL + 2 + (PW - 4) * (SUBMIT / BUDGET);
+          var sx = padL + 2 + (PW - 4) * (SUBMIT / CAPACITY);
           g.strokeStyle = col['--ink'];
           g.lineWidth = 1;
           g.beginPath(); g.moveTo(sx, padTop2 + 2); g.lineTo(sx, padTop2 + PH - 2); g.stroke();
           g.fillStyle = col['--ink'];
           g.font = '11px Consolas, monospace';
-          g.fillText(acc.toFixed(1) + ' / 16.67 ms', px, padTop2 + PH + 16);
+          g.fillText(acc.toFixed(1) + ' / 100', px, padTop2 + PH + 16);
 
-          /* 掉帧红闪 */
+          /* 过载提示 */
           if (flashT > 0) {
             g.fillStyle = 'rgba(217, 106, 96, ' + (flashT * 0.6).toFixed(2) + ')';
             g.fillRect(0, 0, W, H);
@@ -4151,10 +4122,10 @@
             g.fillRect(0, 0, W, H);
             g.fillStyle = col['--accent'];
             g.font = 'bold 26px Consolas, monospace';
-            g.fillText('FRAME OUT OF BUDGET', W / 2, H / 2 - 30);
+            g.fillText('ENERGY OVERLOAD', W / 2, H / 2 - 30);
             g.fillStyle = col['--ink'];
             g.font = '14px Consolas, monospace';
-            g.fillText('提交帧数：' + score + '　最高纪录：' + hi, W / 2, H / 2 + 6);
+            g.fillText('收集次数：' + score + '　最高纪录：' + hi, W / 2, H / 2 + 6);
             g.fillStyle = col['--ink2'];
             g.font = '12px Consolas, monospace';
             g.fillText('空格 / 点击重开　·　Esc 退出', W / 2, H / 2 + 34);
@@ -5638,7 +5609,7 @@
     /* ---------- GameMode: 游戏厅（合集大厅） ---------- */
     var ARC = [
       /* 程序员特供 */
-      { id: 'budget',   name: '帧预算保卫战',  cat: 'dev', glyph: '16.7', desc: '接住 render pass，攒满一帧就提交', hiKey: 'yzzn-arcade-hi', start: budgetGame },
+      { id: 'budget',   name: '能量收集站',    cat: 'dev', glyph: '＋', desc: '接住能量块，填满能量槽，避免过载', hiKey: 'yzzn-arcade-hi', start: budgetGame },
       { id: 'bugwhack', name: 'Bug 打地鼠',    cat: 'dev', glyph: 'BUG',  desc: '手起锤落修 bug，小心别打到需求', hiKey: 'yzzn-arc-bug', start: bugGame },
       { id: 'typer',    name: 'Shader 打字员', cat: 'dev', glyph: 'HLSL', desc: '关键字落地之前把它敲出来', hiKey: 'yzzn-arc-typer', start: typerGame },
       { id: 'gradient', name: '梯度下降',      cat: 'dev', glyph: '∇',    desc: '调好学习率，滚进全局最小值', hiKey: 'yzzn-arc-grad', hiLabel: 'BEST', hiSuf: ' 步', start: gradientGame },
@@ -5883,7 +5854,6 @@
       bp: 'Zen', zh: '禅 · 放空一会儿',
       incognito: true,
       start: function (stage) {
-        hudSuspend = true;
         body.classList.add('zen-hide');
         var QUOTES = [
           '过早的优化是万恶之源。 — Donald Knuth',

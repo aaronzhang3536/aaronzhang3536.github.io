@@ -1,0 +1,19 @@
+---
+const { name = 'arrow-up-right', size = 16, class: className = '' } = Astro.props;
+const paths: Record<string, string> = {
+  'arrow-up-right': '<path d="M7 17 17 7M7 7h10v10"/>',
+  'arrow-right': '<path d="M5 12h14m-6-6 6 6-6 6"/>',
+  'arrow-left': '<path d="M19 12H5m6 6-6-6 6-6"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  bookmark: '<path d="M6 4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17l-6-4-6 4z"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  reset: '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>',
+  rss: '<path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/>',
+  asterisk: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/>',
+  x: '<path d="m6 6 12 12M18 6 6 18"/>',
+};
+---
+<svg class={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={paths[name] || paths['arrow-up-right']} />
