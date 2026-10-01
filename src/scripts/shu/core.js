@@ -48,73 +48,122 @@ export function jdn(y, m, d) {
   return d + Math.floor((153 * mm + 2) / 5) + 365 * yy + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) - 32045;
 }
 
-/* 十二节（定月柱边界）：寿星公式，日精度，个别年份可能有一天误差 */
-const JIE_C20 = [6.11, 4.6295, 6.318, 5.59, 6.318, 6.5, 7.928, 8.35, 8.44, 9.098, 8.218, 7.9];
-const JIE_C21 = [5.4055, 3.87, 5.63, 4.81, 5.52, 5.678, 7.108, 7.5, 7.646, 8.318, 7.438, 7.18];
-const JIE_MONTH = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+/* 十二节精确时刻（定年柱/月柱边界与大运起运）：1900–2101 年，北京时间，精确到秒。
+   离线由寿星天文历算法生成（lunar-javascript 1.7.7：Lunar.fromYmd(年, 6, 1).getJieQiTable()），
+   对每个节做线性拟合后只存残差：
+   时刻 = 2000-01-01 00:00 + JIE_A[n] + JIE_B[n]·(年−2000) + 残差秒；
+   残差 ∈ [-2048, 2047]，加 2048 后每项 2 个 base64 字符，按年、每年 12 节顺序排列。
+   时刻统一用「挂钟秒」：把北京时间的年月日时分秒当作 UTC 换算出的秒数，与用户时区无关。 */
+export const YEAR_MIN = 1901, YEAR_MAX = 2100;
+const JIE_Y0 = 1900, JIE_Y1 = 2101;
+const JIE_EPOCH = 946684800;
+const JIE_A = [464015, 3011569, 5582093, 8191485, 10845853, 13539238, 16254559, 18968204, 21657057, 24305339, 26908763, 29474993];
+const JIE_B = [31556975, 31556970, 31556953, 31556929, 31556903, 31556883, 31556874, 31556880, 31556898, 31556923, 31556949, 31556967];
+const JIE_R = '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';
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 export const JIE_NAME = ['小寒', '立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪'];
 const JIE_ZHI = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0];
 
-export function jieDay(year, n) {
-  const C = year >= 2000 ? JIE_C21 : JIE_C20;
-  const y = year % 100;
-  const leapAdj = n < 2 ? Math.floor((y - 1) / 4) : Math.floor(y / 4);
-  return Math.floor(y * 0.2422 + C[n]) - leapAdj;
+/* 某年第 n 个节（0=小寒 … 11=大雪）的挂钟秒；超出表范围返回 NaN */
+export function jieSec(year, n) {
+  if (!Number.isInteger(year) || !Number.isInteger(n) || !(year >= JIE_Y0 && year <= JIE_Y1) || !(n >= 0 && n < 12)) return NaN;
+  const k = ((year - JIE_Y0) * 12 + n) * 2;
+  const r = B64.indexOf(JIE_R[k]) * 64 + B64.indexOf(JIE_R[k + 1]) - 2048;
+  return JIE_EPOCH + JIE_A[n] + JIE_B[n] * (year - 2000) + r;
 }
-export function jieDate(year, n) {
-  return new Date(year, JIE_MONTH[n] - 1, jieDay(year, n));
+/* 输入的出生时间按北京时间的挂钟读数理解 */
+export function wallSec(date) {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(),
+    date.getHours(), date.getMinutes(), date.getSeconds()) / 1000;
+}
+export function inRange(date) {
+  const y = date?.getFullYear?.();
+  return y >= YEAR_MIN && y <= YEAR_MAX;
 }
 
-/* 四柱（晚子时 23 点按不换日流派） */
-export function fourPillars(date) {
+/* 日历读数适配器：使用 UTC 验证日期，但不把输入解释为浏览器当地时间或真实 UTC 时刻。
+   暴露核心算法所需的 Date 读取方法，避免设备时区 / 夏令时将不存在的本地时刻自动挪动。 */
+export function calendarDate(year, month, day, hour = 0, minute = 0, second = 0) {
+  if (![year, month, day, hour, minute, second].every(Number.isInteger) ||
+      year < 1000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31 ||
+      hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return Object.freeze({
+    getFullYear: () => year, getMonth: () => month - 1, getDate: () => day,
+    getHours: () => hour, getMinutes: () => minute, getSeconds: () => second,
+    getTime: () => date.getTime(), valueOf: () => date.getTime(),
+  });
+}
+
+/* 默认晚子时日柱不换；zi 模式在 23 点换日。两种规则的晚子时时干都按次日日干计算。 */
+export function fourPillars(date, { dayBoundary = 'midnight' } = {}) {
+  if (!inRange(date)) return null;
+  if (!['midnight', 'zi'].includes(dayBoundary)) return null;
   const y = date.getFullYear(), mo = date.getMonth() + 1, d = date.getDate(), h = date.getHours();
-  const lichun = jieDate(y, 1);
-  const yYear = date >= lichun ? y : y - 1;
+  const t = wallSec(date);
+  const yYear = t >= jieSec(y, 1) ? y : y - 1;
   const yOff = ((yYear - 1984) % 60 + 60) % 60;
   const yG = yOff % 10, yZ = yOff % 12;
   let jY = y, jN = -1;
   for (let i = 11; i >= 0; i--) {
-    if (date >= jieDate(y, i)) { jN = i; break; }
+    if (t >= jieSec(y, i)) { jN = i; break; }
   }
   if (jN < 0) { jY = y - 1; jN = 11; }
   const mZ = JIE_ZHI[jN];
   const monthOrd = ((mZ - 2) % 12 + 12) % 12;
   const mG = ((yG % 5) * 2 + 2 + monthOrd) % 10;
   const dOff = ((jdn(y, mo, d) - jdn(2000, 1, 1) + 54) % 60 + 60) % 60;
-  const dG = dOff % 10, dZ = dOff % 12;
+  const dayOff = dOff + (dayBoundary === 'zi' && h === 23 ? 1 : 0);
+  const dG = dayOff % 10, dZ = dayOff % 12;
   const hZ = (h === 23 || h === 0) ? 0 : Math.floor((h + 1) / 2) % 12;
-  const hG = ((dG % 5) * 2 + hZ) % 10;
+  const hDayG = (dOff + (h === 23 ? 1 : 0)) % 10;
+  const hG = ((hDayG % 5) * 2 + hZ) % 10;
   return {
     year: [yG, yZ], month: [mG, mZ], day: [dG, dZ], hour: [hG, hZ],
     yearNum: yYear, jieIdx: jN, jieYear: jY,
   };
 }
 
-/* 大运：距节天数除 3 起运（3 天=1 岁、1 天=4 月） */
+/* 大运：出生与前/后一节相距的分钟数折算起运（4320 分=1 年，360 分=1 月，12 分=1 天，余 1 分=2 时），
+   与常见排盘软件按分钟折算的做法一致；首运年份 = 出生时刻加上起运时长后落在的公历年 */
 export function daYun(date, pillars, isMale) {
   const yang = pillars.year[0] % 2 === 0;
   const forward = (isMale && yang) || (!isMale && !yang);
-  let edge, diffMs;
+  let y = pillars.jieYear, n = pillars.jieIdx;
   if (forward) {
-    let y = date.getFullYear(), n = pillars.jieIdx + 1;
+    n += 1;
     if (n > 11) { n = 0; y += 1; }
-    edge = jieDate(y, n);
-    diffMs = edge - date;
-  } else {
-    edge = jieDate(pillars.jieYear, pillars.jieIdx);
-    diffMs = date - edge;
   }
-  const days = Math.max(0, diffMs / 86400000);
-  const age = Math.floor(days / 3);
-  const months = Math.round((days % 3) * 4);
+  const birthMin = Math.floor(wallSec(date) / 60), edgeMin = Math.floor(jieSec(y, n) / 60);
+  let rest = Math.max(0, forward ? edgeMin - birthMin : birthMin - edgeMin);
+  const age = Math.floor(rest / 4320); rest -= age * 4320;
+  const months = Math.floor(rest / 360); rest -= months * 360;
+  const days = Math.floor(rest / 12); rest -= days * 12;
+  const hours = rest * 2;
+  /* 起运时刻：依次按公历加年、加月（日期超出当月天数则取月末），再加天、时 */
+  const b = new Date(birthMin * 60000);
+  const dim = (yy, mm) => new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate();
+  let sy = b.getUTCFullYear() + age, sm = b.getUTCMonth(), sd = Math.min(b.getUTCDate(), dim(sy, sm));
+  sy += Math.floor((sm + months) / 12); sm = (sm + months) % 12;
+  sd = Math.min(sd, dim(sy, sm));
+  const start = new Date(Date.UTC(sy, sm, sd, b.getUTCHours(), b.getUTCMinutes()) + (days * 24 + hours) * 3600000);
+  const startYear = start.getUTCFullYear();
   const list = [];
+  const decadeSec = (i) => {
+    const year = startYear + i * 10, month = start.getUTCMonth();
+    return Date.UTC(year, month, Math.min(start.getUTCDate(), dim(year, month)),
+      start.getUTCHours(), start.getUTCMinutes()) / 1000;
+  };
   let g = pillars.month[0], z = pillars.month[1];
   for (let i = 0; i < 8; i++) {
     g = ((g + (forward ? 1 : -1)) % 10 + 10) % 10;
     z = ((z + (forward ? 1 : -1)) % 12 + 12) % 12;
-    list.push({ g: g, z: z, age: age + i * 10, year: pillars.yearNum + age + i * 10 });
+    list.push({ g: g, z: z, age: age + i * 10, year: startYear + i * 10,
+      startSec: decadeSec(i), endSec: decadeSec(i + 1) });
   }
-  return { forward: forward, age: age, months: months, list: list };
+  return { forward, age, months, days, hours, startSec: start.getTime() / 1000,
+    edgeSec: jieSec(y, n), edgeName: JIE_NAME[n], list };
 }
 
 /* ---------- 农历 ---------- */
@@ -132,9 +181,36 @@ function lYearDays(y) {
 }
 function lMonthDays(y, m) { return (LUNAR_INFO[y - 1900] & (0x10000 >> m)) ? 30 : 29; }
 
+/* 返回当年的实际农历月份；闰月紧随同名正月，避免把不存在的闰月当作普通月份。 */
+export function lunarMonths(year) {
+  if (!Number.isInteger(year) || year < 1900 || year > 2100) return [];
+  const months = [];
+  for (let month = 1; month <= 12; month++) {
+    months.push({ month, isLeap: false, days: lMonthDays(year, month), name: L_MONTH[month - 1] + '月' });
+    if (leapMonth(year) === month) months.push({ month, isLeap: true, days: leapDays(year), name: '闰' + L_MONTH[month - 1] + '月' });
+  }
+  return months;
+}
+
+/* 与 solar2lunar 共用同一离线表；返回公历年月日，非法农历日期返回 null。 */
+export function lunar2solar(year, month, day, isLeap = false) {
+  if (!Number.isInteger(day) || typeof isLeap !== 'boolean') return null;
+  const months = lunarMonths(year);
+  const index = months.findIndex((m) => m.month === month && m.isLeap === isLeap);
+  if (index < 0 || day < 1 || day > months[index].days) return null;
+  let days = day - 1;
+  for (let y = 1900; y < year; y++) days += lYearDays(y);
+  for (let i = 0; i < index; i++) days += months[i].days;
+  const result = new Date(Date.UTC(1900, 0, 31) + days * 86400000);
+  return { year: result.getUTCFullYear(), month: result.getUTCMonth() + 1, day: result.getUTCDate() };
+}
+
+/* 覆盖 1900-01-31 至 2100-12-31，范围外返回 null（先判年份：Date.UTC 会把 0–99 年当成 19xx 年） */
 export function solar2lunar(date) {
-  let offset = Math.floor((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(1900, 0, 31)) / 86400000);
-  if (offset < 0 || offset > 73414) return null;
+  const yy = date.getFullYear();
+  if (!(yy >= 1900 && yy <= 2100)) return null;
+  let offset = Math.floor((Date.UTC(yy, date.getMonth(), date.getDate()) - Date.UTC(1900, 0, 31)) / 86400000);
+  if (offset < 0) return null;
   let y = 1900, temp = 0;
   for (; y < 2101 && offset > 0; y++) {
     temp = lYearDays(y);

@@ -19,9 +19,9 @@ import Base from '../../layouts/Base.astro';
   </div>
 
   <div id="xlr-time-panel" class="shu-panel">
-    <label class="mono">公历时间 <input id="xlr-dt" type="datetime-local" /></label>
+    <label class="mono">公历时间 <input id="xlr-dt" type="datetime-local" min="1901-01-01T00:00" max="2100-12-31T23:59" /></label>
     <button type="button" class="pie-btn primary" id="xlr-go-time">起课</button>
-    <p class="mono hint2">自动换算农历月、日与时辰（子=1 … 亥=12）依次落宫。</p>
+    <p class="mono hint2">自动换算农历月、日与时辰（子=1 … 亥=12）依次落宫；支持 1901–2100 年。</p>
   </div>
 
   <div id="xlr-num-panel" class="shu-panel" hidden>

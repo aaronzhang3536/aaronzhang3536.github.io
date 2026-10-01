@@ -1,7 +1,7 @@
 /* 尤克里里练习台：和弦图 + Karplus-Strong 拨弦合成 + 换和弦节拍训练（全本地，零采样） */
 
 /* 高音 G 定弦（re-entrant GCEA）：G4 C4 E4 A4 */
-const TUNING = [
+export const TUNING = [
   { name: 'G', freq: 392.00 },
   { name: 'C', freq: 261.63 },
   { name: 'E', freq: 329.63 },
@@ -45,20 +45,37 @@ function ac() {
   if (actx.state === 'suspended') actx.resume();
   return actx;
 }
+/* 环路 = 整数延迟 M + 两点平均（恰好 0.5 样本、线性相位）+ 一阶全通补足小数延迟 δ，总延迟 = sr/freq。
+   只用整数延迟 + 平均时实际周期是 N−0.5，音高整体偏高（44.1k 下最多 +16 音分，各弦不一）。
+   全通系数按基频处的精确相位延迟求：C = sin(ω(1−δ)/2) / sin(ω(1+δ)/2)；δ 落在 [0.1, 1.1) 保证稳定。 */
+export function ksRender(sr, freq, len) {
+  const d = new Float32Array(len);
+  const P = sr / freq;
+  const M = Math.max(1, Math.floor(P - 0.6));
+  const delta = P - 0.5 - M;
+  const w = 2 * Math.PI * freq / sr;
+  const C = Math.sin(w * (1 - delta) / 2) / Math.sin(w * (1 + delta) / 2);
+  for (let i = 0; i <= M && i < len; i++) d[i] = Math.random() * 2 - 1;
+  const decay = 0.9965;
+  let x1 = 0, y1 = 0;
+  for (let i = M + 1; i < len; i++) {
+    const x = 0.5 * (d[i - M] + d[i - M - 1]);
+    const y = C * x + x1 - C * y1;
+    x1 = x; y1 = y;
+    d[i] = decay * y;
+  }
+  const fade = Math.min(len, Math.floor(sr * 0.12));
+  for (let i = 0; i < fade; i++) d[len - 1 - i] *= i / fade;
+  return d;
+}
 function ksBuffer(freq) {
   const ctx = ac();
   const key = Math.round(freq * 4);
   if (ksCache[key]) return ksCache[key];
   const sr = ctx.sampleRate;
-  const N = Math.max(2, Math.round(sr / freq));
   const len = Math.floor(sr * 1.8);
   const buf = ctx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < N; i++) d[i] = Math.random() * 2 - 1;
-  const decay = 0.9965;
-  for (let i = N; i < len; i++) d[i] = decay * 0.5 * (d[i - N] + d[i - N + 1]);
-  const fade = Math.floor(sr * 0.12);
-  for (let i = 0; i < fade; i++) d[len - 1 - i] *= i / fade;
+  buf.getChannelData(0).set(ksRender(sr, freq, len));
   ksCache[key] = buf;
   return buf;
 }
@@ -270,8 +287,12 @@ function tone(freq) {
   o.connect(g); o2.connect(g); g.connect(master);
   o.start(t); o2.start(t); o.stop(t + 2.9); o2.stop(t + 2.9);
 }
-let mic = { on: false, stream: null, analyser: null, buf: null, raf: null };
-function autoCorrelate(buf, sr) {
+let mic = { on: false, stream: null, analyser: null, buf: null, raf: null, okt: 0, oktN: 0 };
+let tunerTarget = -1;   /* 点过某根弦的标准音 → 锁定该弦判读；点表盘恢复自动 */
+/* 测频范围只覆盖尤克里里：下限留到低八度 G3(196Hz) 以下，上限留到高八度 A5(880Hz) 以上，
+   这样「差了一个八度」也测得出来；自相关只算这段延迟，比全长 O(N²) 少约 2/3 运算 */
+const F_LO = 150, F_HI = 1000;
+export function autoCorrelate(buf, sr) {
   let SIZE = buf.length, rms = 0;
   for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
   if (Math.sqrt(rms / SIZE) < 0.01) return -1;
@@ -279,27 +300,57 @@ function autoCorrelate(buf, sr) {
   for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < 0.2) { r1 = i; break; }
   for (let i = 1; i < SIZE / 2; i++) if (Math.abs(buf[SIZE - i]) < 0.2) { r2 = SIZE - i; break; }
   const b = buf.slice(r1, r2); SIZE = b.length;
-  if (SIZE < 8) return -1;
-  const c = new Array(SIZE).fill(0);
-  for (let i = 0; i < SIZE; i++) for (let j = 0; j < SIZE - i; j++) c[i] += b[j] * b[j + i];
-  let d = 0; while (d < SIZE - 1 && c[d] > c[d + 1]) d++;
-  let maxval = -1, T0 = -1;
-  for (let i = d; i < SIZE; i++) if (c[i] > maxval) { maxval = c[i]; T0 = i; }
-  const x1 = c[T0 - 1] || 0, x2 = c[T0], x3 = c[T0 + 1] || 0;
+  const minLag = Math.floor(sr / F_HI), maxLag = Math.min(Math.ceil(sr / F_LO), SIZE - 2);
+  if (maxLag <= minLag) return -1;
+  const c = new Float64Array(maxLag + 2);
+  for (let i = 0; i <= maxLag + 1; i++) {
+    let sum = 0;
+    for (let j = 0; j < SIZE - i; j++) sum += b[j] * b[j + i];
+    c[i] = sum;
+  }
+  let d = 0; while (d < maxLag && c[d] > c[d + 1]) d++;
+  let maxval = -Infinity, T0 = -1;
+  for (let i = d; i <= maxLag; i++) if (c[i] > maxval) { maxval = c[i]; T0 = i; }
+  /* 峰落在范围外（低于 F_LO 时卡在 maxLag，高于 F_HI 时在 minLag 以下）→ 不报 */
+  if (T0 < minLag || T0 >= maxLag) return -1;
+  const x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
   const a = (x1 + x3 - 2 * x2) / 2, bb = (x3 - x1) / 2;
-  if (a) T0 = T0 - bb / (2 * a);
-  return sr / T0;
+  let T = T0;
+  if (a) T = T0 - bb / (2 * a);
+  return sr / T;
 }
-function nearestString(freq) {
-  let best = TUNING[0], bestC = 1e9;
-  TUNING.forEach((s) => {
-    let f = freq;
-    while (f < s.freq / 1.4142) f *= 2;
-    while (f > s.freq * 1.4142) f /= 2;
-    const cents = 1200 * Math.log2(f / s.freq);
-    if (Math.abs(cents) < Math.abs(bestC)) { bestC = cents; best = s; }
+/* 判读：target≥0 锁定该弦，否则自动找最近的弦。返回 { s, cents, octave }：
+   octave≠0 = 音名对上了但差整八度（cents 为去掉整八度后的余差），这时绝不算「准了」 */
+export function tunerRead(freq, target) {
+  const rel = (s) => 1200 * Math.log2(freq / s.freq);
+  if (target >= 0) {
+    const s = TUNING[target], raw = rel(s), k = Math.round(raw / 1200);
+    if (k !== 0 && Math.abs(raw - 1200 * k) <= 100) return { s: s, cents: raw - 1200 * k, octave: k };
+    return { s: s, cents: raw, octave: 0 };
+  }
+  let best = TUNING[0], bestC = Infinity;
+  TUNING.forEach((s) => { const c = rel(s); if (Math.abs(c) < Math.abs(bestC)) { bestC = c; best = s; } });
+  if (Math.abs(bestC) <= 50) return { s: best, cents: bestC, octave: 0 };
+  for (let i = 0; i < TUNING.length; i++) {
+    const raw = rel(TUNING[i]), k = Math.round(raw / 1200);
+    if (k !== 0 && Math.abs(raw - 1200 * k) <= 50) return { s: TUNING[i], cents: raw - 1200 * k, octave: k };
+  }
+  return { s: best, cents: bestC, octave: 0 };
+}
+function tunerNote() {
+  const el = $('uke-micnote');
+  if (!el) return;
+  el.textContent = tunerTarget >= 0
+    ? '已锁定 ' + TUNING[tunerTarget].name + ' 弦：拨这根弦看指针（点表盘恢复自动识别）'
+    : mic.on ? '拨响一根弦，对照指针微调弦钮；差得多时先点上方该弦的标准音锁定' : '拨响一根弦，指针居中偏绿即准';
+}
+function setTunerTarget(i) {
+  tunerTarget = i;
+  document.querySelectorAll('.uke-ref').forEach((b) => {
+    b.classList.toggle('on', i >= 0 && Math.abs(parseFloat(b.getAttribute('data-f')) - TUNING[i].freq) < 0.01);
   });
-  return { s: best, cents: bestC };
+  mic.okt = 0; mic.oktN = 0;
+  tunerNote();
 }
 async function micToggle() {
   if (mic.on) { stopMic(); return; }
@@ -311,9 +362,9 @@ async function micToggle() {
     const ctx = ac();
     const an = ctx.createAnalyser(); an.fftSize = 2048;
     ctx.createMediaStreamSource(stream).connect(an);
-    mic = { on: true, stream, analyser: an, buf: new Float32Array(an.fftSize), raf: null };
+    mic = { on: true, stream, analyser: an, buf: new Float32Array(an.fftSize), raf: null, okt: 0, oktN: 0 };
     $('uke-mic').textContent = '■ 停止麦克风';
-    $('uke-micnote').textContent = '拨响一根弦，对照指针微调弦钮';
+    tunerNote();
     micLoop();
   } catch (e) {
     $('uke-micnote').textContent = '未获得麦克风权限';
@@ -329,19 +380,32 @@ function stopMic() {
   if ($('uke-tunernote')) $('uke-tunernote').textContent = '—';
   if ($('uke-tunercents')) $('uke-tunercents').textContent = '';
   if ($('uke-needle')) $('uke-needle').style.transform = 'translateX(-50%) rotate(0deg)';
+  tunerNote();
 }
 function micLoop() {
   if (!mic.on) return;
   const ctx = ac();
   mic.analyser.getFloatTimeDomainData(mic.buf);
   const f = autoCorrelate(mic.buf, ctx.sampleRate);
-  if (f > 60 && f < 1200) {
-    const r = nearestString(f);
+  const r = f > 0 ? tunerRead(f, tunerTarget) : null;
+  /* 八度错要连续 3 帧一致才显示，防测频偶发跳八度时指针乱跳 */
+  if (r) {
+    if (r.octave && r.octave === mic.okt) mic.oktN++; else { mic.okt = r.octave; mic.oktN = 1; }
+  }
+  if (r && (!r.octave || mic.oktN >= 3)) {
     $('uke-tunernote').textContent = r.s.name;
-    const good = Math.abs(r.cents) < 5;
-    $('uke-tunercents').textContent = good ? '✓ 准了' :
-      (Math.round(Math.abs(r.cents)) + ' 音分 · ' + (r.cents > 0 ? '偏高，松一点' : '偏低，紧一点'));
-    const deg = Math.max(-45, Math.min(45, r.cents / 50 * 45));
+    const good = !r.octave && Math.abs(r.cents) < 5;
+    let text;
+    if (r.octave) {
+      text = (r.octave < 0 ? '低了' : '高了') + (Math.abs(r.octave) === 1 ? '一' : Math.abs(r.octave)) + '个八度 · ' +
+        r.s.name + ' 弦应为 ' + r.s.freq + ' Hz，' + (r.octave < 0 ? '要紧很多' : '要松很多');
+    } else if (Math.abs(r.cents) > 100) {
+      text = '偏' + (r.cents > 0 ? '高' : '低') + '约 ' + Math.round(Math.abs(r.cents) / 100) + ' 个半音 · ' + (r.cents > 0 ? '松一点' : '紧一点');
+    } else {
+      text = good ? '✓ 准了' : (Math.round(Math.abs(r.cents)) + ' 音分 · ' + (r.cents > 0 ? '偏高，松一点' : '偏低，紧一点'));
+    }
+    $('uke-tunercents').textContent = text;
+    const deg = r.octave ? (r.octave < 0 ? -45 : 45) : Math.max(-45, Math.min(45, r.cents / 50 * 45));
     $('uke-needle').style.transform = 'translateX(-50%) rotate(' + deg + 'deg)';
     $('uke-tunerbox').classList.toggle('intune', good);
   }
@@ -395,7 +459,21 @@ function makeLooper(tick, interval) {
   }
   return L;
 }
-function uiAt(when, fn) { const ctx = ac(); setTimeout(fn, Math.max(0, (when - ctx.currentTime) * 1000)); }
+/* 输出延迟：排程用的 currentTime 是声音交给音频管线的时刻，耳朵听到还要再晚 baseLatency + outputLatency
+   （蓝牙耳机常有 150–250ms，比判定窗口还宽）。再叠加用户校准值 rgCal（毫秒，判定结算时可一键校准）。
+   校准存 yzzn-uke-cfg：*-cfg 键不参与云同步，延迟是设备本地属性。 */
+const CFG_KEY = 'yzzn-uke-cfg';
+let ukeCfg = {};
+try { ukeCfg = JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch (e) { ukeCfg = {}; }
+function cfgSave() { try { localStorage.setItem(CFG_KEY, JSON.stringify(ukeCfg)); } catch (e) {} }
+export function outLatency(ctx) {
+  const o = ctx && Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : 0;
+  const b = ctx && Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : 0;
+  return Math.max(0, Math.min(1, o + b));
+}
+function heardDelay() { return outLatency(ac()) + (ukeCfg.rgCal || 0) / 1000; }
+/* 画面更新对齐「听到」的时刻，而不是排程时刻 */
+function uiAt(when, fn) { const ctx = ac(); setTimeout(fn, Math.max(0, (when - ctx.currentTime + heardDelay()) * 1000)); }
 /* 切音「恰」声：短噪声经带通 */
 let noiseBuf = null;
 function chnk(when) {
@@ -419,7 +497,7 @@ const PATTERNS = [
   { name: '八分扫弦', diff: 1, slots: ['D', 'U', 'D', 'U', 'D', 'U', 'D', 'U'], hint: '下上交替：下扫踩拍点，上扫在半拍，手腕匀速不停' },
   { name: '民谣万能型', diff: 2, slots: ['D', '', 'D', 'U', '', 'U', 'D', 'U'], hint: '口诀「下、下上、上下上」——会了这个能弹一半的歌' },
   { name: '慢摇抒情', diff: 2, slots: ['D', '', '', 'U', '', 'U', 'D', ''], hint: '留白多，适合慢歌；空拍手照常虚挥保持摆动' },
-  { name: '切音型', diff: 3, slots: ['D', '', 'X', 'U', '', 'U', 'X', 'U'], hint: 'X=切音「恰」：扫完立刻手掌侧面捂弦（判定模式按空格）' },
+  { name: '切音型', diff: 3, slots: ['D', '', 'X', 'U', '', 'U', 'X', 'U'], hint: 'X=切音「恰」：扫完立刻手掌侧面捂弦（判定模式按空格，触屏点舞台中间）' },
   { name: '华尔兹 3/4', diff: 2, slots: ['D', '', 'U', '', 'U', ''], hint: '三拍子「蹦-恰-恰」，生日快乐就用它' },
 ];
 const RG_DIFF = {
@@ -444,10 +522,14 @@ const patLoop = makeLooper(patTick, () => 30 / patBpm());
 function patTick(i, when) {
   const p = PATTERNS[patIdx], n = p.slots.length;
   const inCount = i < n, s = i % n, onBeat = s % 2 === 0;
-  if (rgRun && !rgRun.done && i >= n + rgRun.bars * n) {
-    rgRun.done = true;
-    patLoop.stop();
-    uiAt(when, rhythmFinish);
+  if (rgRun && (rgRun.done || i >= n + rgRun.bars * n)) {
+    /* 停止排程（同一轮前瞻里多排出来的槽位也丢掉）；结算再等一个判定窗口，
+       最后一拍晚一点按也还能判（rgRun 置空前都接受击打） */
+    if (!rgRun.done) {
+      rgRun.done = true;
+      patLoop.stop();
+      uiAt(when + rgDiffCfg().win[1] / 1000, rhythmFinish);
+    }
     return;
   }
   if (onBeat) click(when, s === 0);
@@ -469,7 +551,7 @@ function patTick(i, when) {
     }
   }
   uiAt(when, () => {
-    if (!patLoop.on && !(rgRun && !rgRun.done)) return;
+    if (!patLoop.on && !rgRun) return;
     $('pat-count').textContent = inCount ? '预备 ' + Math.ceil((n - s) / 2) : (rgRun ? '第 ' + (barIdx + 1) + ' / ' + rgRun.bars + ' 小节' : '');
     document.querySelectorAll('#pat-row .uke-slot').forEach((el, k) => {
       el.classList.toggle('on', !inCount && k === s);
@@ -483,11 +565,13 @@ function patTick(i, when) {
 }
 
 /* —— 判定与特效 —— */
-function rgNow() { return ac().currentTime; }
+/* 判定用「此刻耳朵听到的是排程时间轴上的哪一刻」 */
+function rgNow() { return ac().currentTime - heardDelay(); }
 function rgHit(kind) {
-  if (!rgRun || rgRun.done) return;
+  if (!rgRun) return;
   const d = rgDiffCfg();
   const now = rgNow();
+  rgRun.taps.push(now);
   let best = null;
   rgRun.events.forEach((ev) => {
     if (ev.judged) return;
@@ -515,17 +599,48 @@ function rgHit(kind) {
   rgCombo();
   rgStats();
 }
-function rgSweepTick() {
-  if (!rgRun || rgRun.done) return;
+function rgSweepTick(all) {
+  if (!rgRun) return;
   const d = rgDiffCfg();
   const now = rgNow();
   rgRun.events.forEach((ev) => {
-    if (ev.judged || now <= ev.t + d.win[1] / 1000) return;
+    if (ev.judged || (!all && now <= ev.t + d.win[1] / 1000)) return;
     ev.judged = true;
     rgRun.miss++; rgRun.combo = 0;
     rgPop(ev.i, 'MISS', 'ms');
     rgCombo(); rgStats();
   });
+}
+/* 校准：在 −150…+400ms 里找一个整体偏移，让击打与拍点按顺序一一对上的数目最多（含没命中的击打——
+   延迟大时它们全落在判定窗口外），再取配对偏差的中位数（秒）。
+   等间距无休止的节奏型（如快速八分扫弦）错开一整格也几乎一样对得上，分不清就返回 null，不给校准建议 */
+export function tapOffset(taps, times) {
+  if (taps.length < 8 || !times.length) return null;
+  const ts = taps.slice().sort((a, b) => a - b), es = times.slice().sort((a, b) => a - b);
+  const TOL = 0.05;
+  function pairs(dl) {
+    const offs = [];
+    let j = 0;
+    es.forEach((e) => {
+      while (j < ts.length && ts[j] < e + dl - TOL) j++;
+      if (j < ts.length && ts[j] <= e + dl + TOL) { offs.push(ts[j] - e); j++; }
+    });
+    return offs;
+  }
+  const cand = [];
+  let maxN = 0;
+  for (let k = -30; k <= 80; k++) {
+    const dl = k * 0.005, n = pairs(dl).length;
+    cand.push({ dl: dl, n: n });
+    maxN = Math.max(maxN, n);
+  }
+  const top = cand.filter((c) => c.n === maxN);
+  const offs = pairs(top[top.length >> 1].dl).sort((a, b) => a - b), h = offs.length >> 1;
+  if (offs.length < 8) return null;
+  const med = offs.length % 2 ? offs[h] : (offs[h - 1] + offs[h]) / 2;
+  /* 离中位数 2 倍容差以外还有差不多对得上的偏移 = 错格对齐也说得通 */
+  if (cand.some((c) => Math.abs(c.dl - med) > 2 * TOL && c.n >= maxN * 0.8)) return null;
+  return med;
 }
 function slotX(i) {
   const els = document.querySelectorAll('#pat-row .uke-slot');
@@ -604,9 +719,12 @@ function rgFxLoop() {
 /* 结算 */
 function rhythmFinish() {
   if (rgSweep) { clearInterval(rgSweep); rgSweep = null; }
-  rgSweepTick();
+  rgSweepTick(true);
   const r = rgRun;
   if (!r) return;
+  const med = tapOffset(r.taps, r.events.map((ev) => ev.t));
+  const medMs = med === null ? 0 : Math.round(med * 1000);
+  const latMs = Math.round(outLatency(ac()) * 1000), calMs = Math.round(ukeCfg.rgCal || 0);
   const acc = r.max ? r.score / r.max : 0;
   const grade = acc >= 0.95 ? 'S' : acc >= 0.85 ? 'A' : acc >= 0.7 ? 'B' : acc >= 0.5 ? 'C' : 'D';
   const key = patIdx + '|' + $('rg-diff').value + '|' + r.bars;
@@ -618,12 +736,20 @@ function rhythmFinish() {
   res.innerHTML =
     '<div class="rg-grade g' + grade + '">' + grade + '</div>' +
     '<div class="gm-acc mono">得分 ' + r.score + ' / ' + r.max + ' · 准确率 ' + Math.round(acc * 100) + '%' + (isBest ? ' · ✨ 新纪录' : (prev ? ' · 最佳 ' + prev.score : '')) + '</div>' +
-    '<div class="gm-wrong mono">PERFECT ' + r.perfect + ' · GOOD ' + r.good + ' · MISS ' + (r.miss + r.stray) + ' · 最高连击 ' + r.maxCombo + '</div>' +
+    '<div class="gm-wrong mono">PERFECT ' + r.perfect + ' · GOOD ' + r.good + ' · MISS ' + (r.miss + r.stray) + ' · 最高连击 ' + r.maxCombo +
+    ' · 延迟补偿 ' + (latMs + calMs) + ' ms（系统 ' + latMs + (calMs ? ' + 校准 ' + calMs : '') + '）</div>' +
     '<div class="bw-actions" style="justify-content:center;">' +
     '<button type="button" class="pie-btn primary" id="rg-again">再来一次</button>' +
+    (Math.abs(medMs) >= 20 ? '<button type="button" class="pie-btn" id="rg-cal">按本局校准（整体偏' + (medMs > 0 ? '晚 ' : '早 ') + Math.abs(medMs) + ' ms）</button>' : '') +
     '<button type="button" class="pie-btn" id="rg-close">关闭</button></div>';
   $('rg-again').addEventListener('click', () => { res.hidden = true; patStart(); });
   $('rg-close').addEventListener('click', () => { res.hidden = true; });
+  if ($('rg-cal')) $('rg-cal').addEventListener('click', () => {
+    ukeCfg.rgCal = Math.max(-150, Math.min(400, calMs + medMs));
+    cfgSave();
+    $('rg-cal').disabled = true;
+    $('rg-cal').textContent = '✓ 已校准，下一局生效（校准 ' + ukeCfg.rgCal + ' ms）';
+  });
   rgRun = null;
   $('pat-start').textContent = '▶ 开始';
   $('pat-count').textContent = '';
@@ -638,7 +764,7 @@ function patStart() {
       bars: Math.max(2, Math.min(32, parseInt($('rg-bars').value, 10) || 8)),
       accelOn: $('rg-accel').checked || rgDiffCfg().accel,
       accel: 0, events: [], score: 0, max: 0,
-      perfect: 0, good: 0, miss: 0, stray: 0, combo: 0, maxCombo: 0, done: false,
+      perfect: 0, good: 0, miss: 0, stray: 0, combo: 0, maxCombo: 0, done: false, taps: [],
     };
     rgSweep = setInterval(rgSweepTick, 30);
     rgStats();
@@ -674,7 +800,8 @@ function renderPatRow() {
     '<span class="uke-slot' + (i % 2 === 0 ? ' beat' : '') + (sl === '' ? ' rest' : '') + '">' + SYM[sl] + '</span>').join('');
   $('pat-hint').textContent = p.hint + '　难度 ' + '★'.repeat(p.diff);
 }
-/* 判定输入：J=↓ K=↑ 空格=✕；触屏点舞台左/右半 */
+/* 判定输入：J=↓ K=↑ 空格=✕；触屏 / 鼠标点舞台左、中、右三等分 = ↓ ✕ ↑ */
+export function touchKind(x, width) { return x < width / 3 ? 'D' : x > width * 2 / 3 ? 'U' : 'X'; }
 function rgKeydown(e) {
   if (rgMode !== 'judge' || !rgRun) return;
   const tag = (e.target && e.target.tagName) || '';
@@ -688,7 +815,7 @@ function rgPointer(e) {
   if (e.target.closest('button, select, input')) return;
   const st = $('rg-stage');
   const r = st.getBoundingClientRect();
-  rgHit(e.clientX - r.left < r.width / 2 ? 'D' : 'U');
+  rgHit(touchKind(e.clientX - r.left, r.width));
 }
 
 /* ---------- 弹唱曲库（公版/传统曲目，简化编配） ---------- */
@@ -1094,8 +1221,15 @@ function init() {
   renderSelected();
   beatDots(-1, bpc(), false);
   /* 调音 */
-  document.querySelectorAll('.uke-ref').forEach((b) => b.addEventListener('click', () => tone(parseFloat(b.getAttribute('data-f')))));
+  document.querySelectorAll('.uke-ref').forEach((b) => b.addEventListener('click', () => {
+    const f = parseFloat(b.getAttribute('data-f'));
+    tone(f);
+    setTunerTarget(TUNING.findIndex((s) => Math.abs(s.freq - f) < 0.01));
+  }));
   if ($('uke-mic')) $('uke-mic').addEventListener('click', micToggle);
+  if ($('uke-tunerbox')) $('uke-tunerbox').addEventListener('click', (e) => {
+    if (!e.target.closest('button') && tunerTarget >= 0) setTunerTarget(-1);
+  });
   /* 入门 */
   if ($('beg-cdiagram')) $('beg-cdiagram').innerHTML = chordSVG(CHORDS.find((c) => c.name === 'C'), true);
   if ($('beg-first')) $('beg-first').addEventListener('click', () => strum(CHORDS.find((c) => c.name === 'C'), 'down'));

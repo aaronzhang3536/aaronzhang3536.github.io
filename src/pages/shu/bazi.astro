@@ -1,43 +1,46 @@
 ---
-import Base from '../../layouts/Base.astro';
+import Studio from '../../layouts/Studio.astro';
+import '../../styles/bazi.css';
 ---
-<Base title="八字排盘" desc="八字四柱排盘：藏干、十神、纳音、五行统计与大运">
-<main class="wrap reader">
-  <a class="back mono" href="/shu/">← 术数</a>
-  <h1 class="rd-title">八字排盘</h1>
-  <div class="meta mono">
-    <span class="sw" style="background:var(--c-render);"></span>
-    <span>四柱 · 藏干 · 十神 · 纳音 · 五行 · 大运</span>
+<Studio title="八字排盘" desc="公历与农历八字排盘，查看四柱、藏干十神、五行分布、大运流年与交节依据。">
+<main class="bz-app as-wrap">
+  <header class="bz-heading">
+    <a href="/shu/" class="bz-back">← 术数与历法</a>
+    <div class="bz-heading-row"><div><span class="bz-eyebrow">THE FOUR PILLARS</span><h1>八字排盘</h1><p>支持公历与农历，查看四柱、五行和大运流年。</p></div><div class="bz-heading-mark" aria-hidden="true">年<span>月</span>日<span>时</span></div></div>
+  </header>
+  <div class="bz-layout">
+    <aside class="bz-input-card">
+      <div class="bz-section-head"><span class="bz-eyebrow">01 / 出生信息</span><button type="button" id="bz-demo" class="bz-text-button">看一个示例 ↗</button></div>
+      <form id="bz-form" novalidate autocomplete="off">
+        <label class="bz-field" for="bz-calendar">日期类型<select id="bz-calendar"><option value="solar">公历</option><option value="lunar">农历（含闰月）</option></select></label>
+        <div id="bz-solar-input"><label class="bz-field" for="bz-date">出生日期<input id="bz-date" type="date" min="1901-01-01" max="2100-12-31" required aria-describedby="bz-range"/></label></div>
+        <fieldset id="bz-lunar-input" hidden disabled><legend class="bz-sr-only">农历出生日期</legend><label class="bz-field" for="bz-lunar-year">农历年<input id="bz-lunar-year" type="number" min="1900" max="2100" step="1" placeholder="例如 2000" inputmode="numeric" required/></label><div class="bz-field-pair"><label class="bz-field" for="bz-lunar-month">农历月<select id="bz-lunar-month" required><option value="">先填写年份</option></select></label><label class="bz-field" for="bz-lunar-day">农历日<select id="bz-lunar-day" required><option value="">先选择月份</option></select></label></div></fieldset>
+        <p class="bz-small" id="bz-range">支持公历 1901–2100 年。农历输入会先换算为公历。</p>
+        <label class="bz-field" for="bz-time">出生时间 <span class="bz-label-note">北京时间 · UTC+8</span><input id="bz-time" type="time" step="60" required aria-describedby="bz-time-note"/></label>
+        <p class="bz-small" id="bz-time-note">填写出生记录中的时、分。使用北京时间标准时，不自动校正真太阳时或历史夏令时。</p>
+        <fieldset class="bz-sex"><legend>性别 <span class="bz-label-note">用于大运顺逆</span></legend><label><input id="bz-male" type="radio" name="bz-sex" value="male" checked/>男</label><label><input id="bz-female" type="radio" name="bz-sex" value="female"/>女</label></fieldset>
+        <label class="bz-field" for="bz-boundary">换日规则<select id="bz-boundary"><option value="midnight">00:00 换日 · 晚子时日柱不换</option><option value="zi">23:00 换日 · 子初换日</option></select></label>
+        <p class="bz-small">两种规则的晚子时时柱都按次日起算。</p>
+        <p id="bz-error" class="bz-notice bz-error" role="alert" hidden></p>
+        <div class="bz-form-actions"><button type="submit" class="bz-button" id="bz-go">生成排盘 <span aria-hidden="true">↗</span></button><button type="reset" class="bz-button bz-secondary">清空</button></div>
+        <p class="bz-local-note">仅在当前页面计算，不保存出生信息。</p>
+      </form>
+      <details class="bz-rules"><summary>排盘依据与口径</summary><ul><li>年柱按立春交接时刻划分，月柱按十二节划分。</li><li>出生记录按北京时间标准时解释，与设备所在时区无关。</li><li>大运采用阳男阴女顺排、阴男阳女逆排，按与前后节相距的分钟数折算起运。</li><li>交运日期是该折算规则下的推算值，不同流派可能不同。</li></ul><p>节气算法与流派说明参考 <a href="https://6tail.cn/calendar/lunar.bazi.html" target="_blank" rel="noopener noreferrer">lunar 文档 ↗</a>；公农历对照可查 <a href="https://www.hko.gov.hk/sc/gts/time/conversion.htm" target="_blank" rel="noopener noreferrer">香港天文台 ↗</a>。</p></details>
+    </aside>
+    <div class="bz-result-area">
+      <div id="bz-empty" class="bz-empty"><div class="bz-orbit" aria-hidden="true"><span>年</span><span>月</span><span>日</span><span>时</span><i></i></div><span class="bz-eyebrow">A MOMENT IN TIME</span><h2>先记下，<br/>那个开始的时刻。</h2><p>填写出生信息，即可展开四柱、五行和大运流年。<br/>也可以先看一个示例，熟悉排盘的读法。</p><div class="bz-empty-items"><span>四柱与藏干</span><span>五行分布</span><span>大运 · 流年 · 流月</span></div></div>
+      <p id="bz-status" class="bz-small bz-status" role="status" aria-live="polite"></p>
+      <div id="bz-out" hidden>
+        <section class="bz-result-header"><div><span class="bz-eyebrow">02 / 命盘总览 <b id="bz-example-tag" hidden>示例</b></span><h2 id="bz-result-title" tabindex="-1">四柱排盘</h2><p id="bz-birth-label"></p><p id="bz-lunar-label" class="bz-small"></p></div><div class="bz-result-actions"><button type="button" id="bz-copy" class="bz-button bz-secondary">复制结果</button><button type="button" id="bz-download" class="bz-button bz-secondary">导出文本</button></div></section>
+        <div id="bz-warnings" class="bz-notice" hidden></div><dl id="bz-facts" class="bz-facts"></dl><div id="bz-pillars" class="bz-pillars"></div>
+        <div class="bz-two-up"><section class="bz-card"><div class="bz-section-head"><h3>五行分布</h3><span class="bz-eyebrow">ELEMENTS</span></div><div class="bz-segment" role="group" aria-label="五行统计口径"><button type="button" data-wx-mode="visible" aria-pressed="true">天干 + 地支</button><button type="button" data-wx-mode="hidden" aria-pressed="false">只看藏干</button></div><div id="bz-wuxing"></div><p id="bz-wx-note" class="bz-small"></p><p class="bz-small bz-separate">这是出现次数，不是能量占比。表层未出现的五行可能藏在地支中，不能据此直接判断旺衰或喜用神。</p></section><section class="bz-card"><div class="bz-section-head"><h3>出生时的节令</h3><span class="bz-eyebrow">SOLAR TERMS</span></div><div id="bz-terms"></div><p class="bz-small bz-separate">节令决定月柱，农历初一不作为换月依据。交节前后的结果可能不同。</p></section></div>
+        <section class="bz-card bz-yun-section"><div class="bz-section-head"><div><span class="bz-eyebrow">03 / 时间展开</span><h3>大运与流年</h3></div><span id="bz-direction" class="bz-tag"></span></div><p id="bz-yun-start"></p><p id="bz-yun-basis" class="bz-small"></p><p id="bz-current-period" class="bz-small"></p><div id="bz-dayun" class="bz-periods" role="group" aria-label="选择大运"></div><div class="bz-annual-header"><h4 id="bz-period-title"></h4><p id="bz-period-range" class="bz-small"></p></div><div id="bz-years" class="bz-years" role="group" aria-label="选择流年"></div><p class="bz-small">流年以立春为界。以下按起运公历年列出十个年份；交运年会跨两步大运，具体归属请看上方交运时刻。</p><div class="bz-month-header"><h4 id="bz-year-title"></h4><p id="bz-year-note" class="bz-small"></p></div><div id="bz-months" class="bz-months"></div></section>
+        <details class="bz-card bz-glossary"><summary>读懂这张排盘 <span>术语速查</span></summary><div class="bz-glossary-grid"><div><h4>日主</h4><p>日柱的天干，是比较其他干支关系的参照。</p></div><div><h4>藏干与十神</h4><p>地支所藏天干及其与日干的五行、阴阳关系。“财”“官”等名称不是现实财富或职业结论。</p></div><div><h4>旬空</h4><p>本页统一按日柱所在的十日旬标出空亡地支。</p></div><div><h4>十二长生</h4><p>日干与各地支对应的传统阶段名称。“病”“死”等术语不代表健康诊断。</p></div><div><h4>纳音</h4><p>六十甲子两两对应的传统五行名称，与表层五行统计是不同口径。</p></div><div><h4>起运年龄</h4><p>出生到交运之间的折算时长，按年、月、日、小时列出，不与虚岁混用。</p></div></div><div id="bz-god-help" class="bz-god-help"></div></details>
+      </div>
+      <p class="bz-footnote">历法是计算，命理是传统文化。这里展示排盘规则与数据，供学习和文化研究。</p>
+    </div>
   </div>
-
-  <div class="shu-panel">
-    <label class="mono">出生日期 <input id="bz-date" type="date" /></label>
-    <label class="mono">时间 <input id="bz-time" type="time" value="12:00" /></label>
-    <label class="mono"><input id="bz-male" type="radio" name="bz-sex" checked /> 男</label>
-    <label class="mono"><input id="bz-female" type="radio" name="bz-sex" /> 女</label>
-    <button type="button" class="pie-btn primary" id="bz-go">排盘</button>
-  </div>
-  <p class="mono hint2" style="max-width:800px;">
-    年柱以立春分界、月柱以十二节分界（节气按日推算）；晚子时（23 点后）按不换日流派。
-  </p>
-
-  <div id="bz-out" hidden>
-    <p id="bz-summary" style="max-width:800px;"></p>
-    <div id="bz-pillars" class="bz-grid"></div>
-    <h2 class="shu-h mono">五行</h2>
-    <div id="bz-wuxing" class="shu-card" style="max-width:520px;"></div>
-    <p id="bz-strength" style="max-width:800px; font-size:14px;"></p>
-    <h2 class="shu-h mono">大运</h2>
-    <div id="bz-dayun"></div>
-    <p id="bz-warn" hidden class="mono" style="max-width:800px; color:var(--accent); font-size:12.5px;"></p>
-  </div>
-
-  <p class="mono" style="max-width:800px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
-    算法参考作者自己的 BaZi Android 项目并升级节气分界；旺衰为极简粗断。命理内容仅供文化研究与娱乐参考。
-  </p>
+  <noscript><p class="bz-notice">排盘需要启用 JavaScript，所有计算均在浏览器本地完成。</p></noscript>
 </main>
-</Base>
-
-<script>
-  import '../../scripts/shu/bazi.js';
-</script>
+</Studio>
+<script>import '../../scripts/shu/bazi.js';</script>

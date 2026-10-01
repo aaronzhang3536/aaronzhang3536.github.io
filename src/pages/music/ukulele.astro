@@ -32,6 +32,7 @@ import Base from '../../layouts/Base.astro';
     <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
       抱好琴，面对你从上到下四根弦是 <b>G · C · E · A</b>；最下面最细的是 1 弦(A)。
       点下面的标准音，拧弦钮把每根弦调到和它一样高；或点「麦克风调音」，拨弦看指针。
+      点过哪根弦的标准音，麦克风就锁定那根弦来判读（差一个八度也会提示），点表盘恢复自动识别。
     </p>
     <div class="uke-refrow">
       <button type="button" class="uke-ref pie-btn" data-f="392.00">4 弦 · G<small>高音</small></button>
@@ -92,7 +93,8 @@ import Base from '../../layouts/Base.astro';
   <section class="uke-panel" data-p="rhythm" hidden>
     <p style="max-width:820px; color:var(--ink2); font-size:13.5px;">
       节奏机两种玩法：<b>跟练</b>——听示范跟着扫；<b>判定</b>——像音游一样按时机击打：
-      <span class="mono">J</span>=↓下扫 <span class="mono">K</span>=↑上扫 <span class="mono">空格</span>=✕切音（触屏点舞台左/右半）。
+      <span class="mono">J</span>=↓下扫 <span class="mono">K</span>=↑上扫 <span class="mono">空格</span>=✕切音（触屏点舞台：左侧=↓、中间=✕、右侧=↑）。
+      判定已按耳机/音箱的输出延迟补偿，蓝牙耳机若仍觉得总是偏早或偏晚，结算时可一键校准。
       难度越高判定窗口越窄、要求键位正确，地狱档还会逐小节加速。
     </p>
     <div id="pat-list" class="uke-presets mono"></div>
@@ -134,7 +136,7 @@ import Base from '../../layouts/Base.astro';
       <div id="rg-combo" class="rg-combo"></div>
       <div id="rg-pops" aria-hidden="true"></div>
       <div class="rg-stats mono" id="rg-stats"></div>
-      <div class="rg-keys mono" id="rg-keys" hidden>J = ↓ 下扫　·　K = ↑ 上扫　·　空格 = ✕ 切音　·　简单/普通难度任意键均可命中</div>
+      <div class="rg-keys mono" id="rg-keys" hidden>J = ↓ 下扫　·　K = ↑ 上扫　·　空格 = ✕ 切音　·　触屏：左↓ 中✕ 右↑　·　简单/普通难度任意键均可命中</div>
     </div>
     <div id="rg-result" class="gm-res" hidden></div>
   </section>

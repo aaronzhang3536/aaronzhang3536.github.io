@@ -1,5 +1,5 @@
 /* 小六壬速断：时间/报数起课 · 问事类型断语 · 三宫连断 · 历史记录 */
-import { solar2lunar, hourOrder } from './core.js';
+import { solar2lunar, hourOrder, inRange, YEAR_MIN, YEAR_MAX } from './core.js';
 
 const PALACES = [
   {
@@ -205,11 +205,17 @@ function init() {
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
   dt.value = now.toISOString().slice(0, 16);
+  dt.addEventListener('input', () => dt.setCustomValidity(''));
   $('xlr-go-time').addEventListener('click', () => {
     const d = new Date(dt.value);
-    if (isNaN(+d)) return;
-    const lunar = solar2lunar(d);
-    if (!lunar) return;
+    const lunar = isNaN(+d) || !inRange(d) ? null : solar2lunar(d);
+    if (!lunar) {
+      /* 农历表只覆盖 1900–2100，范围外不再静默无反应 */
+      dt.setCustomValidity(isNaN(+d) ? '请先填写公历时间' : '仅支持 ' + YEAR_MIN + '–' + YEAR_MAX + ' 年（农历表覆盖范围）');
+      dt.reportValidity();
+      return;
+    }
+    dt.setCustomValidity('');
     const ho = hourOrder(d.getHours());
     const zhiName = '子丑寅卯辰巳午未申酉戌亥'[ho - 1];
     cast([lunar.month, lunar.day, ho],
