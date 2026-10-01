@@ -1,4 +1,5 @@
 /* 路径追踪 Cornell Box — 裸 WebGPU：compute 逐像素路径追踪，storage buffer 渐进累积 */
+import { boot } from './_kit.js';
 
 const PT_WGSL = /* wgsl */ `
 struct U {
@@ -208,30 +209,20 @@ fn fs(@builtin(position) fp: vec4f) -> @location(0) vec4f {
   return vec4f(c, 1.0);
 }`;
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) wgslEl.textContent = PT_WGSL;
 
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({ requiredFeatures: canTime ? ['timestamp-query'] : [] });
+  const device = await lab.device(adapter, { requiredFeatures: canTime ? ['timestamp-query'] : [] });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const cssW = wrapW, cssH = Math.round(wrapW * 9 / 16);
-  cvs.style.width = cssW + 'px'; cvs.style.height = cssH + 'px';
+  /* 背板 = 内容盒 × 分辨率倍率（不看 DPR）；容器变宽变窄时按当前倍率重建累积缓冲 */
+  let G = lab.fit({ aspect: 9 / 16, backing: false }, (g) => { G = g; rebuildRes(resScale); });
 
-  const ctx = cvs.getContext('webgpu');
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
 
   const ptPipe = device.createComputePipeline({
@@ -251,9 +242,10 @@ async function main() {
 
   /* 分辨率可切，累积缓冲随之重建 */
   let W = 0, H = 0, accBuf = null, ptBG = null, showBG = null;
-  let samples = 0, resetFlag = true;
+  let samples = 0, resetFlag = true, resScale = 0.75;
   function rebuildRes(scale) {
-    W = Math.round(cssW * scale); H = Math.round(cssH * scale);
+    resScale = scale;
+    W = Math.max(1, Math.round(G.cw * scale)); H = Math.max(1, Math.round(G.ch * scale));
     cvs.width = W; cvs.height = H;
     ctx.configure({ device, format, alphaMode: 'opaque' });
     if (accBuf) accBuf.destroy();
@@ -294,6 +286,7 @@ async function main() {
   const ui = { bounce: $('pt-bounce'), light: $('pt-light'), expo: $('pt-expo'), res: $('pt-res'), view: $('pt-view') };
   let yaw = 0, pitch = 0.06, radius = 3.3;
   let dragging = false, px0 = 0, py0 = 0;
+  lab.touch();
   cvs.addEventListener('pointerdown', (e) => {
     dragging = true; px0 = e.clientX; py0 = e.clientY;
     cvs.setPointerCapture(e.pointerId);
@@ -308,6 +301,7 @@ async function main() {
     resetFlag = true;
   });
   cvs.addEventListener('pointerup', () => { dragging = false; });
+  cvs.addEventListener('pointercancel', () => { dragging = false; });
   cvs.addEventListener('wheel', (e) => {
     e.preventDefault();
     radius = Math.max(2.2, Math.min(5.2, radius + e.deltaY * 0.002));
@@ -316,6 +310,9 @@ async function main() {
   ['bounce', 'light'].forEach((k) => {
     if (ui[k]) ui[k].addEventListener('input', () => { resetFlag = true; });
   });
+  /* 曝光只影响显示 pass，不重置累积；收敛停采后也要能重画一帧 */
+  let showDirty = true;
+  if (ui.expo) ui.expo.addEventListener('input', () => { showDirty = true; });
   if (ui.view) ui.view.addEventListener('change', () => { resetFlag = true; });
   if (ui.res) ui.res.addEventListener('change', () => rebuildRes(parseFloat(ui.res.value)));
 
@@ -324,13 +321,18 @@ async function main() {
   const uArr = new Float32Array(20);
   const pArr = new Float32Array(4);
   let frame = 0, prev = 0, fps = 60;
+  /* 采样上限：到点即视为收敛，停止派发追踪（画面保持），直到相机 / 参数 / 分辨率改动重新累积 */
+  const SPP_MAX = 4096;
+  const hudText = (converged) => W + '×' + H + ' · ' + samples.toLocaleString() + ' spp' +
+    (converged ? '（已收敛，停止采样）' : '') + ' · ' +
+    (canTime ? 'trace ' + gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dt = Math.min((ts - prev) / 1000, 0.1) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dt, 0.001)) - fps) * 0.05;
+    const converged = !resetFlag && samples >= SPP_MAX;
+    if (converged && !showDirty) { lab.hud(hudText(true)); return; }
     frame++;
 
     /* 相机：绕房间中心环绕（开口朝向相机） */
@@ -368,14 +370,16 @@ async function main() {
     pArr[0] = W; pArr[1] = H; pArr[2] = expo; pArr[3] = view;
     device.queue.writeBuffer(pBuf, 0, pArr);
 
-    const cp = enc.beginComputePass(canTime ? {
-      timestampWrites: { querySet: qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
-    } : {});
-    cp.setPipeline(ptPipe);
-    cp.setBindGroup(0, ptBG);
-    cp.dispatchWorkgroups(Math.ceil(W / 8), Math.ceil(H / 8));
-    cp.end();
-    samples++;
+    if (!converged) {
+      const cp = enc.beginComputePass(canTime ? {
+        timestampWrites: { querySet: qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
+      } : {});
+      cp.setPipeline(ptPipe);
+      cp.setBindGroup(0, ptBG);
+      cp.dispatchWorkgroups(Math.ceil(W / 8), Math.ceil(H / 8));
+      cp.end();
+      samples++;
+    }
 
     const rp = enc.beginRenderPass({
       colorAttachments: [{
@@ -387,9 +391,10 @@ async function main() {
     rp.setBindGroup(0, showBG);
     rp.draw(3);
     rp.end();
+    showDirty = false;
 
     let slot = null;
-    if (canTime) {
+    if (canTime && !converged) {
       slot = readPool.find((s) => !s.busy);
       if (slot) {
         enc.resolveQuerySet(qs, 0, 2, qBuf, 0);
@@ -407,12 +412,9 @@ async function main() {
         slot.busy = false;
       }).catch(() => { slot.busy = false; });
     }
-    if (hud) {
-      hud.textContent = W + '×' + H + ' · ' + samples.toLocaleString() + ' spp · ' +
-        (canTime ? 'trace ' + gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
-    }
+    lab.hud(hudText(converged));
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

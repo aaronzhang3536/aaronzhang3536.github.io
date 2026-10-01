@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
-"""黄土塬 DEM 增强：SRTM 30m 抹平了沟壑细节，本脚本在实测地形上做
+"""黄土塬 DEM 增强：30m 级卫星 DEM（Copernicus GLO-30）抹平了沟壑细节，本脚本在实测地形上做
    1) 塬面保平（低坡度区轻度平滑，强化「塬」的平顶特征）
    2) 坡度选择性分形细节（ridged FBM，只加在沟坡上 → 切沟质感）
    3) 热侵蚀模拟（数十轮塌方迭代，锐化塬缘、堆软沟底坡脚）
    读入 build-terrain-dem.py 的输出，原位覆写 height.bin / meta.json。
+   增强不是幂等的（再跑一次会叠加第二遍细节与侵蚀）：meta.json 已标记增强过时脚本拒绝执行，
+   需要重做请先用 build-terrain-dem.py 重新烘焙原始 DEM。增强参数记录在 meta.json 的 "enhance" 字段。
    用法: python scripts/enhance-loess-dem.py luoyun
 """
+import datetime
 import json
 import os
-import struct
 import sys
 
 import numpy as np
@@ -65,41 +67,61 @@ def thermal_erosion(h, cellm, iters, talus=0.55, k=0.28):
     return h
 
 
+MARK = 'loess enhancement'
+# 增强参数（同时写进 meta.json 的 enhance.params，便于复现）
+PARAMS = {
+    'flat_slope': 0.12, 'flat_mix': 0.65, 'flat_kernel': 5,
+    'steep_slope': 0.10, 'steep_range': 0.30,
+    'ridged_amp_m': [30.0, 9.0], 'ridged_seeds': [7, 91],
+    'thermal_iters': 48, 'thermal_talus': 0.55, 'thermal_k': 0.28,
+}
+
+
 def main(name):
     base = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'public', 'data', name)
     meta = json.load(open(os.path.join(base, 'meta.json'), encoding='utf-8'))
+    if meta.get('enhance') or MARK in meta.get('source', ''):
+        sys.exit('[%s] 已经增强过（source: %s）。增强不是幂等的，不能叠加第二遍：'
+                 '请先用 build-terrain-dem.py 重新烘焙原始 DEM，再运行本脚本。' % (name, meta.get('source', '')))
     n = meta['n']
     raw = np.frombuffer(open(os.path.join(base, 'height.bin'), 'rb').read(), dtype='<u2').astype(np.float32)
+    if raw.size != n * n:
+        sys.exit('[%s] height.bin 有 %d 个采样，与 meta.json 的 n=%d（%d 个）不符' % (name, raw.size, n, n * n))
     h = (raw * meta['scale'] + meta['offset']).reshape(n, n)
     cellm = meta['mx'] / n
     print('输入: %d² 网格 %.1fm/格, 高程 %.0f..%.0f' % (n, cellm, h.min(), h.max()))
 
+    P = PARAMS
     slope = slope_of(h, cellm)
-    flat = np.clip(1.0 - slope / 0.12, 0, 1)           # 塬面掩码
-    steep = np.clip((slope - 0.10) / 0.30, 0, 1)       # 沟坡掩码
+    flat = np.clip(1.0 - slope / P['flat_slope'], 0, 1)                    # 塬面掩码
+    steep = np.clip((slope - P['steep_slope']) / P['steep_range'], 0, 1)  # 沟坡掩码
 
-    # 1) 塬面保平：低坡区向 5×5 均值靠拢
-    k5 = np.ones((5, 5), np.float32) / 25
-    pad = np.pad(h, 2, mode='edge')
+    # 1) 塬面保平：低坡区向 K×K 均值靠拢
+    K = P['flat_kernel']
+    kern = np.ones((K, K), np.float32) / (K * K)
+    pad = np.pad(h, K // 2, mode='edge')
     sm = np.zeros_like(h)
-    for dy in range(5):
-        for dx in range(5):
-            sm += pad[dy:dy + n, dx:dx + n] * k5[dy, dx]
-    h = h * (1 - 0.65 * flat) + sm * (0.65 * flat)
+    for dy in range(K):
+        for dx in range(K):
+            sm += pad[dy:dy + n, dx:dx + n] * kern[dy, dx]
+    h = h * (1 - P['flat_mix'] * flat) + sm * (P['flat_mix'] * flat)
 
     # 2) 坡度选择性 ridged 细节：沟坡雕切沟（幅度随坡度，最高 ~22m）
-    det = ridged_fbm(n, seed=7)
-    det2 = ridged_fbm(n, seed=91)
-    h = h + (det - 0.5) * 30.0 * steep + (det2 - 0.5) * 9.0 * np.clip(steep * 1.4, 0, 1)
+    det = ridged_fbm(n, seed=P['ridged_seeds'][0])
+    det2 = ridged_fbm(n, seed=P['ridged_seeds'][1])
+    a0, a1 = P['ridged_amp_m']
+    h = h + (det - 0.5) * a0 * steep + (det2 - 0.5) * a1 * np.clip(steep * 1.4, 0, 1)
 
     # 3) 热侵蚀：塌出黄土崖的坡脚与锐利塬缘
-    h = thermal_erosion(h, cellm, iters=48)
+    h = thermal_erosion(h, cellm, iters=P['thermal_iters'], talus=P['thermal_talus'], k=P['thermal_k'])
 
     out = np.clip((h + 100) * 10, 0, 65535).astype('<u2')
     open(os.path.join(base, 'height.bin'), 'wb').write(out.tobytes())
     meta['hmin'] = round(float(h.min()), 1)
     meta['hmax'] = round(float(h.max()), 1)
-    meta['source'] += ' + loess enhancement (slope-selective ridged detail + thermal erosion)'
+    meta['source'] += ' + ' + MARK + ' (slope-selective ridged detail + thermal erosion)'
+    meta['enhance'] = {'cmd': 'python scripts/enhance-loess-dem.py ' + name,
+                       'date': datetime.date.today().isoformat(), 'params': PARAMS}
     json.dump(meta, open(os.path.join(base, 'meta.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     print('增强完成: 高程 %.0f..%.0f, 平均|Δ| %.1fm' % (h.min(), h.max(), np.abs(h - (raw.reshape(n, n) * meta['scale'] + meta['offset'])).mean()))
 

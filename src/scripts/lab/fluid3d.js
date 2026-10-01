@@ -1,5 +1,6 @@
 /* 3D 流体（烟雾）— 裸 WebGPU：三维欧拉网格（平流/浮力/涡量约束/压力投影）
    + 体积光线步进渲染（吸收 + 朝光源的二次步进阴影） */
+import { boot } from './_kit.js';
 
 /* 模拟 uniform：
    a: x dt, y 速度耗散, z 密度耗散, w 涡量强度
@@ -303,11 +304,8 @@ fn fs(in: VSOut) -> @location(0) vec4f {
 const GRIDS = { 64: [64, 96, 64], 96: [96, 128, 96], 128: [128, 160, 128] };
 const JACOBI = 16;
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) {
     wgslEl.textContent =
@@ -315,23 +313,14 @@ async function main() {
       '\n\n// ---- 3D 涡量约束 ----' + VORT_WGSL +
       '\n\n// ---- 体积渲染（吸收 + 自阴影） ----' + SHOW_WGSL;
   }
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({ requiredFeatures: canTime ? ['timestamp-query'] : [] });
+  const device = await lab.device(adapter, { requiredFeatures: canTime ? ['timestamp-query'] : [] });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, H = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-  cvs.width = Math.round(W * dpr); cvs.height = Math.round(H * dpr);
-  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 体素网格与画布无关；画布随容器宽度 / DPR 重排（宽高比每帧取自背板） */
+  lab.fit({ aspect: 9 / 16, dprCap: 1.5 }, () => {});
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
@@ -420,6 +409,7 @@ async function main() {
   const ui = { buoy: $('f3-buoy'), vort: $('f3-vort'), inj: $('f3-inj'), grid: $('f3-grid'), view: $('f3-view') };
   let yaw = 0.5, pitch = 0.12, radius = 2.7;
   let dragging = false, px0 = 0, py0 = 0;
+  lab.touch();
   cvs.addEventListener('pointerdown', (e) => {
     dragging = true; px0 = e.clientX; py0 = e.clientY;
     cvs.setPointerCapture(e.pointerId);
@@ -431,6 +421,7 @@ async function main() {
     px0 = e.clientX; py0 = e.clientY;
   });
   cvs.addEventListener('pointerup', () => { dragging = false; });
+  cvs.addEventListener('pointercancel', () => { dragging = false; });
   cvs.addEventListener('wheel', (e) => {
     e.preventDefault();
     radius = Math.max(1.7, Math.min(4.6, radius + e.deltaY * 0.0018));
@@ -445,8 +436,6 @@ async function main() {
   let prev = 0, fps = 60;
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dt = Math.min((ts - prev) / 1000, 0.033) || 0.016;
     prev = ts;
     const t = ts / 1000;
@@ -535,13 +524,11 @@ async function main() {
         slot.busy = false;
       }).catch(() => { slot.busy = false; });
     }
-    if (hud) {
-      hud.textContent = GW + '×' + GH + '×' + GD + ' 体素 · ' +
-        (canTime ? 'sim ' + simMs.toFixed(2) + ' ms · march ' + drawMs.toFixed(2) + ' ms · ' : '') +
-        Math.round(fps) + ' fps';
-    }
+    lab.hud(GW + '×' + GH + '×' + GD + ' 体素 · ' +
+      (canTime ? 'sim ' + simMs.toFixed(2) + ' ms · march ' + drawMs.toFixed(2) + ' ms · ' : '') +
+      Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

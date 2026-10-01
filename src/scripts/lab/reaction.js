@@ -2,6 +2,7 @@
    dU/dt = Du·∇²U − U·V² + F(1−U)
    dV/dt = Dv·∇²V + U·V² − (F+k)V
    同一组方程，只改 F/k 两个数，长出斑点、条纹、珊瑚、迷宫 */
+import { boot } from './_kit.js';
 
 const SIM_WGSL = /* wgsl */ `
 struct RU {
@@ -97,30 +98,18 @@ const PRESETS = {
   chaos:  { zh: '扰动混沌', F: 0.026, k: 0.055 },
 };
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) wgslEl.textContent = SIM_WGSL;
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
-  const device = await adapter.requestDevice();
+  const adapter = await lab.adapter();
+  if (!adapter) return;
+  const device = await lab.device(adapter);
 
   const SW = 640, SH = 360;
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, Hc = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = Math.round(W * dpr); cvs.height = Math.round(Hc * dpr);
-  cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 反应网格固定 SW×SH，画布只负责显示：随容器宽度 / DPR 重排即可 */
+  lab.fit({ aspect: 9 / 16, dprCap: 2 }, () => {});
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
@@ -185,6 +174,7 @@ async function main() {
     return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
   };
   let down = false;
+  lab.touch();
   cvs.addEventListener('pointerdown', (e) => { down = true; brush = uvOf(e); cvs.setPointerCapture(e.pointerId); });
   cvs.addEventListener('pointermove', (e) => { if (down) brush = uvOf(e); });
   cvs.addEventListener('pointerup', () => { down = false; brush = null; });
@@ -198,8 +188,6 @@ async function main() {
   const vuArr = new Float32Array(4);
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dtF = Math.min((ts - prev) / 1000, 0.05) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dtF, 0.001)) - fps) * 0.05;
@@ -239,12 +227,10 @@ async function main() {
     rp.end();
     device.queue.submit([enc.finish()]);
 
-    if (hud) {
-      hud.textContent = SW + '×' + SH + ' · 第 ' + gen.toLocaleString() + ' 代 · ' +
-        steps + ' 步/帧 · F=' + F.toFixed(3) + ' k=' + kk.toFixed(3) + ' · ' + Math.round(fps) + ' fps';
-    }
+    lab.hud(SW + '×' + SH + ' · 第 ' + gen.toLocaleString() + ' 代 · ' +
+      steps + ' 步/帧 · F=' + F.toFixed(3) + ' k=' + kk.toFixed(3) + ' · ' + Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

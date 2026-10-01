@@ -5,6 +5,7 @@
    · 每次线搜索的步长被保守 CCD 钳制：位移上界 < 当前最小间距的一半
      —— 任何中间状态都不可能穿越，这是数学保证而非调参
    非实时：预条件梯度下降逐步收敛，墙钟时间换绝对不穿模 */
+import { boot, onThemeChange } from './_kit.js';
 
 /* ---------- 向量小工具（Float64Array 上的 3 维） ---------- */
 function closestPtTri(px, py, pz, ax, ay, az, bx, by, bz, cx, cy, cz, out) {
@@ -85,31 +86,35 @@ function segSeg(p1x, p1y, p1z, q1x, q1y, q1z, p2x, p2y, p2z, q2x, q2y, q2z, out)
 }
 
 /* ---------- 主体 ---------- */
-function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
+function main(lab) {
+  const cvs = lab.cvs;
   const $ = (id) => document.getElementById(id);
   const ui = {
     scene: $('ip-scene'), res: $('ip-res'), dhat: $('ip-dhat'), h: $('ip-h'),
     iters: $('ip-iters'), run: $('ip-run'), step: $('ip-step'), reset: $('ip-reset'),
     contacts: $('ip-contacts'), wire: $('ip-wire'), stat: $('ip-stat'),
   };
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, H = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = W * dpr; cvs.height = H * dpr;
-  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  /* 绘制坐标 = 画布内容盒的 CSS 像素；容器宽度 / DPR 变了就重排（循环每帧都会重画） */
   const g = cvs.getContext('2d');
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  let W = 0, H = 0;
+  const applyGeom = (G) => {
+    W = G.cw; H = G.ch;
+    g.setTransform(G.pw / G.cw, 0, 0, G.ph / G.ch, 0, 0);
+  };
+  applyGeom(lab.fit({ aspect: 9 / 16, dprCap: 2 }, applyGeom));
 
+  /* 调色板缓存（以前每帧 getComputedStyle）；主题切换时刷新。
+     线框主题把 --c-* 设成透明，接触点改用线框色 */
   function pal() {
     const cs = getComputedStyle(document.body), o = {};
     ['--ink', '--ink2', '--line', '--surface', '--surface2', '--accent', '--play', '--c-render', '--c-char', '--c-engine'].forEach((k) => {
       o[k.slice(2)] = cs.getPropertyValue(k).trim();
     });
+    ['c-render', 'c-char', 'c-engine'].forEach((k) => { if (!o[k] || o[k] === 'transparent') o[k] = o.ink; });
     return o;
   }
+  let P = pal();
+  onThemeChange(() => { P = pal(); });
 
   /* ---------- 模型 ---------- */
   let NX = 0, NN = 0;                       /* 每层网格宽 / 总节点数 */
@@ -458,6 +463,7 @@ function main() {
 
   /* ---------- 渲染（Canvas 2D 画家排序） ---------- */
   let yaw = 0.7, pitch = 0.42, distC = 1.5, dragging = false, px0 = 0, py0 = 0;
+  lab.touch();
   cvs.addEventListener('pointerdown', (e) => { dragging = true; px0 = e.clientX; py0 = e.clientY; cvs.setPointerCapture(e.pointerId); });
   cvs.addEventListener('pointermove', (e) => {
     if (!dragging) return;
@@ -466,6 +472,7 @@ function main() {
     px0 = e.clientX; py0 = e.clientY;
   });
   cvs.addEventListener('pointerup', () => { dragging = false; });
+  cvs.addEventListener('pointercancel', () => { dragging = false; });
   cvs.addEventListener('wheel', (e) => {
     e.preventDefault();
     distC = Math.max(0.8, Math.min(3, distC + e.deltaY * 0.0012));
@@ -483,7 +490,8 @@ function main() {
   const LAYCOL = [['#2a8f96', '#c96a2c'], ['#7a5fd0', '#3f8f4f'], ['#b3487a', '#4a6fd0']];
 
   function draw() {
-    const P = pal();
+    /* 先清空再铺底：线框主题 --surface 透明，只铺不清会让上一帧残留成拖影 */
+    g.clearRect(0, 0, W, H);
     g.fillStyle = P.surface;
     g.fillRect(0, 0, W, H);
     const tgt = [0, 0.12, 0];
@@ -565,8 +573,6 @@ function main() {
   /* ---------- 主循环：时间片推进 ---------- */
   let wallAcc = 0, stepsAcc = 0, ratio = 0;
   function loop() {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     if (running) {
       const t0 = performance.now();
       const BUDGET = 24;
@@ -579,10 +585,8 @@ function main() {
     }
     draw();
     const dTxt = isFinite(dminNow) ? (dminNow * 1000).toFixed(2) + ' mm' : '—';
-    if (hud) {
-      hud.textContent = 'STEP ' + stepN + ' · t=' + simT.toFixed(2) + 's · 接触 ' + activeContacts +
-        ' · d_min ' + dTxt + ' · ' + lastIters + ' 迭代/步';
-    }
+    lab.hud('STEP ' + stepN + ' · t=' + simT.toFixed(2) + 's · 接触 ' + activeContacts +
+      ' · d_min ' + dTxt + ' · ' + lastIters + ' 迭代/步');
     if (ui.stat) {
       ui.stat.textContent = dminNow > 0
         ? '✓ 无穿透（全局最小间距 ' + dTxt + ' > 0）'
@@ -608,7 +612,7 @@ function main() {
 
   reset();
   if (location.hash === '#run') { running = true; if (ui.run) ui.run.textContent = '⏸ 暂停'; }
-  requestAnimationFrame(loop);
+  lab.loop(loop);
 
   /* 测试钩子（node 测试台驱动求解器用，页面上无副作用） */
   if (typeof window !== 'undefined') {
@@ -624,4 +628,5 @@ function main() {
   }
 }
 
-main();
+/* 纯 CPU + Canvas2D，不需要 WebGPU：出错提示也不会提 WebGPU */
+boot(main, { gpu: false });

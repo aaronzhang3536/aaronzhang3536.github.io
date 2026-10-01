@@ -1,5 +1,6 @@
 /* GPU 粒子 — 裸 WebGPU：compute 模拟 + 累积缓冲拖尾 + timestamp-query 真实计时 */
 import { mat4, vec3 } from 'wgpu-matrix';
+import { boot } from './_kit.js';
 
 const SIM_WGSL = /* wgsl */ `
 struct Sim {
@@ -119,46 +120,27 @@ fn fs(in: VSOut) -> @location(0) vec4f {
   return textureSample(tex, samp, in.uv);
 }`;
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) wgslEl.textContent = '// ---- 模拟 (compute) ----\n' + SIM_WGSL + '\n\n// ---- 绘制 ----' + DRAW_WGSL;
 
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) {
-    fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。');
-    return;
-  }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败（可能被显卡黑名单拦截）。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({
+  const device = await lab.device(adapter, {
     requiredFeatures: canTime ? ['timestamp-query'] : [],
   });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, H = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = W * dpr; cvs.height = H * dpr;
-  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  /* 画布尺寸随容器宽度 / DPR 变化重排，累积纹理跟着重建 */
+  let G = lab.fit({ aspect: 9 / 16, dprCap: 2 }, (g) => { G = g; allocAcc(); });
 
-  const ctx = cvs.getContext('webgpu');
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
   /* 离屏累积纹理（拖尾），再 blit 上屏 */
-  const accTex = device.createTexture({
-    size: [W * dpr, H * dpr], format,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-  });
-  const accView = accTex.createView();
+  let accTex = null, accView = null, blitBG = null;
   const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
   const mkModule = (code) => device.createShaderModule({ code });
@@ -212,13 +194,22 @@ async function main() {
   const simUB = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const camUB = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const fadeUB = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const blitBG = device.createBindGroup({
-    layout: blitPipe.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: sampler },
-      { binding: 1, resource: accView },
-    ],
-  });
+  function allocAcc() {
+    if (accTex) accTex.destroy();
+    accTex = device.createTexture({
+      size: [G.pw, G.ph], format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    accView = accTex.createView();
+    blitBG = device.createBindGroup({
+      layout: blitPipe.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: sampler },
+        { binding: 1, resource: accView },
+      ],
+    });
+    first = true;   /* 新纹理先清屏 */
+  }
   const fadeBG = device.createBindGroup({
     layout: fadePipe.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: fadeUB } }],
@@ -290,25 +281,29 @@ async function main() {
       rebuildTo = setTimeout(() => { if (countOf() !== COUNT) rebuild(countOf()); }, 250);
     });
   }
+  /* 指针（鼠标悬停 / 触屏按住拖动）牵引；离开、抬起、取消后引力点自动漫游 */
   let mouse = null;
-  cvs.addEventListener('mousemove', (e) => {
+  lab.touch();
+  const aim = (e) => {
     const r = cvs.getBoundingClientRect();
     mouse = [((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1)];
-  });
-  cvs.addEventListener('mouseleave', () => { mouse = null; });
+  };
+  cvs.addEventListener('pointerdown', aim);
+  cvs.addEventListener('pointermove', aim);
+  const drop = (e) => { if (e.type === 'pointerleave' || e.pointerType !== 'mouse') mouse = null; };
+  cvs.addEventListener('pointerleave', drop);
+  cvs.addEventListener('pointerup', drop);
+  cvs.addEventListener('pointercancel', drop);
 
   rebuild(ui.count ? countOf() : 262144);
 
-  const aspect = W / H;
-  const proj = mat4.perspective(0.9, aspect, 0.1, 50);
   const simArr = new Float32Array(8);
   const camArr = new Float32Array(20);
   const fadeArr = new Float32Array(4);
 
   let prev = 0, fps = 60, first = true;
+  allocAcc();
   function frame(ts) {
-    requestAnimationFrame(frame);
-    if (!cvs.isConnected) return;
     const dt = Math.min((ts - prev) / 1000, 0.033) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dt, 0.001)) - fps) * 0.05;
@@ -317,6 +312,8 @@ async function main() {
     /* 相机缓慢环绕 */
     const yaw = t * 0.12;
     const eye = [Math.sin(yaw) * 8.5, 1.6, Math.cos(yaw) * 8.5];
+    const aspect = G.pw / G.ph;
+    const proj = mat4.perspective(0.9, aspect, 0.1, 50);
     const view = mat4.lookAt(eye, [0, 0, 0], [0, 1, 0]);
     const vp = mat4.multiply(proj, view);
 
@@ -407,15 +404,13 @@ async function main() {
         slot.busy = false;
       }).catch(() => { slot.busy = false; });
     }
-    if (hud) {
-      hud.textContent = COUNT.toLocaleString() + ' 粒子 · ' +
-        (canTime
-          ? 'compute ' + gpuCompute.toFixed(2) + ' ms · draw ' + gpuDraw.toFixed(2) + ' ms · '
-          : 'GPU 计时不可用 · ') +
-        Math.round(fps) + ' fps';
-    }
+    lab.hud(COUNT.toLocaleString() + ' 粒子 · ' +
+      (canTime
+        ? 'compute ' + gpuCompute.toFixed(2) + ' ms · draw ' + gpuDraw.toFixed(2) + ' ms · '
+        : 'GPU 计时不可用 · ') +
+      Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prev = ts; frame(ts); });
+  lab.loop(frame, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

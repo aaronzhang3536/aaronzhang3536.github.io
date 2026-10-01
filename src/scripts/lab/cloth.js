@@ -3,6 +3,7 @@
    约束按图着色分组，组内无共享粒子 → GPU 并行 Gauss-Seidel
    五种场景 · 球/地面碰撞 · 抓取拖拽 · 全参数可调 */
 import { mat4 } from 'wgpu-matrix';
+import { boot } from './_kit.js';
 
 /* 布料 uniform：
    a: x dt, y 阻尼, z 重力, w 风力
@@ -306,11 +307,8 @@ const SCENES = {
   fall:    { zh: '自由飘落', orient: 'v', pins: 'none',  wind: [0.6, 0, 0.8],   windDef: 0.8, sphere: 0,    floor: -0.85, net: false },
 };
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) {
     wgslEl.textContent =
@@ -318,29 +316,26 @@ async function main() {
       '\n\n// ---- 显式质点弹簧 ----' + SPRING_WGSL +
       '\n\n// ---- 积分（Verlet + 法向承风） ----' + INTEGRATE_WGSL;
   }
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({ requiredFeatures: canTime ? ['timestamp-query'] : [] });
+  const device = await lab.device(adapter, { requiredFeatures: canTime ? ['timestamp-query'] : [] });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, Hc = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = Math.round(W * dpr); cvs.height = Math.round(Hc * dpr);
-  cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 画布随容器宽度 / DPR 重排，深度缓冲跟着重建 */
+  lab.fit({ aspect: 9 / 16, dprCap: 2 }, allocDepth);
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
-  const depthView = device.createTexture({
-    size: [cvs.width, cvs.height], format: 'depth24plus',
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-  }).createView();
+  let depthTex = null, depthView = null;
+  function allocDepth() {
+    if (depthTex) depthTex.destroy();
+    depthTex = device.createTexture({
+      size: [cvs.width, cvs.height], format: 'depth24plus',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    depthView = depthTex.createView();
+  }
+  allocDepth();
 
   const mkCP = (code) => device.createComputePipeline({
     layout: 'auto',
@@ -595,15 +590,17 @@ async function main() {
 
   /* 交互：点中布料 → 抓取；点空 → 旋转视角；滚轮推拉 */
   let yaw = 0.55, pitch = 0.18, radius = 2.5;
-  let dragging = false, mode = 'none', px0 = 0, py0 = 0, mouseNdc = [0, 0], pickPending = false;
+  let dragging = false, mode = 'none', px0 = 0, py0 = 0, mouseNdc = [0, 0], pickNdc = [0, 0], pickPending = false;
   let vpMat = null, camBasis = null, grabDepth = 2.0;
   function ndcOf(e) {
     const r = cvs.getBoundingClientRect();
     return [((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1)];
   }
+  lab.touch();
   cvs.addEventListener('pointerdown', (e) => {
     dragging = true; mode = 'pending'; px0 = e.clientX; py0 = e.clientY;
     mouseNdc = ndcOf(e);
+    pickNdc = mouseNdc;   /* 拾取按「按下的位置」算，即使读回缓冲忙、要晚一两帧才派发 */
     pickPending = true;
     cvs.setPointerCapture(e.pointerId);
   });
@@ -631,15 +628,12 @@ async function main() {
 
   build();
 
-  const proj = mat4.perspective(0.8, cvs.width / cvs.height, 0.05, 30);
   const cuArr = new Float32Array(24);
   const ruArr = new Float32Array(24);
   const pkArr = new Float32Array(20);
-  let prevT = 0, fps = 60, bestReading = false;
+  let prevT = 0, fps = 60;
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dtF = Math.min((ts - prevT) / 1000, 0.033) || 0.016;
     prevT = ts;
     const t = ts / 1000;
@@ -656,6 +650,7 @@ async function main() {
     /* 相机 */
     const eye = [Math.sin(yaw) * Math.cos(pitch) * radius, 0.15 + Math.sin(pitch) * radius, Math.cos(yaw) * Math.cos(pitch) * radius];
     const tgt = [0, scene.orient === 'v' ? 0.15 : 0, 0];
+    const proj = mat4.perspective(0.8, cvs.width / cvs.height, 0.05, 30);
     const view = mat4.lookAt(eye, tgt, [0, 1, 0]);
     const vp = mat4.multiply(proj, view);
     vpMat = vp;
@@ -712,12 +707,13 @@ async function main() {
       device.queue.writeBuffer(spBuf, 0, new Float32Array([0, -0.25, 0, scene.sphere * 0.97]));
     }
 
-    /* 拾取（pointerdown 后一帧） */
-    if (pickPending && vpMat) {
+    /* 拾取（pointerdown 后一帧）。读回缓冲还在映射中（上一次拾取未读完，如快速双击）时
+       不能往里拷 —— 那会触发校验错误、这次拾取丢失；保留 pickPending，下一帧再试 */
+    if (pickPending && vpMat && bestRead.mapState === 'unmapped') {
       pickPending = false;
       device.queue.writeBuffer(bestBuf, 0, new Uint32Array([0xffffffff]));
       pkArr.set(vpMat, 0);
-      pkArr[16] = mouseNdc[0]; pkArr[17] = mouseNdc[1];
+      pkArr[16] = pickNdc[0]; pkArr[17] = pickNdc[1];
       device.queue.writeBuffer(pkBuf, 0, pkArr);
       const e2 = device.createCommandEncoder();
       const c2 = e2.beginComputePass();
@@ -726,19 +722,15 @@ async function main() {
       c2.end();
       e2.copyBufferToBuffer(bestBuf, 0, bestRead, 0, 4);
       device.queue.submit([e2.finish()]);
-      if (!bestReading) {
-        bestReading = true;
-        bestRead.mapAsync(GPUMapMode.READ).then(() => {
-          const v = new Uint32Array(bestRead.getMappedRange())[0];
-          bestRead.unmap();
-          bestReading = false;
-          if (dragging && mode === 'pending') {
-            const d = (v >>> 16) / 2048;
-            if (d < 0.07) { mode = 'grab'; grabId = v & 0xffff; }
-            else { mode = 'orbit'; }
-          }
-        }).catch(() => { bestReading = false; });
-      }
+      bestRead.mapAsync(GPUMapMode.READ).then(() => {
+        const v = new Uint32Array(bestRead.getMappedRange())[0];
+        bestRead.unmap();
+        if (dragging && mode === 'pending') {
+          const d = (v >>> 16) / 2048;
+          if (d < 0.07) { mode = 'grab'; grabId = v & 0xffff; }
+          else { mode = 'orbit'; }
+        }
+      }).catch(() => {});
     }
     if (mode !== 'grab') grabId = -1;
 
@@ -816,13 +808,11 @@ async function main() {
         slot.busy = false;
       }).catch(() => { slot.busy = false; });
     }
-    if (hud) {
-      const name = algo === 'xpbd' ? 'XPBD' : algo === 'pbd' ? 'PBD' : '质点弹簧';
-      hud.textContent = N + '×' + N + ' 粒子 · ' + CN.toLocaleString() + ' 约束 · ' + name + ' · ' +
-        (canTime ? 'sim ' + simMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
-    }
+    const name = algo === 'xpbd' ? 'XPBD' : algo === 'pbd' ? 'PBD' : '质点弹簧';
+    lab.hud(N + '×' + N + ' 粒子 · ' + CN.toLocaleString() + ' 约束 · ' + name + ' · ' +
+      (canTime ? 'sim ' + simMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prevT = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prevT = ts; });
 }
 
-main();
+boot(main);

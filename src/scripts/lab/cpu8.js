@@ -2,6 +2,7 @@
    经典 RISC 五级：IF 取指 → ID 译码/读寄存器 → EX 执行 → MEM 访存 → WB 写回
    完整实现：EX/MEM 与 MEM/WB 前递、load-use 停顿、分支冲刷（EX 判定，预测不跳转）
    EX 阶段的加法展开为 8 个全加器，逐位看进位涟漪 */
+import { boot, onThemeChange, luminance } from './_kit.js';
 
 /* ---------- ISA（16 位指令，8 位数据通路，8 个寄存器） ---------- */
 const OP = { NOP: 0, LDI: 1, ADD: 2, SUB: 3, AND: 4, LD: 5, ST: 6, BEQ: 7, HALT: 15 };
@@ -257,32 +258,52 @@ function stepCPU(c) {
 }
 
 /* ---------- 可视化 ---------- */
+/* 画布底色固定为深色（与 .lab-stage canvas 的 CSS 底色 #010204 同色，每帧显式铺满），
+   所以画布里的字和线一律用「深底配色」，底色与文字出自同一个调色板：
+   · 暗色 / 线框主题：直接取主题 token（本来就是给深底用的）
+   · 亮色主题：token 是给浅底用的深色字，落在深底上读不清 → 换成暗色主题的同名 token 值
+     （与 site.css :root[data-theme="dark"] 保持一致）
+   · 线框主题把 --c-* / --surface* 设成透明：色块退化为描边（见 drawChip / 甘特格），警示字用线框色 */
+const CANVAS_BG = '#010204';
+const DARK_TOKENS = {
+  ink: '#e2e8f4', ink2: '#8494ac', line: '#2b3549', surface: '#161d2c', surface2: '#1d2637',
+  accent: '#ff8a1e', play: '#4fbd58',
+  'c-render': '#d96a60', 'c-engine': '#58aa72', 'c-char': '#6b99d8', 'c-tool': '#cfa23a',
+  'c-ai': '#9d86d9', 'c-life': '#cf7fa0',
+};
+const isClear = (c) => !c || c === 'transparent' || /^rgba\([^)]*,\s*0\)$/.test(c);
 function pal() {
   const cs = getComputedStyle(document.body), o = {};
-  ['--ink', '--ink2', '--line', '--surface', '--surface2', '--accent', '--play',
-   '--c-render', '--c-engine', '--c-char', '--c-tool', '--c-ai', '--c-life'].forEach((k) => {
-    o[k.slice(2)] = cs.getPropertyValue(k).trim();
-  });
+  const keys = Object.keys(DARK_TOKENS);
+  keys.forEach((k) => { o[k] = cs.getPropertyValue('--' + k).trim(); });
+  o.wire = document.body.classList.contains('vm-wire');
+  const lum = luminance(o.ink);
+  if (!o.wire && lum >= 0 && lum < 0.4) keys.forEach((k) => { o[k] = DARK_TOKENS[k]; });
+  keys.forEach((k) => { if (k.startsWith('c-') && isClear(o[k])) o[k] = o.ink; });
+  o.bg = CANVAS_BG;
   return o;
 }
 const CHIP_COLS = ['c-render', 'c-engine', 'c-char', 'c-tool', 'c-ai', 'c-life'];
 
-function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
+function main(lab) {
+  const cvs = lab.cvs;
   const $ = (id) => document.getElementById(id);
   const ui = {
     prog: $('cp-prog'), fwd: $('cp-fwd'), step: $('cp-step'), run: $('cp-run'),
     speed: $('cp-speed'), reset: $('cp-reset'), note: $('cp-note'),
   };
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, H = Math.round(wrapW * 0.72);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = W * dpr; cvs.height = H * dpr;
-  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  /* 绘制坐标 = 画布内容盒的 CSS 像素；容器宽度 / DPR 变了就重排并重画 */
   const g = cvs.getContext('2d');
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  let W = 0, H = 0, SW = 0;
+  const applyGeom = (G) => {
+    W = G.cw; H = G.ch;
+    SW = (W - 28) / 5;
+    g.setTransform(G.pw / G.cw, 0, 0, G.ph / G.ch, 0, 0);
+  };
+  applyGeom(lab.fit({ aspect: 0.72, dprCap: 2 }, (G) => { applyGeom(G); if (cpu) draw(); }));
+  /* 调色板缓存，主题切换时刷新并重画 */
+  let P = pal();
+  onThemeChange(() => { P = pal(); if (cpu) draw(); });
 
   let cpu = null, running = false, animT = 1, lastStep = 0;
 
@@ -303,16 +324,22 @@ function main() {
   }
 
   /* ---- 布局 ---- */
-  const SX = 14, SW = (W - 28) / 5, SY = 52, SH = 118;
+  const SX = 14, SY = 52, SH = 118;
   const STAGES = ['IF 取指', 'ID 译码', 'EX 执行', 'MEM 访存', 'WB 写回'];
 
   function chipCol(P, tag) { return P[CHIP_COLS[(tag >= 0 ? tag : 0) % CHIP_COLS.length]]; }
 
   function drawChip(P, x, y, w, ins, tag, dim) {
     g.globalAlpha = dim ? 0.35 : 1;
-    g.fillStyle = chipCol(P, tag);
-    g.fillRect(x, y, w, 22);
-    g.fillStyle = '#0b0d12';
+    if (P.wire) {   /* 线框主题：描边色块 + 线框色字 */
+      g.strokeStyle = chipCol(P, tag);
+      g.strokeRect(x + 0.5, y + 0.5, w - 1, 21);
+      g.fillStyle = chipCol(P, tag);
+    } else {
+      g.fillStyle = chipCol(P, tag);
+      g.fillRect(x, y, w, 22);
+      g.fillStyle = '#0b0d12';
+    }
     g.font = '600 11px Consolas,monospace';
     g.textAlign = 'center';
     g.fillText(iText(ins), x + w / 2, y + 15);
@@ -320,8 +347,8 @@ function main() {
   }
 
   function draw() {
-    const P = pal();
-    g.clearRect(0, 0, W, H);
+    g.fillStyle = P.bg;
+    g.fillRect(0, 0, W, H);
     g.textBaseline = 'alphabetic';
     const ev = cpu.events;
 
@@ -523,11 +550,17 @@ function main() {
         if (!s) continue;
         const x = SX + 150 + (cc - c0) * cellW2;
         const isB = s === 's' || s === 'x';
-        g.fillStyle = isB ? P.surface2 : chipCol(P, r);
-        g.globalAlpha = isB ? 1 : 0.85;
-        g.fillRect(x, y + 1, cellW2 - 2, cellH2 - 3);
-        g.globalAlpha = 1;
-        g.fillStyle = isB ? P['c-render'] : '#0b0d12';
+        if (P.wire && !isB) {   /* 线框主题：描边格 + 线框色字 */
+          g.strokeStyle = chipCol(P, r);
+          g.strokeRect(x + 0.5, y + 1.5, cellW2 - 3, cellH2 - 4);
+          g.fillStyle = chipCol(P, r);
+        } else {
+          g.fillStyle = isB ? P.surface2 : chipCol(P, r);
+          g.globalAlpha = isB ? 1 : 0.85;
+          g.fillRect(x, y + 1, cellW2 - 2, cellH2 - 3);
+          g.globalAlpha = 1;
+          g.fillStyle = isB ? P['c-render'] : '#0b0d12';
+        }
         g.font = '600 10px Consolas,monospace';
         g.textAlign = 'center';
         g.fillText(s === 's' ? '○' : s === 'x' ? '✕' : s, x + cellW2 / 2 - 1, y + 12);
@@ -568,8 +601,6 @@ function main() {
 
   /* ---- 主循环 ---- */
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const spd = parseFloat((ui.speed && ui.speed.value) || '1');
     const cycleMs = 1400 / spd;
     if (animT < 1) {
@@ -585,10 +616,8 @@ function main() {
       if (ui.run) ui.run.textContent = '▶ 运行';
       draw();
     }
-    if (hud) {
-      hud.textContent = 'CYCLE ' + cpu.cycle + ' · ' + (cpu.done ? '程序完成' : running ? '运行中' : '暂停') +
-        ' · CPI 观察：' + (cpu.fetchTag ? (cpu.cycle / Math.max(cpu.fetchTag, 1)).toFixed(2) : '—');
-    }
+    lab.hud('CYCLE ' + cpu.cycle + ' · ' + (cpu.done ? '程序完成' : running ? '运行中' : '暂停') +
+      ' · CPI 观察：' + (cpu.fetchTag ? (cpu.cycle / Math.max(cpu.fetchTag, 1)).toFixed(2) : '—'));
   }
 
   if (ui.step) ui.step.addEventListener('click', () => { running = false; if (ui.run) ui.run.textContent = '▶ 运行'; doStep(); });
@@ -606,7 +635,8 @@ function main() {
     running = true;
     if (ui.run) ui.run.textContent = '⏸ 暂停';
   }
-  requestAnimationFrame(loop);
+  lab.loop(loop);
 }
 
-main();
+/* 纯 CPU + Canvas2D，不需要 WebGPU：出错提示也不会提 WebGPU */
+boot(main, { gpu: false });

@@ -1,6 +1,7 @@
 /* 3D 水体（SPH）— 裸 WebGPU：WCSPH 光滑粒子流体动力学
    空间哈希网格邻居搜索（atomic 计数 + 定容散射）· XSPH 粘性 · 球形 impostor 渲染 */
 import { mat4 } from 'wgpu-matrix';
+import { boot } from './_kit.js';
 
 /* 模拟 uniform：
    a: x dt, y h, z 压力刚度, w XSPH 粘性
@@ -365,11 +366,8 @@ fn fs(in: VSOut) -> @location(0) vec4f {
 const H = 0.04;                        /* 平滑核半径 */
 const BOX = [0.7, 0.5, 0.45];          /* 盒半长（y 向上留 2.2 倍飞溅高度） */
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) {
     wgslEl.textContent =
@@ -378,39 +376,21 @@ async function main() {
       '\n\n// ---- 压力/粘性/积分 ----' + FORCE_WGSL +
       '\n\n// ---- 屏幕空间流体合成 ----' + COMP_WGSL;
   }
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({ requiredFeatures: canTime ? ['timestamp-query'] : [] });
+  const device = await lab.device(adapter, { requiredFeatures: canTime ? ['timestamp-query'] : [] });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, Hc = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const PW = Math.round(W * dpr), PH = Math.round(Hc * dpr);
-  cvs.width = PW; cvs.height = PH;
-  cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 画布随容器宽度 / DPR 重排：屏幕空间纹理、引用它们的 bind group 与投影一起重建 */
+  let G = lab.fit({ aspect: 9 / 16, dprCap: 2 }, (g) => { G = g; allocScreen(); });
+  let PW = G.pw, PH = G.ph, dpr = G.dpr;
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
-  /* 屏幕空间纹理 */
-  const mk2D = (fmt) => device.createTexture({
-    size: [PW, PH], format: fmt,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-  });
-  const bgTex = mk2D('rgba8unorm').createView();
-  const depA = mk2D('r32float').createView();
-  const depB = mk2D('r32float').createView();
-  const thickTex = mk2D('r16float').createView();
-  const zView = device.createTexture({
-    size: [PW, PH], format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT,
-  }).createView();
+  /* 屏幕空间纹理（allocScreen 里按当前尺寸创建） */
+  let bgTex, depA, depB, thickTex, zView, blurHBG, blurVBG, compBG, proj, p4;
+  const screenTex = [];
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
   /* 静息密度：在 0.8h 立方晶格上数值求和 poly6 */
@@ -482,8 +462,6 @@ async function main() {
   const camBuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const dirH = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const dirV = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  device.queue.writeBuffer(dirH, 0, new Float32Array([2 * (dpr > 1.4 ? 1.6 : 1), 0, 0, 0]));
-  device.queue.writeBuffer(dirV, 0, new Float32Array([0, 2 * (dpr > 1.4 ? 1.6 : 1), 0, 0]));
   const cntBuf = device.createBuffer({ size: CELL_TOTAL * 4, usage: GPUBufferUsage.STORAGE });
   const tblBuf = device.createBuffer({ size: CELL_TOTAL * CAP * 4, usage: GPUBufferUsage.STORAGE });
 
@@ -507,32 +485,54 @@ async function main() {
   const ovLineBG = lineBG(ovLineP);
   const partLineBG = lineBG(partLineP);
 
-  const blurHBG = device.createBindGroup({
-    layout: blurP.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: camBuf } },
-      { binding: 1, resource: depA },
-      { binding: 2, resource: { buffer: dirH } },
-    ],
-  });
-  const blurVBG = device.createBindGroup({
-    layout: blurP.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: camBuf } },
-      { binding: 1, resource: depB },
-      { binding: 2, resource: { buffer: dirV } },
-    ],
-  });
-  const compBG = device.createBindGroup({
-    layout: compP.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: camBuf } },
-      { binding: 1, resource: depA },
-      { binding: 2, resource: thickTex },
-      { binding: 3, resource: bgTex },
-      { binding: 4, resource: samp },
-    ],
-  });
+  function allocScreen() {
+    PW = G.pw; PH = G.ph; dpr = G.dpr;
+    screenTex.splice(0).forEach((t) => t.destroy());
+    const mk2D = (fmt, usage) => {
+      const t = device.createTexture({
+        size: [PW, PH], format: fmt,
+        usage: usage || (GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING),
+      });
+      screenTex.push(t);
+      return t.createView();
+    };
+    bgTex = mk2D('rgba8unorm');
+    depA = mk2D('r32float');
+    depB = mk2D('r32float');
+    thickTex = mk2D('r16float');
+    zView = mk2D('depth24plus', GPUTextureUsage.RENDER_ATTACHMENT);
+    device.queue.writeBuffer(dirH, 0, new Float32Array([2 * (dpr > 1.4 ? 1.6 : 1), 0, 0, 0]));
+    device.queue.writeBuffer(dirV, 0, new Float32Array([0, 2 * (dpr > 1.4 ? 1.6 : 1), 0, 0]));
+    blurHBG = device.createBindGroup({
+      layout: blurP.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: camBuf } },
+        { binding: 1, resource: depA },
+        { binding: 2, resource: { buffer: dirH } },
+      ],
+    });
+    blurVBG = device.createBindGroup({
+      layout: blurP.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: camBuf } },
+        { binding: 1, resource: depB },
+        { binding: 2, resource: { buffer: dirV } },
+      ],
+    });
+    compBG = device.createBindGroup({
+      layout: compP.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: camBuf } },
+        { binding: 1, resource: depA },
+        { binding: 2, resource: thickTex },
+        { binding: 3, resource: bgTex },
+        { binding: 4, resource: samp },
+      ],
+    });
+    proj = mat4.perspective(0.76, PW / PH, 0.05, 30);
+    p4 = [proj[0], proj[5], proj[10], proj[14]];
+  }
+  allocScreen();
 
   /* 粒子缓冲（可按数量重建） */
   let N = 0, posBuf = null, velBuf = null, rhoBuf = null;
@@ -593,6 +593,7 @@ async function main() {
   const ui = { n: $('wt-n'), visc: $('wt-visc'), stiff: $('wt-stiff'), grav: $('wt-grav'), mode: $('wt-mode') };
   let radius = 2.1, yaw = 0.6;
   let pusher = null, lastPt = null, dragging = false;
+  lab.touch();
   let camBasis = null;
   function rayPoint(e) {
     const r = cvs.getBoundingClientRect();
@@ -625,16 +626,12 @@ async function main() {
 
   rebuild(parseInt((ui.n && ui.n.value) || '16384', 10));
 
-  const proj = mat4.perspective(0.76, PW / PH, 0.05, 30);
-  const p4 = [proj[0], proj[5], proj[10], proj[14]];
   const suArr = new Float32Array(20);
   const camArr = new Float32Array(32);
   const SUBSTEPS = 3;
   let prev = 0, fps = 60;
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dtF = Math.min((ts - prev) / 1000, 0.033) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dtF, 0.001)) - fps) * 0.05;
@@ -769,12 +766,10 @@ async function main() {
         slot.busy = false;
       }).catch(() => { slot.busy = false; });
     }
-    if (hud) {
-      hud.textContent = N.toLocaleString() + ' 粒子 · ' + (isWater ? 'SSF 水面' : '粒子') + ' · ' +
-        (canTime ? 'sim ' + simMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
-    }
+    lab.hud(N.toLocaleString() + ' 粒子 · ' + (isWater ? 'SSF 水面' : '粒子') + ' · ' +
+      (canTime ? 'sim ' + simMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

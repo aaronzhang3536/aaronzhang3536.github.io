@@ -2,6 +2,7 @@
    Sannikov 的级联辐射度：cascade i 的探针间距 ×2、方向数 ×4、射线区间 ×4，
    每级内存恒定；自顶向下归并后，cascade 0 就是全场景的漫反射全局光照。
    画布上直接画光源和墙，光照实时收敛，带软阴影与半影。 */
+import { boot } from './_kit.js';
 
 const SW = 640, SH = 384, NC = 5, BASE = 4.0;
 
@@ -216,30 +217,18 @@ fn fs(in: VSOut) -> @location(0) vec4f {
   return vec4f(pow(clamp(c, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2)), 1.0);
 }`;
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) wgslEl.textContent = CASCADE_WGSL;
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({ requiredFeatures: canTime ? ['timestamp-query'] : [] });
+  const device = await lab.device(adapter, { requiredFeatures: canTime ? ['timestamp-query'] : [] });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, Hc = Math.round(wrapW * SH / SW);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = Math.round(W * dpr); cvs.height = Math.round(Hc * dpr);
-  cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 光照网格固定 SW×SH，画布只负责显示：随容器宽度 / DPR 重排即可 */
+  lab.fit({ aspect: SH / SW, dprCap: 2 }, () => {});
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
@@ -324,6 +313,7 @@ async function main() {
   const $ = (id) => document.getElementById(id);
   const ui = { brush: $('rc-brush'), size: $('rc-size'), view: $('rc-view'), clear: $('rc-clear'), hue: $('rc-hue') };
   let brush = null, down = false, initQueue = [];
+  lab.touch();
   const pxOf = (e) => {
     const r = cvs.getBoundingClientRect();
     return [(e.clientX - r.left) / r.width * SW, (e.clientY - r.top) / r.height * SH];
@@ -362,8 +352,6 @@ async function main() {
   let prev = 0, fps = 60;
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dtF = Math.min((ts - prev) / 1000, 0.05) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dtF, 0.001)) - fps) * 0.05;
@@ -440,12 +428,10 @@ async function main() {
         slot.busy = false;
       }).catch(() => { slot.busy = false; });
     }
-    if (hud) {
-      hud.textContent = SW + '×' + SH + ' · ' + NC + ' 级联 · 探针 2px~' + (1 << NC) + 'px · ' +
-        (canTime ? 'GI ' + gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
-    }
+    lab.hud(SW + '×' + SH + ' · ' + NC + ' 级联 · 探针 2px~' + (1 << NC) + 'px · ' +
+      (canTime ? 'GI ' + gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

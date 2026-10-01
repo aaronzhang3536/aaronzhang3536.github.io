@@ -9,7 +9,7 @@ export const experiments = [
   { href: '/lab/ipc-cloth/', sw: '--play', name: 'IPC 布料（无穿透保证）', desc: '屏障势能 + 保守 CCD：数学保证永不穿模的离线多层布料', tag: '离线求解', live: true },
   { href: '/lab/cpu8/', sw: '--c-ai', name: '八位流水线 CPU', desc: '周期精确五级流水线：前递/停顿/冲刷，加法下沉到全加器进位涟漪', tag: '体系结构', live: true },
   { href: '/lab/reaction/', sw: '--c-life', name: '反应扩散', desc: 'Gray-Scott 图灵斑图：改两个参数长出斑点、条纹、珊瑚、迷宫', tag: 'WebGPU', live: true },
-  { href: '/lab/pendulum/', sw: '--c-ai', name: '双摆混沌系综', desc: '上万个初值只差 10⁻⁷ 的双摆同时积分，看蝴蝶效应炸开', tag: 'WebGPU', live: true },
+  { href: '/lab/pendulum/', sw: '--c-ai', name: '双摆混沌系综', desc: '数千个（最多 16384 个）初值只差 10⁻⁷ 的双摆同时积分，看蝴蝶效应炸开', tag: 'WebGPU', live: true },
   { href: '/lab/radiance/', sw: '--c-ai', name: 'Radiance Cascades GI', desc: '级联辐射度 2D 全局光照：画光源画墙，当帧收敛的软阴影', tag: 'WebGPU', live: true },
   { href: '/lab/meshlet/', sw: '--c-engine', name: 'Nanite-like Meshlet', desc: 'GPU 驱动剔除 + compute 软光栅可见性缓冲，可冻结剔除相机', tag: 'WebGPU', live: true },
   { href: '/lab/megalights/', sw: '--c-render', name: 'MegaLights（数千动态光源）', desc: 'ReSTIR 时空蓄水池重采样 + 追踪阴影，对照暴力全采样看开销差异', tag: 'WebGPU', live: true },

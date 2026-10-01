@@ -15,7 +15,7 @@ import Base from '../../layouts/Base.astro';
     <canvas id="lab-cv"></canvas>
     <div class="lab-hud mono" id="lab-hud">正在初始化 WebGPU…</div>
   </div>
-  <p class="mono" id="lab-nogpu" hidden style="color:var(--c-render); max-width:800px;"></p>
+  <p class="mono" id="lab-nogpu" hidden style="color:var(--accent); max-width:800px;"></p>
 
   <div class="lab-ctl mono">
     <label>弹射次数 <input id="pt-bounce" type="range" min="2" max="10" step="1" value="6" /></label>
@@ -43,6 +43,7 @@ import Base from '../../layouts/Base.astro';
     storage buffer 里，显示时除以样本数再做 ACES 色调映射。画面从噪点逐渐
     收敛成干净的软阴影、颜色渗透（红绿墙映到白墙上）和玻璃球的焦散，这就是
     离线渲染器的工作方式——只是跑在你的 GPU 上，每秒几十个样本。
+    累积到 4096 spp 即视为收敛、停止追踪（画面保持不动），再拖动或改参数会重新开始累积。
   </p>
 
   <details style="max-width:800px;">

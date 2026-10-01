@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
-"""通用地形烘焙：AWS 开放地形瓦片（terrarium z13, SRTM 30m）→ 1024² 高程 bin + meta
+"""通用地形烘焙：Copernicus GLO-30（首选）或 AWS 开放地形瓦片（terrarium z13, SRTM 30m）→ N² 高程 bin + meta
 
-用法: python scripts/build-terrain-dem.py <name> <lon0> <lon1> <lat0> <lat1> [N] [cop30目录]
-      给出 cop30 目录（含 cop_N36_00_E111.tif 等）则用 Copernicus GLO-30，
-      否则回退 AWS terrarium (SRTM)。N 默认 1024。
+用法: python scripts/build-terrain-dem.py <name> <lon0> <lon1> <lat0> <lat1> [N] [cop30目录] [--force]
+      给出 cop30 目录（含 cop_N36_00_E111.tif / cop_S01_00_W080.tif 等，按瓦片西南角命名）则用
+      Copernicus GLO-30，否则回退 AWS terrarium (SRTM)。N 默认 1024。
+      已提交的 lushan / luoyun 都是 Copernicus 数据：不给 cop30 目录时脚本拒绝用 SRTM 覆盖
+      Copernicus 数据集（确需如此加 --force）。
+      烘焙参数（命令行、日期）记录在 meta.json 的 "bake" 字段。
+      复现已提交数据：
+        python scripts/build-terrain-dem.py lushan 115.90 116.20 29.45 29.72 1024 <cop30目录>
+        python scripts/build-terrain-dem.py luoyun 111.452 111.575 36.362 36.462 2048 <cop30目录>
+        python scripts/enhance-loess-dem.py luoyun
 """
+import datetime
 import io
 import json
 import math
@@ -23,18 +31,25 @@ def lat2y(lat):
     return (1 - math.log(math.tan(r) + 1 / math.cos(r)) / math.pi) / 2 * (2 ** Z)
 
 COP = {}
+def cop_tile_name(lat_i, lon_i):
+    """瓦片按西南角整数经纬度命名：N36/S01、E111/W080"""
+    return 'cop_%s%02d_00_%s%03d.tif' % ('N' if lat_i >= 0 else 'S', abs(lat_i),
+                                          'E' if lon_i >= 0 else 'W', abs(lon_i))
+
 def cop_elev(lon, lat, copdir):
-    import numpy as np, tifffile
-    key = (int(lat // 1), int(lon // 1))
+    import tifffile
+    key = (math.floor(lat), math.floor(lon))
     if key not in COP:
-        import os as _os
-        f = _os.path.join(copdir, 'cop_N%02d_00_E%03d.tif' % key)
+        f = os.path.join(copdir, cop_tile_name(*key))
+        if not os.path.isfile(f):
+            sys.exit('缺少 Copernicus 瓦片: %s（覆盖 lat %d..%d, lon %d..%d）' % (f, key[0], key[0] + 1, key[1], key[1] + 1))
         COP[key] = tifffile.imread(f)
     a = COP[key]
-    n = a.shape[0]
-    fx = (lon - key[1]) * n - 0.5
-    fy = (key[0] + 1 - lat) * n - 0.5
-    x0 = int(max(0, min(n - 2, fx))); y0 = int(max(0, min(n - 2, fy)))
+    # 行列分开取：高纬瓦片经向列数少于纬向行数（如 50°~60° 为 3600 行 × 2400 列）
+    ny, nx = a.shape[0], a.shape[1]
+    fx = (lon - key[1]) * nx - 0.5
+    fy = (key[0] + 1 - lat) * ny - 0.5
+    x0 = int(max(0, min(nx - 2, fx))); y0 = int(max(0, min(ny - 2, fy)))
     ax = min(max(fx - x0, 0), 1); ay = min(max(fy - y0, 0), 1)
     return float((a[y0, x0] * (1 - ax) + a[y0, x0 + 1] * ax) * (1 - ay) +
                  (a[y0 + 1, x0] * (1 - ax) + a[y0 + 1, x0 + 1] * ax) * ay)
@@ -93,23 +108,50 @@ def main(name, LON0, LON1, LAT0, LAT1, N=1024, copdir=None):
             struct.pack_into('<H', out, (i * N + j) * 2, max(0, min(65535, int(round((h + 100) * 10)))))
     finish(name, out, N, LON0, LON1, LAT0, LAT1, hmin, hmax, 'AWS Terrain Tiles (SRTM), terrarium z13')
 
+def outdir_of(name):
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'public', 'data', name)
+
+def guard_downgrade(name, copdir):
+    """不给 cop30 目录 = 回退 SRTM；目标若已是 Copernicus 数据，默认拒绝覆盖（防止把已提交数据降级）"""
+    if copdir or FORCE:
+        return
+    mp = os.path.join(outdir_of(name), 'meta.json')
+    if os.path.isfile(mp):
+        with open(mp, encoding='utf-8') as f:
+            old = json.load(f)
+        if 'Copernicus' in old.get('source', ''):
+            sys.exit('[%s] 现有数据来自 %s，回退 SRTM 会降低精度。请给出 cop30 目录；确需覆盖请加 --force。'
+                     % (name, old['source']))
+
 def finish(name, out, N, LON0, LON1, LAT0, LAT1, hmin, hmax, src):
     midlat = (LAT0 + LAT1) / 2
     mx = (LON1 - LON0) * 111320 * math.cos(math.radians(midlat))
     my = (LAT1 - LAT0) * (111132.9 - 559.82 * math.cos(2 * math.radians(midlat)))
-    outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'public', 'data', name)
+    outdir = outdir_of(name)
     os.makedirs(outdir, exist_ok=True)
     with open(os.path.join(outdir, 'height.bin'), 'wb') as f:
         f.write(out)
     meta = {'n': N, 'lon0': LON0, 'lon1': LON1, 'lat0': LAT0, 'lat1': LAT1,
             'mx': round(mx, 1), 'my': round(my, 1), 'scale': 0.1, 'offset': -100,
             'hmin': round(hmin, 1), 'hmax': round(hmax, 1),
-            'source': src}
+            'source': src,
+            'bake': {'cmd': BAKE_CMD, 'date': datetime.date.today().isoformat(), 'clamp_m': [-50, 3000]}}
     with open(os.path.join(outdir, 'meta.json'), 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)
     print('[%s] 完成: %.1f×%.1f km, 高程 %.0f..%.0f m' % (name, mx / 1000, my / 1000, hmin, hmax))
 
+FORCE = False
+BAKE_CMD = ''
+
 if __name__ == '__main__':
-    n = int(sys.argv[6]) if len(sys.argv) > 6 else 1024
-    cop = sys.argv[7] if len(sys.argv) > 7 else None
-    main(sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]), n, cop)
+    FORCE = '--force' in sys.argv
+    argv = [a for a in sys.argv[1:] if a != '--force']
+    if len(argv) < 5:
+        sys.exit(__doc__)
+    n = int(argv[5]) if len(argv) > 5 else 1024
+    cop = argv[6] if len(argv) > 6 else None
+    # 记录到 meta.json 的命令行：cop30 目录只留目录名，不把本机绝对路径写进公开数据
+    shown = argv[:6] + ([os.path.basename(os.path.normpath(cop))] if cop else []) + (['--force'] if FORCE else [])
+    BAKE_CMD = 'python scripts/build-terrain-dem.py ' + ' '.join(shown)
+    guard_downgrade(argv[0], cop)
+    main(argv[0], float(argv[1]), float(argv[2]), float(argv[3]), float(argv[4]), n, cop)

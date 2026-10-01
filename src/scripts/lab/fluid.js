@@ -1,4 +1,5 @@
 /* 2D 流体模拟 — 裸 WebGPU：Stable Fluids（半拉格朗日平流 + Jacobi 压力投影）+ 涡量约束 */
+import { boot } from './_kit.js';
 
 const SIM_W = 512, SIM_H = 288, JACOBI = 26;
 
@@ -218,11 +219,8 @@ fn fs(in: VSOut) -> @location(0) vec4f {
   return vec4f(c, 1.0);
 }`;
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) {
     wgslEl.textContent =
@@ -233,23 +231,14 @@ async function main() {
       '\n\n// ---- 压力梯度投影 ----' + SUBGRAD_WGSL;
   }
 
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({ requiredFeatures: canTime ? ['timestamp-query'] : [] });
+  const device = await lab.device(adapter, { requiredFeatures: canTime ? ['timestamp-query'] : [] });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, H = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = W * dpr; cvs.height = H * dpr;
-  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 模拟网格固定 SIM_W×SIM_H，画布只负责显示：随容器宽度 / DPR 重排即可 */
+  lab.fit({ aspect: 9 / 16, dprCap: 2 }, () => {});
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
@@ -341,6 +330,11 @@ async function main() {
     lastMove = performance.now() / 1000;
   });
   cvs.addEventListener('pointerleave', () => { pointer = null; });
+  /* 触屏：手指抬起 / 被系统取消即停止搅动（鼠标仍是悬停即搅） */
+  const lift = (e) => { if (e.pointerType !== 'mouse') pointer = null; };
+  cvs.addEventListener('pointerup', lift);
+  cvs.addEventListener('pointercancel', lift);
+  lab.touch();
   function hsl(h) {
     const f = (n) => {
       const k = (n + h * 12) % 12;
@@ -356,8 +350,6 @@ async function main() {
   let prev = 0, fps = 60, t = 0;
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dt = Math.min((ts - prev) / 1000, 0.033) || 0.016;
     prev = ts;
     t = ts / 1000;
@@ -447,12 +439,10 @@ async function main() {
         slot.busy = false;
       }).catch(() => { slot.busy = false; });
     }
-    if (hud) {
-      hud.textContent = SIM_W + '×' + SIM_H + ' 网格 · Jacobi ×' + JACOBI + ' · ' +
-        (canTime ? 'sim ' + gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
-    }
+    lab.hud(SIM_W + '×' + SIM_H + ' 网格 · Jacobi ×' + JACOBI + ' · ' +
+      (canTime ? 'sim ' + gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

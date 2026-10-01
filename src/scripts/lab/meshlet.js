@@ -11,6 +11,7 @@
    ③ 全屏 resolve：解码重建法线着色；可看 meshlet / LOD 层级 / 深度 视图。
    勾选「冻结剔除相机」再转视角，能看到视锥外与远处降级的世界。 */
 import { mat4 } from 'wgpu-matrix';
+import { boot } from './_kit.js';
 
 const MTRI = 128;
 const MAXVIS = 16384;   // 每帧可见 meshlet 预算（ID 用 21 位，深度 11 位）
@@ -260,30 +261,18 @@ function knotVerts(SEGU, SEGV, R1, R2) {
   return verts;
 }
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({ requiredFeatures: canTime ? ['timestamp-query'] : [] });
+  const device = await lab.device(adapter, { requiredFeatures: canTime ? ['timestamp-query'] : [] });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, Hc = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-  const PW = Math.round(W * dpr), PH = Math.round(Hc * dpr);
-  cvs.width = PW; cvs.height = PH;
-  cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 画布随容器宽度 / DPR 重排：可见性缓冲（逐像素）与引用它的 bind group、投影一起重建 */
+  let G = lab.fit({ aspect: 9 / 16, dprCap: 1.5 }, (g) => { G = g; allocScreen(); });
+  let PW = G.pw, PH = G.ph;
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
@@ -366,7 +355,7 @@ async function main() {
   const mlBuf = mkS(meshlets.flat(), Float32Array);
   const instBuf = mkS(insts.flat(), Float32Array);
   const visBuf = device.createBuffer({ size: MAXVIS * 4, usage: GPUBufferUsage.STORAGE });
-  const fbBuf = device.createBuffer({ size: PW * PH * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  let fbBuf = null, rastBG = null, resBG = null, proj = null;
   const cntBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
   const argsBuf = device.createBuffer({ size: 12, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST });
   const cuBuf = device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -391,8 +380,15 @@ async function main() {
 
   const bg = (pipe, arr) => device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: arr.map((r, i) => ({ binding: i, resource: { buffer: r } })) });
   const cullBG = bg(cullP, [cuBuf, mlBuf, instBuf, visBuf, cntBuf, argsBuf]);
-  const rastBG = bg(rastP, [ruBuf, vertBuf, triBuf, visBuf, instBuf, fbBuf, cntBuf]);
-  const resBG = bg(resP, [vuBuf, fbBuf, vertBuf, triBuf, visBuf, instBuf]);
+  function allocScreen() {
+    PW = G.pw; PH = G.ph;
+    if (fbBuf) fbBuf.destroy();
+    fbBuf = device.createBuffer({ size: PW * PH * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    rastBG = bg(rastP, [ruBuf, vertBuf, triBuf, visBuf, instBuf, fbBuf, cntBuf]);
+    resBG = bg(resP, [vuBuf, fbBuf, vertBuf, triBuf, visBuf, instBuf]);
+    proj = mat4.perspective(0.9, PW / PH, 0.2, 200);
+  }
+  allocScreen();
   const lineBG = bg(lineP, [ruBuf, frusBuf]);
 
   let qs = null, qBuf = null, readPool = [], cullMs = 0, rastMs = 0;
@@ -409,6 +405,7 @@ async function main() {
   try { const q = new URLSearchParams(location.search); if (q.has('view') && ui.view) ui.view.value = q.get('view'); } catch (e) {}
   let yaw = 0.5, pitch = 0.5, radius = 26;
   let dragging = false, px0 = 0, py0 = 0;
+  lab.touch();
   cvs.addEventListener('pointerdown', (e) => { dragging = true; px0 = e.clientX; py0 = e.clientY; cvs.setPointerCapture(e.pointerId); });
   cvs.addEventListener('pointermove', (e) => {
     if (!dragging) return;
@@ -417,11 +414,11 @@ async function main() {
     px0 = e.clientX; py0 = e.clientY;
   });
   cvs.addEventListener('pointerup', () => { dragging = false; });
+  cvs.addEventListener('pointercancel', () => { dragging = false; });
   cvs.addEventListener('wheel', (e) => { e.preventDefault(); radius = Math.max(5, Math.min(60, radius + e.deltaY * 0.02)); }, { passive: false });
   let frozen = null;
   if (ui.freeze) ui.freeze.addEventListener('change', () => { frozen = null; });
 
-  const proj = mat4.perspective(0.9, PW / PH, 0.2, 200);
   const cuArr = new Float32Array(40);
   const ruArr = new Float32Array(20);
   const vuArr = new Float32Array(8);
@@ -453,8 +450,6 @@ async function main() {
   }
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dtF = Math.min((ts - prev) / 1000, 0.05) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dtF, 0.001)) - fps) * 0.05;
@@ -524,17 +519,17 @@ async function main() {
       statBusy = true;
       statRead.mapAsync(GPUMapMode.READ).then(() => { stats = Array.from(new Uint32Array(statRead.getMappedRange())); statRead.unmap(); statBusy = false; }).catch(() => { statBusy = false; });
     }
-    if (hud) {
+    {
       const vis = Math.min(stats[0], MAXVIS);
       const srcM = (SRC_TRIS / 1e6).toFixed(1);
       const rastM = (stats[3] / 1e6).toFixed(2);
-      hud.textContent = '场景 ' + srcM + 'M 三角形（' + NI + ' 实例×LOD）· 本帧光栅 ' + rastM + 'M · 可见 meshlet ' +
+      lab.hud('场景 ' + srcM + 'M 三角形（' + NI + ' 实例×LOD）· 本帧光栅 ' + rastM + 'M · 可见 meshlet ' +
         vis + (stats[0] > MAXVIS ? '(超预算截断)' : '') + ' · ' +
         (canTime ? 'cull ' + cullMs.toFixed(2) + '+raster ' + rastMs.toFixed(2) + 'ms · ' : '') +
-        Math.round(fps) + ' fps' + (frozen ? ' · 剔除已冻结' : '');
+        Math.round(fps) + ' fps' + (frozen ? ' · 剔除已冻结' : ''));
     }
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

@@ -6,6 +6,7 @@
    正确但帧率随灯数崩塌，而 ReSTIR 几乎恒定开销。
    这里是有偏（biased）时空 ReSTIR，阴影用解析 ray-box 追踪（非硬件 RT）。 */
 import { mat4 } from 'wgpu-matrix';
+import { boot } from './_kit.js';
 
 /* ---------- 共享 WGSL：结构、随机、场景求交、光照 ---------- */
 const COMMON = /* wgsl */ `
@@ -379,39 +380,27 @@ fn fs(@builtin(position) fp: vec4f) -> @location(0) vec4f {
   return vec4f(pow(aces(col), vec3f(1.0 / 2.2)), 1.0);
 }`;
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) wgslEl.textContent = '// ==== 光照 / 目标函数 ====\n' + LIGHT_FN + '\n// ==== 初始 RIS + 时域复用 ====' + INIT_WGSL.split(LIGHT_FN)[1] + '\n\n// ==== 空域复用 ====' + SPATIAL_WGSL.split(LIGHT_FN)[1];
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
+  const adapter = await lab.adapter();
+  if (!adapter) return;
   const canTime = adapter.features.has('timestamp-query');
   const maxSB = adapter.limits.maxStorageBuffersPerShaderStage;
-  if (maxSB < 10) { fail('此设备每着色阶段的 storage buffer 上限为 ' + maxSB + '，不足以运行本实验（需要 10）。'); return; }
-  const device = await adapter.requestDevice({
+  if (maxSB < 10) { lab.fail('此设备每着色阶段的 storage buffer 上限为 ' + maxSB + '，不足以运行本实验（需要 10）。'); return; }
+  const device = await lab.device(adapter, {
     requiredFeatures: canTime ? ['timestamp-query'] : [],
     requiredLimits: { maxStorageBuffersPerShaderStage: Math.min(16, maxSB) },
   });
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, Hc = Math.round(wrapW * 9 / 16);
-  const scale = 1.0;
-  const IW = Math.round(W * scale), IH = Math.round(Hc * scale);
-  cvs.width = IW; cvs.height = IH;
-  cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 画布随容器宽度重排（背板 = 内容盒 × 1，不乘 DPR）：逐像素 G-buffer / 蓄水池 / 历史缓冲
+     与引用它们的 bind group 全部重建，时域历史清零 */
+  let G = lab.fit({ aspect: 9 / 16, scale: 1 }, (g) => { G = g; allocScreen(); });
+  let IW = G.pw, IH = G.ph, NP = IW * IH;
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
-  const NP = IW * IH;
 
   /* 场景：地面 + 一片高低不一的柱子 */
   const boxes = [];
@@ -435,11 +424,8 @@ async function main() {
 
   const MAXL = 4096;
   const lightBuf = device.createBuffer({ size: MAXL * 32, usage: GPUBufferUsage.STORAGE });
-  const mkStore = () => device.createBuffer({ size: NP * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-  const gA = [mkStore(), mkStore()];
-  const gB = mkStore(), gC = mkStore();
-  const resTemp = mkStore(), resFinal = mkStore(), resPrev = mkStore();
-  const color = [mkStore(), mkStore()];
+  let gA, gB, gC, resTemp, resFinal, resPrev, color, gbufBG, initBG, spatBG, shadeBG, proj, resetT = 2;
+  const screenBufs = [];
 
   const mkCP = (code) => device.createComputePipeline({
     layout: 'auto', compute: { module: device.createShaderModule({ code }), entryPoint: 'cs' },
@@ -461,23 +447,39 @@ async function main() {
     entries: arr.map((r, i) => ({ binding: i, resource: { buffer: r } })),
   });
   const animBG = bg(animP, [uBuf, lightBuf]);
-  const gbufBG = [
-    bg(gbufP, [uBuf, boxBuf, gA[0], gB, gC]),
-    bg(gbufP, [uBuf, boxBuf, gA[1], gB, gC]),
-  ];
-  /* init 读 gA[cur], gAprev=gA[1-cur], resPrev → resTemp */
-  const initBG = [
-    bg(initP, [uBuf, lightBuf, gA[0], gB, gA[1], resPrev, resTemp]),
-    bg(initP, [uBuf, lightBuf, gA[1], gB, gA[0], resPrev, resTemp]),
-  ];
-  const spatBG = [
-    bg(spatP, [uBuf, lightBuf, gA[0], gB, resTemp, resFinal]),
-    bg(spatP, [uBuf, lightBuf, gA[1], gB, resTemp, resFinal]),
-  ];
-  const shadeBG = [
-    bg(shadeP, [uBuf, boxBuf, lightBuf, gA[0], gB, gC, resFinal, gA[1], color[1], color[0]]),
-    bg(shadeP, [uBuf, boxBuf, lightBuf, gA[1], gB, gC, resFinal, gA[0], color[0], color[1]]),
-  ];
+  function allocScreen() {
+    IW = G.pw; IH = G.ph; NP = IW * IH;
+    screenBufs.splice(0).forEach((b) => b.destroy());
+    const mkStore = () => {
+      const b = device.createBuffer({ size: NP * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+      screenBufs.push(b);
+      return b;
+    };
+    gA = [mkStore(), mkStore()];
+    gB = mkStore(); gC = mkStore();
+    resTemp = mkStore(); resFinal = mkStore(); resPrev = mkStore();
+    color = [mkStore(), mkStore()];
+    gbufBG = [
+      bg(gbufP, [uBuf, boxBuf, gA[0], gB, gC]),
+      bg(gbufP, [uBuf, boxBuf, gA[1], gB, gC]),
+    ];
+    /* init 读 gA[cur], gAprev=gA[1-cur], resPrev → resTemp */
+    initBG = [
+      bg(initP, [uBuf, lightBuf, gA[0], gB, gA[1], resPrev, resTemp]),
+      bg(initP, [uBuf, lightBuf, gA[1], gB, gA[0], resPrev, resTemp]),
+    ];
+    spatBG = [
+      bg(spatP, [uBuf, lightBuf, gA[0], gB, resTemp, resFinal]),
+      bg(spatP, [uBuf, lightBuf, gA[1], gB, resTemp, resFinal]),
+    ];
+    shadeBG = [
+      bg(shadeP, [uBuf, boxBuf, lightBuf, gA[0], gB, gC, resFinal, gA[1], color[1], color[0]]),
+      bg(shadeP, [uBuf, boxBuf, lightBuf, gA[1], gB, gC, resFinal, gA[0], color[0], color[1]]),
+    ];
+    proj = mat4.perspective(0.85, IW / IH, 0.1, 60);
+    resetT = 2;   /* 新缓冲里没有历史，前两帧不做时域复用 */
+  }
+  allocScreen();
 
   /* GPU 计时 */
   let qs = null, qBuf = null, readPool = [], gpuMs = 0;
@@ -503,6 +505,7 @@ async function main() {
   } catch (e) {}
   let yaw = 0.7, pitch = 0.62, radius = 8.5;
   let dragging = false, px0 = 0, py0 = 0;
+  lab.touch();
   cvs.addEventListener('pointerdown', (e) => { dragging = true; px0 = e.clientX; py0 = e.clientY; cvs.setPointerCapture(e.pointerId); });
   cvs.addEventListener('pointermove', (e) => {
     if (!dragging) return;
@@ -511,16 +514,14 @@ async function main() {
     px0 = e.clientX; py0 = e.clientY;
   });
   cvs.addEventListener('pointerup', () => { dragging = false; });
+  cvs.addEventListener('pointercancel', () => { dragging = false; });
   cvs.addEventListener('wheel', (e) => { e.preventDefault(); radius = Math.max(4, Math.min(16, radius + e.deltaY * 0.006)); }, { passive: false });
 
-  const proj = mat4.perspective(0.85, IW / IH, 0.1, 60);
   const uArr = new Float32Array(64);
   let prevVP = mat4.identity();
-  let cur = 0, frame = 0, prev = 0, fps = 60, resetT = 2;
+  let cur = 0, frame = 0, prev = 0, fps = 60;
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dtF = Math.min((ts - prev) / 1000, 0.05) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dtF, 0.001)) - fps) * 0.05;
@@ -596,15 +597,15 @@ async function main() {
     if (resetT > 0) resetT--;
     if (dragging) resetT = 1;
 
-    if (hud) {
+    {
       const modeName = ['参考·暴力', '单样本 RIS', '+时域复用', '完整 ReSTIR'][mode];
       const rays = mode === 0 ? nL : 1;
-      hud.textContent = nL.toLocaleString() + ' 盏灯 · ' + modeName + ' · ' +
+      lab.hud(nL.toLocaleString() + ' 盏灯 · ' + modeName + ' · ' +
         (shadows ? rays + ' 阴影线/像素' : '无阴影') + ' · ' +
-        (canTime ? gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps';
+        (canTime ? gpuMs.toFixed(2) + ' ms · ' : '') + Math.round(fps) + ' fps');
     }
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);

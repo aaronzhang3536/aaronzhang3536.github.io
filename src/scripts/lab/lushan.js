@@ -1,13 +1,15 @@
 /* 庐山 · 自由漫游 — 裸 WebGPU
-   真实 DEM（SRTM 30m，AWS 开放地形瓦片构建期烘焙）等比例渲染江西九江庐山：
+   真实 DEM（Copernicus GLO-30，1 弧秒 ≈30m，构建期由 scripts/build-terrain-dem.py 烘焙）等比例渲染江西九江庐山：
    29.0 × 29.9 km，海拔 -14 ~ 1474m（大汉阳峰）。程序化大气天空 + 高度/坡度
    材质地形 + 鄱阳湖水面 + 三处真实位置瀑布（三叠泉/秀峰/石门涧）+ 十万级
    实例化树木 + 自由飞行/步行漫游 + 地标传送 + 昼夜 + 小地图。零外部资源。 */
 import { mat4, vec3 } from 'wgpu-matrix';
+import { createLab, NO_WEBGPU } from './_kit.js';
 
 const $ = (id) => document.getElementById(id);
 const cvs = $('lab-cv');
 const hud = $('lab-hud');
+const lab = cvs ? createLab(cvs) : null;
 
 /* ---------- 场景注册表 ---------- */
 const MARKS_LUSHAN = [
@@ -580,27 +582,51 @@ function groundAt(x, z) {
   return h;
 }
 
-function fail(msg) {
-  hud.textContent = msg;
-  const ng = $('lab-nogpu');
-  if (ng) { ng.hidden = false; ng.textContent = msg + ' —— 需要支持 WebGPU 的浏览器（Chrome/Edge 113+）。'; }
+/* 失败：HUD 写短句，#lab-nogpu 写完整原因。画布保留（小地图 / 地名层绝对定位叠在画布上，藏了会塌版） */
+function fail(short, detail) {
+  lab.fail(detail || short, { keepCanvas: true });
+  hud.textContent = short;
+}
+
+/* DEM 两件套：HTTP 状态与字节数都要对得上 meta，否则给出明确原因（而不是解析错乱或地形错位） */
+async function loadDEM(dir) {
+  const get = async (name, kind) => {
+    const r = await fetch('/data/' + dir + '/' + name);
+    if (!r.ok) throw new Error(name + ' 请求失败（HTTP ' + r.status + '）');
+    return kind === 'json' ? r.json() : r.arrayBuffer();
+  };
+  const [mj, hb] = await Promise.all([get('meta.json', 'json'), get('height.bin', 'bin')]);
+  const n = mj && mj.n;
+  if (!Number.isInteger(n) || n < 9) throw new Error('meta.json 缺少有效的网格尺寸 n');
+  if (!(mj.mx > 0 && mj.my > 0) || typeof mj.scale !== 'number' || typeof mj.offset !== 'number') {
+    throw new Error('meta.json 缺少 mx / my / scale / offset');
+  }
+  if (hb.byteLength !== n * n * 2) {
+    throw new Error('height.bin 为 ' + hb.byteLength + ' 字节，与 meta.json 的 ' + n + '² × 2 = ' + (n * n * 2) +
+      ' 字节不符（高程与元数据不同步，需要重新烘焙）');
+  }
+  return [mj, hb];
 }
 
 async function init() {
-  if (!navigator.gpu) { fail('此浏览器不支持 WebGPU'); return; }
+  if (!navigator.gpu) { fail('此浏览器不支持 WebGPU', NO_WEBGPU); return; }
   const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('拿不到 GPU adapter'); return; }
+  if (!adapter) { fail('拿不到 GPU adapter', 'WebGPU adapter 请求失败 —— 显卡或驱动可能在浏览器的黑名单里，或硬件加速被关闭了。'); return; }
   const hasTS = adapter.features.has('timestamp-query');
-  device = await adapter.requestDevice({ requiredFeatures: hasTS ? ['timestamp-query'] : [] });
-  ctx = cvs.getContext('webgpu');
+  device = await lab.device(adapter, { requiredFeatures: hasTS ? ['timestamp-query'] : [] });
+  ctx = lab.context();
   format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
   hud.textContent = '加载' + SCN.name.split(' ')[0] + ' DEM…';
-  const [mj, hb] = await Promise.all([
-    fetch('/data/' + SCN.data + '/meta.json').then((r) => r.json()),
-    fetch('/data/' + SCN.data + '/height.bin').then((r) => r.arrayBuffer()),
-  ]);
+  let mj, hb;
+  try {
+    [mj, hb] = await loadDEM(SCN.data);
+  } catch (e) {
+    console.error('[lushan] DEM', e);
+    fail('地形数据加载失败', '地形数据加载失败：' + e.message);
+    return;
+  }
   meta = mj;
   const raw = new Uint16Array(hb);
   HGT = new Float32Array(raw.length);
@@ -756,7 +782,8 @@ async function init() {
   setupUI();
   applyQuery();
   buildMinimap();
-  requestAnimationFrame(frame);
+  /* 帧循环交给 lab：画布离屏 / 标签页隐藏时暂停，帧内异常与设备丢失给出提示；恢复时重置计时基准 */
+  lab.loop(frame, () => { tPrev = performance.now() / 1000; });
 }
 
 /* ---------- 内容生成 ---------- */
@@ -900,30 +927,54 @@ function buildFalls() {
 /* ---------- UI / 交互 ---------- */
 let gridStep = 1;
 function setupUI() {
-  cvs.addEventListener('click', () => { if (!document.pointerLockElement) cvs.requestPointerLock(); });
-  document.addEventListener('pointerlockchange', () => {});
+  /* 键盘只在「飞行中」生效：指针锁定在画布上，或画布持有焦点（点一下画布即获得焦点，键盘用户也可 Tab 进来）。
+     飞行键 preventDefault：Space 上升不再滚动页面；焦点不在传送按钮上，Space 也不会再次触发传送 */
+  cvs.tabIndex = 0;
+  const flying = () => document.pointerLockElement === cvs || document.activeElement === cvs;
+  const FLY_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyF', 'KeyT', 'KeyG']);
+  const clearKeys = () => { for (const k in keys) keys[k] = false; };
+  cvs.addEventListener('click', () => {
+    cvs.focus({ preventScroll: true });
+    if (document.pointerLockElement) return;
+    try {
+      const p = cvs.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});   /* 不支持 / 被拒（触屏、iframe）时仍可靠焦点 + 键盘飞行 */
+    } catch (e) { /* 同上 */ }
+  });
+  document.addEventListener('pointerlockchange', () => { if (!flying()) clearKeys(); });
   document.addEventListener('mousemove', (e) => {
     if (document.pointerLockElement !== cvs) return;
     cam.yaw -= e.movementX * 0.0022;
     cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch - e.movementY * 0.0022));
   });
-  /* 触屏拖动看向 */
+  /* 触屏拖动看向：画布不交给浏览器滚动（touch-action:none），touchmove 非被动并 preventDefault */
+  lab.touch();
   let tX = 0, tY = 0, tOn = false;
   cvs.addEventListener('touchstart', (e) => { tOn = true; tX = e.touches[0].clientX; tY = e.touches[0].clientY; }, { passive: true });
   cvs.addEventListener('touchmove', (e) => {
     if (!tOn) return;
+    e.preventDefault();
     cam.yaw -= (e.touches[0].clientX - tX) * 0.004;
     cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch - (e.touches[0].clientY - tY) * 0.004));
     tX = e.touches[0].clientX; tY = e.touches[0].clientY;
-  }, { passive: true });
+  }, { passive: false });
+  const touchOff = (e) => { if (!e.touches.length) tOn = false; else { tX = e.touches[0].clientX; tY = e.touches[0].clientY; } };
+  cvs.addEventListener('touchend', touchOff);
+  cvs.addEventListener('touchcancel', touchOff);
   document.addEventListener('keydown', (e) => {
-    if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    if (!flying() || e.ctrlKey || e.metaKey || e.altKey || !FLY_KEYS.has(e.code)) return;
+    e.preventDefault();
     keys[e.code] = true;
+    if (e.repeat) return;
     if (e.code === 'KeyF') { cam.walk = !cam.walk; $('lu-mode').value = cam.walk ? 'walk' : 'fly'; }
     if (e.code === 'KeyT') autoTime = !autoTime;
     if (e.code === 'KeyG') { cullFrozen = !cullFrozen; $('lu-freeze').checked = cullFrozen; }
   });
   document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+  /* 失焦（切窗口 / 切标签 / 焦点离开画布且未锁定）时清空按键，避免松手事件丢失导致相机一直飘 */
+  window.addEventListener('blur', clearKeys);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) clearKeys(); });
+  cvs.addEventListener('blur', () => { if (document.pointerLockElement !== cvs) clearKeys(); });
   cvs.addEventListener('wheel', (e) => {
     e.preventDefault();
     cam.speed = Math.max(2, Math.min(600, cam.speed * (e.deltaY > 0 ? 0.85 : 1.18)));
@@ -1123,7 +1174,6 @@ function frame() {
   updateHUD(sunI);
   drawMinimap();
   updateLabels(vp, dw, dh);
-  requestAnimationFrame(frame);
 }
 
 function render() {
@@ -1192,12 +1242,12 @@ function updateHUD() {
     pipeTag = '暴力网格';
   }
   const tris = terTris + treeCount * 4;
-  hud.textContent =
+  lab.hud(
     lat.toFixed(4) + '°N ' + lon.toFixed(4) + '°E · 海拔 ' + Math.round(cam.y) + 'm · ' +
     (cam.walk ? '步行' : '飞行 ' + Math.round(cam.speed) + 'm/s') +
     ' · ' + (timeOfDay | 0) + ':' + String(Math.round(timeOfDay % 1 * 60)).padStart(2, '0') +
     ' · ' + Math.round(fpsE) + ' fps' + (gpuMs ? ' · GPU ' + gpuMs.toFixed(1) + 'ms' : '') +
-    ' · ' + (tris / 1e6).toFixed(1) + 'M tris · ' + pipeTag;
+    ' · ' + (tris / 1e6).toFixed(1) + 'M tris · ' + pipeTag);
 }
 
 function updateLabels(vp, dw, dh) {
@@ -1227,4 +1277,10 @@ function updateLabels(vp, dw, dh) {
   }
 }
 
-init().catch((e) => fail('初始化失败：' + e.message));
+if (lab) {
+  init().catch((e) => {
+    console.error('[lushan]', e);
+    if (lab.looping) lab.halt('运行出错：' + e.message + ' —— 刷新页面重试。');
+    else fail('初始化失败', '初始化失败：' + e.message);
+  });
+}

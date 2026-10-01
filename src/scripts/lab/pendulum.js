@@ -1,6 +1,7 @@
 /* 双摆混沌系综 — 裸 WebGPU
    几千个双摆，初始角只差亿分之一弧度，RK4 积分看它们何时分道扬镳。
    视图：实空间（摆尖云 + 拖尾）/ 相空间（θ₂-ω₂ 轨迹） */
+import { boot } from './_kit.js';
 
 const SIM_WGSL = /* wgsl */ `
 struct SU { a: vec4f };   /* x dt, y 子步数, z g, w 未用 */
@@ -117,37 +118,21 @@ fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f { return textureSample(tex, samp, in.uv); }`;
 
-async function main() {
-  const cvs = document.getElementById('lab-cv');
-  if (!cvs) return;
-  const hud = document.getElementById('lab-hud');
-  const noGpu = document.getElementById('lab-nogpu');
+async function main(lab) {
+  const cvs = lab.cvs;
   const wgslEl = document.getElementById('lab-wgsl');
   if (wgslEl) wgslEl.textContent = SIM_WGSL;
-  function fail(msg) {
-    if (hud) hud.textContent = '';
-    if (noGpu) { noGpu.hidden = false; noGpu.textContent = msg; }
-    cvs.style.display = 'none';
-  }
-  if (!navigator.gpu) { fail('当前浏览器不支持 WebGPU —— 请用新版 Chrome / Edge / Firefox 打开这个实验。'); return; }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) { fail('WebGPU adapter 请求失败。'); return; }
-  const device = await adapter.requestDevice();
+  const adapter = await lab.adapter();
+  if (!adapter) return;
+  const device = await lab.device(adapter);
 
-  const wrapW = Math.min(920, cvs.parentElement.clientWidth || 920);
-  const W = wrapW, Hc = Math.round(wrapW * 9 / 16);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cvs.width = Math.round(W * dpr); cvs.height = Math.round(Hc * dpr);
-  cvs.style.width = W + 'px'; cvs.style.height = Hc + 'px';
-  const ctx = cvs.getContext('webgpu');
+  /* 画布随容器宽度 / DPR 重排，拖尾累积纹理跟着重建（清空重来） */
+  let G = lab.fit({ aspect: 9 / 16, dprCap: 2 }, (g) => { G = g; allocAcc(); });
+  const ctx = lab.context();
   const format = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format, alphaMode: 'opaque' });
 
-  const accTex = device.createTexture({
-    size: [cvs.width, cvs.height], format,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-  });
-  const accView = accTex.createView();
+  let accTex = null, accView = null, blitBG = null;
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
   const suBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -181,13 +166,22 @@ async function main() {
     layout: fadeP.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: fuBuf } }],
   });
-  const blitBG = device.createBindGroup({
-    layout: blitP.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: samp },
-      { binding: 1, resource: accView },
-    ],
-  });
+  function allocAcc() {
+    if (accTex) accTex.destroy();
+    accTex = device.createTexture({
+      size: [G.pw, G.ph], format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    accView = accTex.createView();
+    blitBG = device.createBindGroup({
+      layout: blitP.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: samp },
+        { binding: 1, resource: accView },
+      ],
+    });
+    clearAcc = true;
+  }
 
   const $ = (id) => document.getElementById(id);
   const ui = { n: $('dp-n'), ang: $('dp-ang'), eps: $('dp-eps'), speed: $('dp-speed'), view: $('dp-view'), reset: $('dp-reset'), epsv: $('dp-epsv') };
@@ -226,6 +220,7 @@ async function main() {
     clearAcc = true;
   }
   let clearAcc = true;
+  allocAcc();
   if (ui.reset) ui.reset.addEventListener('click', reset);
   if (ui.n) ui.n.addEventListener('change', reset);
   if (ui.ang) ui.ang.addEventListener('input', reset);
@@ -239,8 +234,6 @@ async function main() {
   let prev = 0, fps = 60;
 
   function loop(ts) {
-    requestAnimationFrame(loop);
-    if (!cvs.isConnected) return;
     const dtF = Math.min((ts - prev) / 1000, 0.05) || 0.016;
     prev = ts;
     fps += ((1 / Math.max(dtF, 0.001)) - fps) * 0.05;
@@ -298,12 +291,10 @@ async function main() {
     bp.end();
     device.queue.submit([enc.finish()]);
 
-    if (hud) {
-      hud.textContent = N.toLocaleString() + ' 个双摆 · RK4 ×' + SUB + ' 子步 · t = ' +
-        simTime.toFixed(1) + 's · ' + Math.round(fps) + ' fps';
-    }
+    lab.hud(N.toLocaleString() + ' 个双摆 · RK4 ×' + SUB + ' 子步 · t = ' +
+      simTime.toFixed(1) + 's · ' + Math.round(fps) + ' fps');
   }
-  requestAnimationFrame((ts) => { prev = ts; loop(ts); });
+  lab.loop(loop, (ts) => { prev = ts; });
 }
 
-main();
+boot(main);
