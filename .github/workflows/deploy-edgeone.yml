@@ -1,12 +1,16 @@
 # 国内镜像：腾讯云 EdgeOne Pages（与 deploy.yml 的 GitHub Pages 部署并行，互不影响）
 # 前置：EdgeOne Pages 控制台生成 API Token，存入仓库 Secret EDGEONE_API_TOKEN。
 # 未配置 Secret 时本 workflow 直接跳过，不会失败。
+# sync-api（yzzn-sync）在 deploy-sync-api.yml 里单独部署，两边失败互不牵连。
 name: Deploy EdgeOne Pages (国内镜像)
 
 on:
   push:
     branches: [master]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: edgeone-pages
@@ -17,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+      # CLI 锁精确版本：每次运行都会把 API Token 交给它，不能跟着 latest 漂。升级时与 deploy-sync-api.yml 一起改。
+      EDGEONE_CLI: edgeone@1.6.41
       PROJECT_NAME: within-one-frame
     steps:
       - name: 检查 Token
@@ -25,44 +31,29 @@ jobs:
 
       - uses: actions/checkout@v4
         if: env.EDGEONE_API_TOKEN != ''
-        with:
-          fetch-depth: 0
-
-      - name: Check sync API changes
-        id: sync_changes
-        if: env.EDGEONE_API_TOKEN != ''
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.sha }}
-        run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            changed="$(git diff --name-only "$BEFORE" "$AFTER" -- sync-api/)"
-            if [[ -n "$changed" ]]; then
-              echo "changed=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "changed=false" >> "$GITHUB_OUTPUT"
-            fi
-          fi
 
       - uses: actions/setup-node@v4
         if: env.EDGEONE_API_TOKEN != ''
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
+
+      - name: Install dependencies
+        if: env.EDGEONE_API_TOKEN != ''
+        run: npm ci
+
+      # 与 deploy.yml 同一组检查：Pages 被拦下时镜像也不该上线坏版本
+      - name: Checks (site.js syntax, eval smoke, unit tests)
+        if: env.EDGEONE_API_TOKEN != ''
+        run: |
+          node --check src/scripts/site.js
+          node scripts/eval-smoke.cjs src/scripts/site.js
+          node scripts/run-tests.mjs
 
       - name: Build
         if: env.EDGEONE_API_TOKEN != ''
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
 
       - name: Deploy to EdgeOne Makers
         if: env.EDGEONE_API_TOKEN != ''
-        run: npx edgeone makers deploy dist -n "$PROJECT_NAME" -t "$EDGEONE_API_TOKEN"
-
-      - name: Deploy sync API (yzzn-sync, overseas)
-        if: env.EDGEONE_API_TOKEN != '' && steps.sync_changes.outputs.changed == 'true'
-        run: npx edgeone makers deploy sync-api -n yzzn-sync -a overseas -t "$EDGEONE_API_TOKEN"
+        run: npx --yes "$EDGEONE_CLI" makers deploy dist -n "$PROJECT_NAME" -t "$EDGEONE_API_TOKEN"

@@ -1,0 +1,46 @@
+# 云同步接口：EdgeOne Pages 项目 yzzn-sync（overseas 区），源码在 sync-api/。
+# 只在 sync-api/ 或本文件变动时部署（另可手动触发），与国内镜像 deploy-edgeone.yml 分开，失败互不牵连。
+# 前置：仓库 Secret EDGEONE_API_TOKEN（与镜像共用）；未配置时直接跳过，不会失败。
+# 控制台侧还需：KV 命名空间绑定为变量 yzzn_kv + 环境变量 AUTH_SECRET，否则接口返回 503。
+name: Deploy sync API (yzzn-sync)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'sync-api/**'
+      - '.github/workflows/deploy-sync-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 部署不中途取消，后来的 push 排队
+concurrency:
+  group: edgeone-sync-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+      # 与 deploy-edgeone.yml 保持同一个精确版本
+      EDGEONE_CLI: edgeone@1.6.41
+      PROJECT_NAME: yzzn-sync
+    steps:
+      - name: 检查 Token
+        if: env.EDGEONE_API_TOKEN == ''
+        run: echo "::notice::EDGEONE_API_TOKEN 未配置，跳过 sync-api 部署（EdgeOne Pages 控制台 → API Token → 创建后存入仓库 Secret）"
+
+      - uses: actions/checkout@v4
+        if: env.EDGEONE_API_TOKEN != ''
+
+      - uses: actions/setup-node@v4
+        if: env.EDGEONE_API_TOKEN != ''
+        with:
+          node-version-file: .nvmrc
+
+      - name: Deploy sync API (overseas)
+        if: env.EDGEONE_API_TOKEN != ''
+        run: npx --yes "$EDGEONE_CLI" makers deploy sync-api -n "$PROJECT_NAME" -a overseas -t "$EDGEONE_API_TOKEN"
