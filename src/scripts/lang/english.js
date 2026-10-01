@@ -1,5 +1,7 @@
 /* 英语学习中心：SRS 生词本（SM-2）+ 听写拼写 + TTS 发音 + AI 讲解/对话（BYOK）
-   所有数据存 localStorage；AI 为可选功能，Key 只存本地、直连 OpenAI 兼容接口 */
+   数据存 localStorage（登录云同步后生词/进度会在多设备间合并，见 cloudsync.js）；
+   AI 为可选功能，Key 只存本地、直连 OpenAI 兼容接口，永不上传 */
+import { localDay, legacyAltDay, noteDelete, noteWipe, onSyncApplied } from './langdata.js';
 
 const K = { words: 'yzzn-en-words', cfg: 'yzzn-en-cfg', stats: 'yzzn-en-stats', cache: 'yzzn-en-ai', dict: 'yzzn-en-dict', daily: 'yzzn-en-daily', game: 'yzzn-en-game' };
 
@@ -48,13 +50,16 @@ let stats = load(K.stats, {});
 let aiCache = load(K.cache, {});
 
 function saveWords() { store(K.words, words); }
-function today() { return new Date().toISOString().slice(0, 10); }
+function today() { return localDay(); }
+/* 本机从哪天开始用本地日期记账（之前的统计键是 UTC 日期，连续天数要兼容） */
+if (!cfg.day0) { cfg.day0 = today(); store(K.cfg, cfg); }
 function bumpStat() { stats[today()] = (stats[today()] || 0) + 1; store(K.stats, stats); }
 function streak() {
   let n = 0; const d = new Date();
   for (;;) {
-    const k = d.toISOString().slice(0, 10);
-    if (stats[k] > 0) { n++; d.setDate(d.getDate() - 1); } else break;
+    const k = localDay(d);
+    const alt = k < cfg.day0 ? legacyAltDay(d) : '';
+    if (stats[k] > 0 || (alt && stats[alt] > 0)) { n++; d.setDate(d.getDate() - 1); } else break;
   }
   return n;
 }
@@ -120,6 +125,7 @@ function sm2(it, q) {
     s.d = Date.now() + s.i * 86400000;
   }
   it.srs = s;
+  it.mt = Date.now();   /* 修改时间：云同步按它决定哪台设备的进度更新（「忘了」也算最新） */
 }
 function dueWords() { const now = Date.now(); return words.filter((w) => !w.srs || w.srs.d <= now); }
 
@@ -220,6 +226,7 @@ function renderBook() {
   $('book-list').querySelectorAll('.en-del').forEach((b) => b.addEventListener('click', () => {
     const w = b.getAttribute('data-w');
     words = words.filter((x) => x.w !== w);
+    noteDelete(K.words, w);   /* 墓碑：其他设备同步时也删掉，不会被云端复活 */
     saveWords(); renderBook(); revStats();
   }));
 }
@@ -227,7 +234,8 @@ function addWord(w, def) {
   w = w.trim(); def = def.trim();
   if (!w || !def) return false;
   if (words.some((x) => x.w.toLowerCase() === w.toLowerCase())) return false;
-  words.push({ w, def, t: Date.now() });
+  const now = Date.now();
+  words.push({ w, def, t: now, mt: now });
   return true;
 }
 
@@ -558,7 +566,7 @@ function importData(file) {
       const j = JSON.parse(rd.result);
       if (Array.isArray(j.words)) {
         let n = 0;
-        j.words.forEach((w) => { if (w && w.w && w.def && addWord(w.w, w.def)) { words[words.length - 1].srs = w.srs; n++; } });
+        j.words.forEach((w) => { if (w && w.w && w.def && addWord(w.w, w.def)) { if (w.srs) words[words.length - 1].srs = w.srs; n++; } });
         saveWords(); renderBook(); revStats();
         $('set-msg').textContent = '✓ 导入 ' + n + ' 个新词';
       } else $('set-msg').textContent = '文件格式不对';
@@ -1118,6 +1126,25 @@ function bossEnd(pass) {
   $('gm-back').addEventListener('click', renderGameMap);
 }
 
+/* ---------- 云同步合并后：就地重读内存状态，不刷新页面（不打断复习 / 闯关 / 听写 / 对话） ---------- */
+function onSynced(keys) {
+  const has = (k) => keys.indexOf(k) >= 0;
+  if (has(K.words)) {
+    words = load(K.words, []);
+    const byW = new Map(words.map((x) => [x.w, x]));
+    queue = queue.map((x) => byW.get(x.w)).filter(Boolean);
+    if (cur && byW.has(cur.w)) cur = byW.get(cur.w);
+  }
+  if (has(K.stats)) stats = load(K.stats, {});
+  if (has(K.game)) gameStore = load(K.game, {});
+  revStats();
+  const shown = (p) => { const el = document.querySelector('.enx-panel[data-p="' + p + '"]'); return !!el && !el.hidden; };
+  if (shown('book')) { renderBook(); renderLevelCard(); }
+  if (shown('game') && !G && !gPick && $('game-map') && !$('game-map').hidden) renderGameMap();
+  if (shown('rev') && !cur) { buildQueue(); nextCard(); }
+  return true;
+}
+
 /* ---------- 标签页 & 初始化 ---------- */
 function setupTabs() {
   const tabs = document.querySelectorAll('.enx-side button');
@@ -1149,6 +1176,7 @@ function setupTabs() {
 function init() {
   if (!$('rev-card')) return;
   setupTabs();
+  onSyncApplied(onSynced);
   document.addEventListener('keydown', revKeys);
   loadVoices();
   if (window.speechSynthesis) speechSynthesis.onvoiceschanged = loadVoices;
@@ -1208,7 +1236,8 @@ function init() {
   $('set-export').addEventListener('click', exportData);
   $('set-import').addEventListener('change', (e) => { if (e.target.files[0]) importData(e.target.files[0]); });
   $('set-wipe').addEventListener('click', () => {
-    if (window.confirm && confirm('清空生词本与学习记录？此操作不可撤销。')) {
+    if (window.confirm && confirm('清空生词本与学习记录？此操作不可撤销（已登录云同步时，其他设备上的这些数据也会被清空）。')) {
+      noteWipe([K.words, K.stats]);
       words = []; stats = {}; saveWords(); store(K.stats, stats);
       renderBook(); revStats(); buildQueue(); nextCard();
     }

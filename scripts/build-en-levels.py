@@ -4,6 +4,10 @@
 数据源: https://github.com/skywind3000/ECDICT (MIT)
 用法:   python scripts/build-en-levels.py <path-to-ecdict.csv>
 输出:   每级 {name, n, words: [[word, phonetic, 中文释义, 词频rank], ...]}，按词频升序（常用在前）
+
+释义清洗：ECDICT 的 translation 每行一个义项，专业领域义项以 [计] [医] [法] [化] [经] … 开头
+（例：be → 「[计] 后端, 总线允许」）。这些行一律丢弃，除非它是该词唯一的义项；
+[口] [俚] [古] 这类语体标签不算领域，保留。词表、顺序、音标、rank 不受影响。
 """
 import csv
 import json
@@ -16,6 +20,15 @@ LEVELS = {
     'ky': '考研', 'toefl': 'TOEFL', 'ielts': 'IELTS', 'gre': 'GRE',
 }
 WORD_RE = re.compile(r"^[A-Za-z][A-Za-z\-'\. ]*$")
+# 行首（可带词性前缀，如 "art. [计] …"）的中文方括号标签
+DOMAIN_RE = re.compile(r'^(?:[a-z]+\.\s*)?\[([一-鿿]{1,4})\]')
+# 语体/地域标签：属于普通义项，不当作专业领域过滤
+REGISTER_TAGS = {'口', '俚', '古', '旧', '方', '书', '诗', '罕', '谑', '贬', '婉', '英', '美', '澳', '苏', '表'}
+
+
+def is_domain_sense(line):
+    m = DOMAIN_RE.match(line)
+    return bool(m) and m.group(1) not in REGISTER_TAGS
 
 
 def clean_trans(t):
@@ -24,6 +37,9 @@ def clean_trans(t):
     t = t.replace('\\r', '').replace('\\n', '\n')
     lines = [l.strip() for l in t.split('\n') if l.strip()]
     picked = [l for l in lines if not l.startswith('[网络]')] or lines
+    general = [l for l in picked if not is_domain_sense(l)]
+    if general:
+        picked = general
     out = '；'.join(picked[:4])
     return out[:120]
 

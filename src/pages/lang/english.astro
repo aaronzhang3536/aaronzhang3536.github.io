@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 ---
-<Base title="英语学习中心" desc="生词本（SM-2 间隔重复）、听写拼写、真人发音，以及可选的 AI 词源讲解与口语陪练；数据全存本地">
+<Base title="英语学习中心" desc="生词本（SM-2 间隔重复）、听写拼写、真人发音，以及可选的 AI 词源讲解与口语陪练；数据默认存本地，可选云同步">
 <main class="wrap reader enx">
   <a class="back mono" href="/lang/">← 外语</a>
   <h1 class="rd-title">英语学习中心</h1>
@@ -10,7 +10,7 @@ import Base from '../../layouts/Base.astro';
     <span>间隔重复 · 真人发音 · 听写 · AI 词源讲解与陪练（可选）</span>
   </div>
   <p class="enx-sub">
-    每天从「今日复习」开始，算法决定复习什么，你只管作答。生词、进度、AI Key 全部只存在你自己的浏览器里。
+    每天从「今日复习」开始，算法决定复习什么，你只管作答。生词和进度默认只存在你自己的浏览器里（可在「设置」登录云同步，多设备合并）；AI Key 只存本机，永不上传。
   </p>
 
   <div class="enx-app">
@@ -204,7 +204,7 @@ import Base from '../../layouts/Base.astro';
             <span class="mono enx-msg" id="set-msg"></span>
           </div>
         </div>
-        <p class="mono enx-note">Key 只保存在你自己的浏览器 localStorage，请求从你的浏览器直连服务商 —— 本站没有服务器，也无法看到你的 Key。</p>
+        <p class="mono enx-note">Key 只保存在你自己的浏览器 localStorage，请求从你的浏览器直连服务商 —— 不经过本站，云同步也不会上传 Key。</p>
 
         <div class="enx-h">数据</div>
         <div class="enx-bar">
@@ -217,7 +217,7 @@ import Base from '../../layouts/Base.astro';
   </div>
 
   <p class="mono" style="max-width:1000px; color:var(--ink2); font-size:11.5px; margin-top:26px;">
-    复习算法为 SM-2 简化版；未配置 AI 时其余功能完全可用。词典与发音数据来自公开源，学习数据不出你的浏览器。
+    复习算法为 SM-2 简化版；未配置 AI 时其余功能完全可用。词典与发音数据来自公开源；学习数据默认只存本地，登录云同步后才会上传。
   </p>
 </main>
 </Base>

@@ -1,6 +1,9 @@
-/* 东亚语言学习引擎：日语（五十音道场）/ 韩语（谚文道场）共享
-   词汇包: /data/lang/<pack>.json → { name, words: [[表记, 读音, 罗马音, 中文], ...] }
-   面板: dojo(道场) / rev(复习 SM-2) / game(闯关) / set(设置)，全部数据存 localStorage */
+/* 东亚语言学习引擎：日语（五十音道场）/ 韩语（谚文道场）共享，法德西意俄也用它
+   词汇包: /data/lang/<pack>.json → { name, words: [[表记, 读音/词性, 罗马音, 中文, 展示形式?], ...] }
+     法德西意俄：第 2 列是词性标签（le/la、der/die/das、el/la、il/la、м/ж/с，竞技场按它判阴阳性），
+     第 5 列是带正确冠词的展示 / 朗读形式（l'homme、lo studente、el agua…），缺省为「冠词 + 空格 + 词」。
+   面板: dojo(道场) / rev(复习 SM-2) / game(闯关) / set(设置)；数据存 localStorage（登录云同步后多设备合并） */
+import { localDay, noteWipe, onSyncApplied } from './langdata.js';
 
 /* ---------- 五十音（平假名基表，片假名 = 码位 +0x60） ---------- */
 const KANA_SEION = [
@@ -133,15 +136,17 @@ export function boot(langId) {
   const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
   const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
-  const today = () => new Date().toISOString().slice(0, 10);
+  const today = () => localDay();
 
   const K = { words: L.key + '-words', cfg: L.key + '-cfg', dojo: L.key + '-dojo', game: L.key + '-game', daily: L.key + '-daily' };
   let cfg = load(K.cfg, { voice: '', rate: 0.9 });
   let words = load(K.words, []);           /* SRS: {w,r,rom,def,due,iv,ef,rep} */
   let dojoStore = load(K.dojo, {});        /* {itemKey: [right, wrong]} */
   let gameStore = load(K.game, { stars: {} });
+  if (!gameStore.stars) gameStore.stars = {};
   let dk = load(K.daily, {});
-  let pack = null;                          /* {name, words:[[w,r,rom,def]]} */
+  let pack = null;                          /* {name, words:[[w,r,rom,def,form?]]} */
+  let packForm = null;                      /* w → [词性, 展示形式]：旧存档里的词条也按最新词包显示 */
   let G = null;
 
   /* ---------- TTS ---------- */
@@ -169,16 +174,25 @@ export function boot(langId) {
     speechSynthesis.speak(u);
   }
 
+  /* 带冠词的展示 / 朗读形式：词包第 5 列优先（l'homme、lo studente、el agua），否则「冠词 词」 */
+  function formOf(it) {
+    if (!L.gender) return it.w;
+    const p = packForm && packForm.get(it.w);
+    if (p && p[1]) return p[1];
+    if (it.f) return it.f;
+    const r = (p && p[0]) || it.r;
+    return r ? r + ' ' + it.w : it.w;
+  }
   /* 词条发音：日语读假名；法德西意连冠词一起读（听觉强化词性）；其余读本体 */
   function speakWord(it) {
     if (!it) return;
     if (langId === 'ja') { speak(it.r || it.w); return; }
-    if (L.gender && L.gender.speakArt && it.r) { speak(it.r + ' ' + it.w); return; }
+    if (L.gender && L.gender.speakArt) { speak(formOf(it)); return; }
     speak(it.w);
   }
   /* 词条展示头：带冠词/读音 */
   function wordHead(it) {
-    if (L.gender && it.r) return it.r + ' ' + it.w;
+    if (L.gender) return formOf(it);
     if (it.r && it.r !== it.w) return it.w + ' · ' + it.r;
     return it.w;
   }
@@ -194,6 +208,7 @@ export function boot(langId) {
       if (q === 2) it.iv = Math.max(1, Math.round(it.iv * 0.6));
       it.due = Date.now() + it.iv * DAY;
     }
+    it.mt = Date.now();   /* 修改时间：云同步按它决定哪台设备的进度更新（「忘了」也算最新） */
   }
   function dueList() { const now = Date.now(); return words.filter((x) => (x.due || 0) <= now); }
   let queue = [], cur = null, revealed = false;
@@ -245,9 +260,12 @@ export function boot(langId) {
     store(K.words, words);
     nextCard();
   }
-  function addWord(e) {                     /* e: [w,r,rom,def] */
+  function addWord(e) {                     /* e: [w,r,rom,def,form?] */
     if (words.some((x) => x.w === e[0])) return false;
-    words.push({ w: e[0], r: e[1], rom: e[2], def: e[3], due: Date.now(), iv: 0, ef: 2.5, rep: 0 });
+    const now = Date.now();
+    const it = { w: e[0], r: e[1], rom: e[2], def: e[3], due: now, iv: 0, ef: 2.5, rep: 0, mt: now };
+    if (e[4]) it.f = e[4];
+    words.push(it);
     return true;
   }
   function importNew() {
@@ -417,7 +435,7 @@ export function boot(langId) {
   let packObjs = null;
   function stageList() {
     if (!pack) return [];
-    if (!packObjs) packObjs = pack.words.map((e) => ({ w: e[0], r: e[1], rom: e[2], def: e[3] }));
+    if (!packObjs) packObjs = pack.words.map((e) => ({ w: e[0], r: e[1], rom: e[2], def: e[3], f: e[4] || '' }));
     return packObjs;
   }
   function renderGameMap() {
@@ -557,7 +575,7 @@ export function boot(langId) {
     store(K.game, gameStore);
     const wrongs = Object.values(G.wrongSet);
     let added = 0;
-    wrongs.forEach((e) => { if (addWord([e.w, e.r, e.rom, e.def])) added++; });
+    wrongs.forEach((e) => { if (addWord([e.w, e.r, e.rom, e.def, e.f])) added++; });
     if (added) { store(K.words, words); revStats(); }
     const stage = G.stage;
     G = null;
@@ -638,7 +656,7 @@ export function boot(langId) {
       else a.streak = 0;
       const rv = $('ga-reveal');
       rv.hidden = false;
-      rv.textContent = cur.r + ' ' + cur.w + (cur.rom ? ' · ' + cur.rom : '') + ' —— ' + cur.def;
+      rv.textContent = (g.speakArt ? formOf(cur) : cur.w) + '（' + g.tags[cur.r] + '）' + (cur.rom ? ' · ' + cur.rom : '') + ' —— ' + cur.def;
       speakWord(cur);
       a.qi++;
       setTimeout(() => { if (AR === a) arenaAsk(); }, okPick ? 650 : 1300);
@@ -677,11 +695,33 @@ export function boot(langId) {
     }
     if ($('ea-test')) $('ea-test').addEventListener('click', () => speak(L.hello || L.name));
     if ($('ea-wipe')) $('ea-wipe').addEventListener('click', () => {
-      if (!confirm('清空 ' + L.name + ' 的全部学习数据（生词、道场、闯关进度）？')) return;
+      if (!confirm('清空 ' + L.name + ' 的全部学习数据（生词、道场、闯关进度）？\n已登录云同步时，其他设备上的这些数据也会被清空。')) return;
+      noteWipe([K.words, K.dojo, K.game, K.daily]);   /* 清空标记：同步时其他设备上更早的数据一并清掉，不会被云端复活 */
       [K.words, K.dojo, K.game, K.daily].forEach((k) => localStorage.removeItem(k));
       words = []; dojoStore = {}; gameStore = { stars: {} }; dk = {};
       buildQueue(); renderDojo(); renderGameMap(); revStats();
     });
+  }
+
+  /* ---------- 云同步合并后：就地重读内存状态，不刷新页面（不打断复习 / 道场测验 / 闯关 / 竞技场） ---------- */
+  function onSynced(keys) {
+    const has = (k) => keys.indexOf(k) >= 0;
+    if (has(K.words)) {
+      words = load(K.words, []);
+      const byW = new Map(words.map((x) => [x.w, x]));
+      queue = queue.map((x) => byW.get(x.w)).filter(Boolean);
+      if (cur && byW.has(cur.w)) cur = byW.get(cur.w);
+    }
+    if (has(K.dojo)) dojoStore = load(K.dojo, {});
+    if (has(K.game)) { gameStore = load(K.game, { stars: {} }); if (!gameStore.stars) gameStore.stars = {}; }
+    if (has(K.daily)) dk = load(K.daily, {});
+    revStats();
+    const shown = (p) => { const el = document.querySelector('.enx-panel[data-p="' + p + '"]'); return !!el && !el.hidden; };
+    if (shown('dojo') && !DQ) renderDojo();
+    if (shown('game') && !G && $('ea-map') && !$('ea-map').hidden) renderGameMap();
+    if (shown('gender') && !AR) renderArena();
+    if (shown('rev') && !cur) buildQueue();
+    return true;
   }
 
   /* ---------- 标签页 & 启动 ---------- */
@@ -702,6 +742,7 @@ export function boot(langId) {
   async function init() {
     setupTabs();
     setupSettings();
+    onSyncApplied(onSynced);
     loadVoices();
     if (window.speechSynthesis) speechSynthesis.onvoiceschanged = loadVoices;
     document.addEventListener('keydown', revKeys);
@@ -714,6 +755,7 @@ export function boot(langId) {
       pack = await (await fetch(L.pack)).json();
     } catch (e) { pack = null; }
     packObjs = null;
+    packForm = pack ? new Map(pack.words.map((e) => [e[0], [e[1], e[4] || '']])) : null;
     revStats();
     /* 默认标签是复习的语言：首屏直接把队列建好 */
     const onTab = document.querySelector('.enx-side button.on');

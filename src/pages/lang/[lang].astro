@@ -9,7 +9,7 @@ const { lang } = Astro.params;
 const META = {
   fr: {
     title: '法语学习中心', native: 'Français', color: 'var(--c-base)',
-    desc: '法语 A1 核心词：词性竞技场（le/la 限时快答）、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    desc: '法语 A1 核心词：词性竞技场（le/la 限时快答）、SM-2 复习与闯关、连冠词发音；数据默认存本地，可选云同步',
     metaLine: '词性竞技场 le/la · A1 核心词 · 间隔重复 · 连冠词发音',
     sub: '法语名词的性别没有完全规律，只能连着冠词一起背——所以这里的发音永远带冠词（la maison 而非 maison），并配一个专门的「词性竞技场」限时快答 le/la。闯关背词、错词进复习。',
     arenaTitle: '词性竞技场 —— 5 秒一题抢答 le / la，连击加分',
@@ -17,7 +17,7 @@ const META = {
   },
   de: {
     title: '德语学习中心', native: 'Deutsch', color: 'var(--c-tool)',
-    desc: '德语 A1 核心词：der/die/das 词性竞技场、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    desc: '德语 A1 核心词：der/die/das 词性竞技场、SM-2 复习与闯关、连冠词发音；数据默认存本地，可选云同步',
     metaLine: '词性竞技场 der/die/das · A1 核心词 · 间隔重复',
     sub: 'der / die / das 是德语学习者的头号噩梦——性别基本无规律，必须连冠词整体记忆。「词性竞技场」限时快答专治这个；发音永远带冠词，闯关背词、错词进复习。',
     arenaTitle: '词性竞技场 —— 5 秒一题抢答 der / die / das，连击加分',
@@ -25,7 +25,7 @@ const META = {
   },
   es: {
     title: '西班牙语学习中心', native: 'Español', color: 'var(--c-render)',
-    desc: '西班牙语 A1 核心词：el/la 词性竞技场、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    desc: '西班牙语 A1 核心词：el/la 词性竞技场、SM-2 复习与闯关、连冠词发音；数据默认存本地，可选云同步',
     metaLine: '词性竞技场 el/la · A1 核心词 · 间隔重复',
     sub: '西语名词性别大多有规律（-o 阳 / -a 阴），但例外才是考点（el día, la mano…）。「词性竞技场」限时快答帮你把规律和例外都变成肌肉记忆；发音带冠词，闯关背词、错词进复习。',
     arenaTitle: '词性竞技场 —— 5 秒一题抢答 el / la，连击加分',
@@ -33,7 +33,7 @@ const META = {
   },
   it: {
     title: '意大利语学习中心', native: 'Italiano', color: 'var(--c-life)',
-    desc: '意大利语 A1 核心词：il/la 词性竞技场、SM-2 复习与闯关、连冠词发音；数据全存本地',
+    desc: '意大利语 A1 核心词：il/la 词性竞技场、SM-2 复习与闯关、连冠词发音；数据默认存本地，可选云同步',
     metaLine: '词性竞技场 il/la · A1 核心词 · 间隔重复',
     sub: '意语拼读极规则（怎么写就怎么读），入门负担小；性别是主要记忆点。「词性竞技场」限时快答 il/la；发音带冠词，闯关背词、错词进复习。',
     arenaTitle: '词性竞技场 —— 5 秒一题抢答 il / la，连击加分',
@@ -41,7 +41,7 @@ const META = {
   },
   ru: {
     title: '俄语学习中心', native: 'Русский', color: 'var(--c-char)',
-    desc: '俄语：西里尔字母道场（含陷阱字母）、м/ж/с 词性竞技场、A1 核心词复习与闯关；数据全存本地',
+    desc: '俄语：西里尔字母道场（含陷阱字母）、м/ж/с 词性竞技场、A1 核心词复习与闯关；数据默认存本地，可选云同步',
     metaLine: '西里尔字母道场 · 陷阱字母 · 词性竞技场 м/ж/с · A1 核心词',
     sub: '先攻字母——西里尔 33 个字母里最坑的是「陷阱字母」：В 读 v、Н 读 n、Р 读 r，长得像拉丁字母发音却完全不同，道场专设一组。名词分阳/阴/中三性，好在词尾基本决定性别（辅音结尾阳、-а/-я 阴、-о/-е 中），竞技场里把这条规律练成直觉。',
     arenaTitle: '词性竞技场 —— 5 秒一题判断 м / ж / с（看词尾），连击加分',
@@ -144,7 +144,7 @@ const m = META[lang];
           <button type="button" class="pie-btn mono" id="ea-wipe" style="color:var(--c-render); border-color:var(--c-render);">清空本语言全部数据</button>
         </div>
         <p class="mono" style="font-size:12px; color:var(--ink2); max-width:640px;">
-          发音使用浏览器语音合成（Web Speech API），零外链。生词、掌握度、闯关星数、竞技场纪录全部只存 localStorage。
+          发音使用浏览器语音合成（Web Speech API），不请求外部服务。生词、掌握度、闯关星数、竞技场纪录默认只存本机 localStorage；登录下方的云同步后才会上传并在多设备间合并。
         </p>
       </section>
     </div>
