@@ -136,9 +136,12 @@
     scroll.appendChild(canvas);
     wrap.appendChild(scroll);
     screen.appendChild(wrap);
-    scroll.scrollTop = scroll.scrollHeight;
+    /* 滚到当前可走的那一行并居中（以前总滚到底，过了 7 层可走节点就在屏幕外） */
+    var focusRow = reach.length ? reach[0].r : 0;
+    var top = canvas.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+    scroll.scrollTop = Math.max(0, top + (ROWS - 1 - focusRow) * ROWH + 46 - scroll.clientHeight / 2);
   }
-  function bossName() { return G.BOSS_DEFS[G.state.bossId || 'amarth'].cn; }
+  function bossName() { return G.BOSS_DEFS[G.state.bossId].cn; }
 
   function chooseNode(n) {
     G.enterNode(n);
@@ -164,28 +167,33 @@
       '<div class="tb-relics" id="tb-relics"></div>' +
       '<div class="tb-right"><button class="btn tiny ghost" id="tb-deck">牌组 ' + st.deck.length + '</button>' +
       '<button class="btn tiny ghost" id="tb-quit">退出</button></div>';
-    setTimeout(function () {
-      var rc = $('tb-relics');
-      st.relics.forEach(function (id) {
-        var r = G.relicById[id];
-        var s = el('span', 'relic', r.cn[0]);
-        s.style.color = G.RELIC_COL[r.r];
-        s.style.borderColor = G.RELIC_COL[r.r];
-        s.title = r.cn + '：' + r.desc;
-        rc.appendChild(s);
-      });
-      $('tb-deck').onclick = function () { showPile(st.deck, '当前牌组', true); };
-      $('tb-quit').onclick = function () {
-        confirmModal('退出到标题？本局进度不会保存。', function () { G.state = null; G.go('title'); });
-      };
-    }, 0);
+    /* 直接在 bar 上查找并接线（以前 setTimeout 0 后按 id 找，期间若已切屏会对 null 调 appendChild） */
+    var rc = bar.querySelector('#tb-relics');
+    st.relics.forEach(function (id) {
+      var r = G.relicById[id];
+      var s = el('span', 'relic', r.cn[0]);
+      s.style.color = G.RELIC_COL[r.r];
+      s.style.borderColor = G.RELIC_COL[r.r];
+      s.title = r.cn + '：' + r.desc;
+      rc.appendChild(s);
+    });
+    bar.querySelector('#tb-deck').onclick = function () { showPile(st.deck, '当前牌组', true); };
+    bar.querySelector('#tb-quit').onclick = function () {
+      confirmModal('退出到标题？本局进度不会保存。', function () { G.quitRun(); G.go('title'); });
+    };
     return bar;
+  }
+  /* 顶栏生命/金币随战斗、购买实时刷新（顶栏每屏只建一次） */
+  function refreshTopStats() {
+    var st = G.state; if (!st) return;
+    var hp = screen.querySelector('.topbar .tb-hp'), gd = screen.querySelector('.topbar .tb-gold');
+    if (hp) hp.innerHTML = '❤ <b>' + st.hp + '</b>/' + st.maxHp;
+    if (gd) gd.innerHTML = '🪙 <b>' + st.gold + '</b>';
   }
 
   /* ================= 战斗 ================= */
-  var C = { hovering: null, dragging: null, arrowSVG: null };
+  var C = { hovering: null, dragging: null };
   function renderCombat(arg) {
-    G.state.bossId = G.state.bossId || G.pick(['amarth', 'bauglir', 'dagnir']);
     buildCombatShell();                       /* 先建 DOM 外壳，容器就位 */
     G.enterCombat(arg.kind, arg.sub);         /* 再进战斗：turnStart 会渲染进已存在的容器 */
     renderPlayer(); renderEnemies(); renderHand(); renderHud();
@@ -213,7 +221,7 @@
     var hand = el('div', 'cb-hand'); hand.id = 'cb-hand';
     wrap.appendChild(hand);
     screen.appendChild(wrap);
-    $('cb-end').onclick = function () { if (!G.state.combat.ended) G.endTurn(); };
+    $('cb-end').onclick = function () { G.endTurn(); };   /* 引擎有阶段锁，连点无效；按钮由 renderHud 置灰 */
     $('pl-draw').onclick = function () { showPile(G.state.combat.draw, '抽牌堆（乱序）', false, true); };
     $('pl-disc').onclick = function () { showPile(G.state.combat.discard, '弃牌堆', false); };
     $('pl-exh').onclick = function () { showPile(G.state.combat.exhaust, '消耗堆', false); };
@@ -226,6 +234,7 @@
     var hpbar = unitHpBar(G.state.hp, G.state.maxHp, p.block, p.buffs, '旅人 Wanderer');
     box.appendChild(fig);
     box.appendChild(hpbar);
+    refreshTopStats();
   }
   function renderEnemies() {
     var cb = G.state.combat, box = $('cb-enemies');
@@ -251,9 +260,7 @@
     var it = e.intent; if (!it) return '';
     var num = '';
     if (it.type === 'attack' || it.type === 'attackdebuff') {
-      var baseNoStr = it.val - (e.buffs.str || 0);
-      var shown = G.atkDamage(baseNoStr, e.buffs, G.state.combat.player.buffs);   /* 动态：玩家易伤/敌人虚弱都反映 */
-      num = '<b>' + shown + '</b>';
+      num = '<b>' + G.intentDamage(e) + '</b>';     /* 动态：力量/虚弱/易伤都实时反映，与结算同一公式 */
       var ic = it.type === 'attackdebuff' ? '⚔+' : '⚔';
       return '<span class="int-ic atk">' + ic + '</span>' + num;
     }
@@ -290,6 +297,7 @@
     $('pl-disc').querySelector('b').textContent = cb.discard.length;
     $('pl-exh').querySelector('b').textContent = cb.exhaust.length;
     $('cb-energy').innerHTML = '<span class="en-orb"><b>' + p.energy + '</b>/' + p.maxEnergy + '</span>';
+    $('cb-end').disabled = !G.isPlayerPhase();      /* 敌人行动 / 测验期间不能结束回合 */
   }
 
   /* ---------- 手牌 ---------- */
@@ -356,7 +364,7 @@
       var uid = node.dataset.uid, c = cb.hand.filter(function (x) { return x.uid === uid; })[0];
       if (!c) return;
       var e = G.cardEff(c), type = G.cardType(c);
-      var tgtBuffs = (type === 'attack' && hoverE) ? hoverE.buffs : null;
+      var tgtBuffs = (e.dmg && hoverE) ? hoverE.buffs : null;
       var txt = node.querySelector('.cd-txt');
       if (txt) txt.innerHTML = cardText(c, e, type, tgtBuffs);
       node.classList.toggle('unplayable', !G.canPlay(c));
@@ -374,17 +382,20 @@
       node.onpointerdown = function (ev) { startDrag(ev, c, node); };
     }
   }
+  /* 单体牌（攻击、缴械这类对单个敌人施加状态的技能）要选目标：
+     桌面拖到敌人身上；触屏先点牌再点敌人；场上只剩一个敌人时自动锁定 */
   var tapSelected = null;
   function tapCard(c, node) {
-    var type = G.cardType(c);
+    if (!G.isPlayerPhase()) return;
     if (!G.canPlay(c)) { toast('能量不足'); return; }
-    if (type === 'attack' && needsTarget()) {
+    var single = G.cardNeedsTarget(c);
+    if (single && needsTarget()) {
       tapSelected = c;
       Array.prototype.forEach.call($('cb-hand').children, function (n) { n.classList.remove('sel'); });
       node.classList.add('sel');
-      toast('选择要攻击的敌人');
+      toast('选择目标敌人');
     } else {
-      doPlay(c, needsTarget() && type === 'attack' ? soleEnemy() : null, node);
+      doPlay(c, single ? soleEnemy() : null, node);
     }
   }
   function tapEnemy(e) {
@@ -395,15 +406,36 @@
   function cardNode(uid) { return Array.prototype.filter.call($('cb-hand').children, function (n) { return n.dataset.uid === uid; })[0]; }
 
   function startDrag(ev, c, node) {
+    if (!G.isPlayerPhase() || C.dragging) return;
     if (!G.canPlay(c)) { toast('能量不足'); return; }
     ev.preventDefault();
-    C.dragging = { c: c, node: node, type: G.cardType(c) };
+    C.dragging = { c: c, node: node, tgt: G.cardNeedsTarget(c), pid: ev.pointerId };
     node.classList.add('dragging');
     node.style.pointerEvents = 'none';   /* 关键：让 elementFromPoint 穿透卡片看到背后的敌人 */
-    $('cb-drop').classList.toggle('show', C.dragging.type !== 'attack');
+    $('cb-drop').classList.toggle('show', !C.dragging.tgt);
+    /* 指针捕获：嵌在博客 iframe 里松手到框外也能收到 pointerup；pointercancel / 丢失捕获时放回手牌 */
+    try { screen.setPointerCapture(ev.pointerId); } catch (err) {}
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', onDragUp);
+    document.addEventListener('pointercancel', onDragCancel);
+    screen.addEventListener('lostpointercapture', onDragCancel);
     onDragMove(ev);
+  }
+  function stopDrag() {
+    document.removeEventListener('pointermove', onDragMove);
+    document.removeEventListener('pointerup', onDragUp);
+    document.removeEventListener('pointercancel', onDragCancel);
+    screen.removeEventListener('lostpointercapture', onDragCancel);
+    var d = C.dragging; C.dragging = null;
+    if (d) { try { if (screen.hasPointerCapture(d.pid)) screen.releasePointerCapture(d.pid); } catch (err) {} }
+    var drop = $('cb-drop'); if (drop) drop.classList.remove('show', 'active');
+    document.querySelectorAll('.enemy').forEach(function (n) { n.classList.remove('target'); });
+    return d;
+  }
+  function onDragCancel() {
+    var d = stopDrag();
+    C.hovering = null;
+    if (d && G.state && G.state.combat) { d.node.classList.remove('dragging'); resetCardPos(d.node); renderHand(); }
   }
   function onDragMove(ev) {
     if (!C.dragging) return;
@@ -420,7 +452,7 @@
     document.querySelectorAll('.enemy').forEach(function (n) { n.classList.toggle('target', n.dataset.uid === C.hovering); });
     var drop = $('cb-drop');
     var overDrop = over && over.closest && over.closest('#cb-drop');
-    if (C.dragging.type !== 'attack') drop.classList.toggle('active', !!overDrop || inStage(ev));
+    if (!C.dragging.tgt) drop.classList.toggle('active', !!overDrop || inStage(ev));
     refreshHandPreview();
   }
   function inStage(ev) {
@@ -428,15 +460,11 @@
     return ev.clientY < r.bottom && ev.clientY > r.top;
   }
   function onDragUp(ev) {
-    document.removeEventListener('pointermove', onDragMove);
-    document.removeEventListener('pointerup', onDragUp);
-    var d = C.dragging; C.dragging = null;
-    $('cb-drop').classList.remove('show', 'active');
-    document.querySelectorAll('.enemy').forEach(function (n) { n.classList.remove('target'); });
-    if (!d) return;
+    var tgt = C.hovering;
+    var d = stopDrag();
+    if (!d || !G.state || !G.state.combat) return;
     var played = false;
-    if (d.type === 'attack') {
-      var tgt = C.hovering;
+    if (d.tgt) {
       /* 兜底：单敌时拖到战斗区任意处即锁定唯一敌人，避免非要精准压中 */
       if (!tgt && !needsTarget() && inStage(ev)) tgt = soleEnemy();
       if (tgt) { doPlay(d.c, tgt, d.node); played = true; }
@@ -471,19 +499,17 @@
     renderPlayer(); renderEnemies(); renderHand(); renderHud();
     centerText('第 ' + d.turn + ' 回合', 'turn-banner');
   });
-  G.on('enemyHit', function (d) { });
   G.on('enemyDead', function (e) {
     var node = document.querySelector('.enemy[data-uid="' + e.uid + '"]');
     if (node) { var c = rectCenter(node); burst(c.x, c.y, '#ff6b6b', 40); node.classList.add('dying'); }
   });
-  G.on('cardExhaust', function (c) { /* 溶解特效由打牌处触发 */ });
   G.on('playerHurt', function (d) {
     var pl = $('cb-player'); if (pl) { pl.classList.add('shake'); setTimeout(function () { pl.classList.remove('shake'); }, 300); }
   });
   G.on('cardUpgraded', function (d) {
-    centerText('✦ 强化！' + d.card.word.w + ' ' + '★'.repeat(d.to), 'upgrade');
+    centerText((d.to >= 3 ? '✦ 精通！' : '✦ 强化！') + d.card.word.w + ' ' + '★'.repeat(d.to), 'upgrade');
   });
-  G.on('turnEnd', function () { if (screen.dataset.screen === 'combat') { renderEnemies(); renderHud(); } });
+  G.on('turnEnd', function () { tapSelected = null; if (screen.dataset.screen === 'combat') { renderEnemies(); renderHand(); renderHud(); } });
   G.on('enemyActStart', function (e) {
     var node = document.querySelector('.enemy[data-uid="' + e.uid + '"]');
     if (node) { node.classList.add('acting'); setTimeout(function () { node.classList.remove('acting'); }, 300); }
@@ -491,7 +517,10 @@
   G.on('enemyActEnd', function () { if (screen.dataset.screen === 'combat') { renderPlayer(); renderEnemies(); renderHud(); } });
   G.on('bossExam', function (e) { openExam(e); });
   G.on('combatEnd', function (d) {
+    var st = G.state;
+    if (screen.dataset.screen === 'combat') refreshTopStats();
     setTimeout(function () {
+      if (G.state !== st) return;            /* 期间已退出到标题 */
       if (d.won) {
         if (d.kind === 'boss') { G.go('gameover', { win: true }); return; }
         G.go('reward', { kind: d.kind });
@@ -540,7 +569,7 @@
         $('exam-ok').onclick = function () { closeModal(); G.resolveExam(e, stepM.ok, stepF.ok); };
       });
     });
-    openModal(body, true);
+    openModal(body, true, true);       /* 必答：不能 ✕ / 点背景关掉 */
   }
 
   /* ================= 战斗奖励 + 初次学习 ================= */
@@ -552,7 +581,7 @@
     inner.innerHTML = '<h2>战斗胜利</h2><p class="dim mono">选择一张卡牌加入牌组，或跳过</p>';
     var opts = el('div', 'reward-cards');
     var pool = G.CARD_DEFS.filter(function (d) { return !d.starter; });
-    var picks = [];
+    var picks = [], used = false;      /* 奖励只能领一次：选牌 / 跳过后整屏失效 */
     /* 稀有度权重 */
     for (var k = 0; k < 3; k++) {
       var roll = Math.random();
@@ -563,19 +592,20 @@
     picks.forEach(function (c) {
       var ce = cardEl(c, false);
       ce.classList.add('reward-card');
-      ce.onclick = function () { st.deck.push(c); afterPick(); };
+      ce.onclick = function () { if (used) return; st.deck.push(c); afterPick(); };
       ce.oncontextmenu = function (ev) { ev.preventDefault(); showCardDetail(c); };
       opts.appendChild(ce);
     });
     inner.appendChild(opts);
     var skip = el('button', 'btn ghost', '跳过');
-    skip.onclick = function () { afterPick(); };
+    skip.onclick = function () { if (!used) afterPick(); };
     inner.appendChild(skip);
-    /* 金币奖励提示 */
     wrap.appendChild(inner);
     screen.appendChild(wrap);
 
     function afterPick() {
+      used = true;
+      skip.disabled = true;
       /* 初次学习：随机抽一张未学卡考词义 */
       var fl = G.buildFirstLearn();
       if (!fl) { G.go('map'); return; }
@@ -600,7 +630,7 @@
       };
       box.appendChild(b);
     });
-    openModal(body, true);
+    openModal(body, true, true);
   }
 
   /* ================= 篝火 ================= */
@@ -617,7 +647,7 @@
       rest.onclick = function () { G.heal(Math.floor(st.maxHp * 0.3)); toast('回复生命'); G.go('map'); };
       btns.appendChild(rest);
     }
-    var review = el('button', 'btn', '📖 复习（精通两张已学卡）');
+    var review = el('button', 'btn', '📖 复习（最多 ' + G.reviewMax() + ' 张已学卡）');
     review.onclick = openReview;
     btns.appendChild(review);
     var leave = el('button', 'btn ghost', '离开');
@@ -640,16 +670,16 @@
       })();
       return;
     }
-    var chosen = [];
+    var chosen = [], max = G.reviewMax();
     var body = el('div', 'review-wrap');
-    body.innerHTML = '<h3>篝火复习</h3><p class="dim">选择最多两张 ★ 卡进行复习（名词考复数 / 动词考时态），成功升为 ★★</p><div class="review-grid" id="rv-grid"></div><button class="btn primary" id="rv-go" disabled>开始复习</button>';
+    body.innerHTML = '<h3>篝火复习</h3><p class="dim">选择最多 ' + max + ' 张 ★ 卡进行复习（名词考复数 / 动词考过去式 / 形容词考比较级，没有可靠变形的词考词义），成功升为 ★★</p><div class="review-grid" id="rv-grid"></div><button class="btn primary" id="rv-go" disabled>开始复习</button>';
     var grid = body.querySelector('#rv-grid');
     cands.forEach(function (c) {
       var ce = cardEl(c, false); ce.classList.add('mini');
       ce.onclick = function () {
         var idx = chosen.indexOf(c);
         if (idx >= 0) { chosen.splice(idx, 1); ce.classList.remove('sel'); }
-        else if (chosen.length < 2) { chosen.push(c); ce.classList.add('sel'); }
+        else if (chosen.length < max) { chosen.push(c); ce.classList.add('sel'); }
         body.querySelector('#rv-go').disabled = chosen.length === 0;
       };
       grid.appendChild(ce);
@@ -660,14 +690,13 @@
       (function next() {
         if (i >= chosen.length) { G.go('map'); return; }
         var c = chosen[i++];
-        var quiz = G.formQuiz(c.word); quiz.card = c;
-        openFormQuiz(quiz, function (ok) { G.applyReview(c, ok); next(); });
+        openFormQuiz(G.reviewQuiz(c), function (ok) { G.applyReview(c, ok); next(); });
       })();
     };
-    openModal(body, true);
+    openModal(body, true);             /* 选卡阶段可取消（什么都没发生）；开始复习后的每道题都必答 */
   }
   function openFirstLearnCard(c, done) {
-    var fl = { card: c, q: c.word.w, correct: c.word.cn, opts: G.shuffle([c.word.cn].concat(G.distractorsCn(c.word.cn, 3))) };
+    var fl = G.meaningQuiz(c.word);
     var body = el('div', 'learn-wrap');
     body.innerHTML = '<h3>初次学习</h3><div class="learn-word">' + c.word.w + '</div><div class="learn-opts" id="lo"></div>';
     var box = body.querySelector('#lo');
@@ -676,7 +705,7 @@
       b.onclick = function () { var ok = o === fl.correct; b.classList.add(ok ? 'right' : 'wrong'); Array.prototype.forEach.call(box.children, function (n) { n.disabled = true; }); G.applyFirstLearn(c, ok); setTimeout(function () { closeModal(); done(); }, 700); };
       box.appendChild(b);
     });
-    openModal(body, true);
+    openModal(body, true, true);
   }
   function openFormQuiz(quiz, done) {
     var body = el('div', 'learn-wrap');
@@ -690,11 +719,11 @@
         b.classList.add(ok ? 'right' : 'wrong');
         if (!ok) Array.prototype.forEach.call(box.children, function (n) { if (n.textContent === quiz.correct) n.classList.add('right'); });
         Array.prototype.forEach.call(box.children, function (n) { n.disabled = true; });
-        setTimeout(function () { closeModal(); toast(ok ? '精通！' + quiz.card.word.w + ' ★★' : '复习失败'); if (ok) centerText('✦ ★★ ' + quiz.card.word.w, 'upgrade'); done(ok); }, 800);
+        setTimeout(function () { closeModal(); toast(ok ? '复习成功！' + quiz.card.word.w + ' ★★' : '复习失败'); if (ok) centerText('✦ ★★ ' + quiz.card.word.w, 'upgrade'); done(ok); }, 800);
       };
       box.appendChild(b);
     });
-    openModal(body, true);
+    openModal(body, true, true);
   }
 
   /* ================= 商店 ================= */
@@ -704,32 +733,28 @@
     wrap.appendChild(topBar());
     var inner = el('div', 'shop-inner');
     inner.innerHTML = '<h2>商店 · Merchant</h2><p class="dim mono">金币 ' + st.gold + '</p>';
-    /* 卖 3 卡 + 2 圣物 + 删牌 */
+    /* 卖 4 卡 + 2 圣物 + 删牌；库存每个商店只进一次（存在节点上，删牌后重绘不会刷新货架） */
+    var stock = G.shopStock();
     var cardRow = el('div', 'shop-row');
-    var pool = G.CARD_DEFS.filter(function (d) { return !d.starter; });
-    for (var i = 0; i < 4; i++) {
-      var c = G.makeCard(G.pick(pool).id);
-      var price = { common: 45, uncommon: 68, rare: 145 }[G.cardRarity(c)] + G.rnd(20) - 10;
-      cardRow.appendChild(shopItem(cardEl(c, false), price, (function (cc, pp) { return function () { st.deck.push(cc); return true; }; })(c, price)));
-    }
+    stock.cards.forEach(function (it) {
+      cardRow.appendChild(shopItem(cardEl(it.card, false), it, 'card'));
+    });
     inner.appendChild(el('h3', null, '卡牌'));
     inner.appendChild(cardRow);
     var relicRow = el('div', 'shop-row');
-    for (var j = 0; j < 2; j++) {
-      var rid = G.rollRelic();
-      if (!rid) continue;
-      var r = G.relicById[rid], price = G.relicPrice(rid);
+    stock.relics.forEach(function (it) {
+      var r = G.relicById[it.id];
       var rEl = el('div', 'shop-relic');
       rEl.innerHTML = '<span class="relic" style="color:' + G.RELIC_COL[r.r] + ';border-color:' + G.RELIC_COL[r.r] + '">' + r.cn[0] + '</span><div><b>' + r.cn + '</b><br><span class="dim">' + r.desc + '</span></div>';
-      relicRow.appendChild(shopItem(rEl, price, (function (id) { return function () { G.addRelic(id); return true; }; })(rid), true));
-    }
+      relicRow.appendChild(shopItem(rEl, it, 'relic'));
+    });
     inner.appendChild(el('h3', null, '圣物'));
     inner.appendChild(relicRow);
-    /* 删牌（一次） */
-    var rm = el('button', 'btn', st.shopRemovedOnce ? '删牌已用尽' : '🗑 删除一张牌（75 金）');
-    rm.disabled = st.shopRemovedOnce;
+    /* 删牌（每个商店一次） */
+    var rm = el('button', 'btn', stock.removed ? '删牌已用尽' : '🗑 删除一张牌（' + G.SHOP_REMOVE_PRICE + ' 金）');
+    rm.disabled = stock.removed;
     rm.onclick = function () {
-      if (st.gold < 75) { toast('金币不足'); return; }
+      if (st.gold < G.SHOP_REMOVE_PRICE) { toast('金币不足'); return; }
       openRemove();
     };
     inner.appendChild(rm);
@@ -739,20 +764,21 @@
     wrap.appendChild(inner);
     screen.appendChild(wrap);
   }
-  function shopItem(inner, price, buy, isRelic) {
-    var box = el('div', 'shop-item');
+  function shopItem(inner, item, kind) {
+    var box = el('div', 'shop-item' + (item.sold ? ' sold' : ''));
     box.appendChild(inner);
-    var pr = el('button', 'shop-price mono', '🪙 ' + price);
+    var pr = el('button', 'shop-price mono', item.sold ? '已购' : '🪙 ' + item.price);
     pr.onclick = function () {
-      if (box.classList.contains('sold')) return;
-      if (G.state.gold < price) { toast('金币不足'); return; }
-      if (buy()) { G.state.gold -= price; box.classList.add('sold'); pr.textContent = '已购'; toast('购买成功'); refreshTopOnly(); }
+      if (item.sold) return;
+      if (G.state.gold < item.price) { toast('金币不足'); return; }
+      if (!G.shopBuy(item, kind)) { toast(kind === 'relic' ? '已拥有该圣物' : '无法购买'); return; }
+      box.classList.add('sold'); pr.textContent = '已购'; toast('购买成功'); refreshTopOnly();
     };
     box.appendChild(pr);
     return box;
   }
   function refreshTopOnly() {
-    var old = screen.querySelector('.topbar'); if (old) { var nb = topBar(); old.replaceWith(nb); }
+    var old = screen.querySelector('.topbar'); if (old) { var nb = topBar(); old.replaceWith(nb); }   /* 圣物栏也要更新 */
     var gd = screen.querySelector('.shop-inner .dim.mono'); if (gd) gd.textContent = '金币 ' + G.state.gold;
   }
   function openRemove() {
@@ -763,7 +789,7 @@
     st.deck.forEach(function (c) {
       var ce = cardEl(c, false); ce.classList.add('mini');
       ce.onclick = function () {
-        st.deck.splice(st.deck.indexOf(c), 1); st.gold -= 75; st.shopRemovedOnce = true;
+        if (!G.shopRemove(c)) return;
         closeModal(); toast('已删除'); G.go('shop');
       };
       grid.appendChild(ce);
@@ -826,26 +852,26 @@
           };
           grid.appendChild(ce);
         });
-        openModal(body, true);
+        openModal(body, true, true);   /* 已答应献祭：必须选一张 */
       };
       var no = el('button', 'btn ghost', '离开');
       no.onclick = function () { G.go('map'); };
       inner.appendChild(give); inner.appendChild(no);
     } else {
-      /* 普通奇遇：迷光 / 废弃书库 */
+      /* 普通奇遇：迷光 / 废弃书库（只强化卡牌，不写生词手册——星级只能靠答题） */
       var kind = G.pick(['gwath', 'partham']);
       if (kind === 'gwath') {
         inner.innerHTML = '<div class="room-art art-event"></div><h2>迷光 · Wisp</h2><p class="dim">幽微的光引你深入。</p>';
         var a = el('button', 'btn', '追随（失 6 血，得 60 金）');
-        a.onclick = function () { G.damagePlayerRaw ? (st.hp = Math.max(1, st.hp - 6)) : null; st.gold += 60; toast('+60 金'); G.go('map'); };
+        a.onclick = function () { st.hp = Math.max(1, st.hp - 6); st.gold += 60; toast('+60 金'); G.go('map'); };
         var b = el('button', 'btn', '一张随机卡进入弱强化');
-        b.onclick = function () { var c = G.pick(st.deck); if (c && c.lvl < 1) { c.lvl = 1; G.manualSet(c.word.w, 1); } toast('一张卡获得强化'); G.go('map'); };
+        b.onclick = function () { var c = G.pick(st.deck); if (c && c.lvl < 1) c.lvl = 1; toast('一张卡获得强化'); G.go('map'); };
         var c = el('button', 'btn ghost', '离开'); c.onclick = function () { G.go('map'); };
         inner.appendChild(a); inner.appendChild(b); inner.appendChild(c);
       } else {
         inner.innerHTML = '<div class="room-art art-event"></div><h2>废弃书库 · Lost Library</h2><p class="dim">尘封的书架间藏着知识。</p>';
         var a2 = el('button', 'btn', '研读（升级随机一张卡）');
-        a2.onclick = function () { var cs = st.deck.filter(function (x) { return x.lvl < 2; }); if (cs.length) { var c = G.pick(cs); c.lvl = Math.min(2, c.lvl + 1); G.manualSet(c.word.w, c.lvl); } toast('一张卡获得强化'); G.go('map'); };
+        a2.onclick = function () { var cs = st.deck.filter(function (x) { return x.lvl < 2; }); if (cs.length) { var c = G.pick(cs); c.lvl = Math.min(2, c.lvl + 1); } toast('一张卡获得强化'); G.go('map'); };
         var b2 = el('button', 'btn', '休息（回 20% 血）');
         b2.onclick = function () { G.heal(Math.floor(st.maxHp * 0.2)); G.go('map'); };
         var c2 = el('button', 'btn ghost', '离开'); c2.onclick = function () { G.go('map'); };
@@ -867,17 +893,18 @@
       '<button class="btn primary" id="over-again">回到塔前</button>';
     screen.appendChild(wrap);
     burst(window.innerWidth / 2, window.innerHeight / 2, arg.win ? '#ffcf40' : '#5a6b80', 60);
-    $('over-again').onclick = function () { G.state = null; G.go('title'); };
+    $('over-again').onclick = function () { G.quitRun(); G.go('title'); };
   }
 
-  /* ================= 弹窗 / 牌堆查看 / 卡详情 ================= */
-  function openModal(body, center) {
+  /* ================= 弹窗 / 牌堆查看 / 卡详情 =================
+     blocking：必答 / 必选的流程（测验、初次学习、复习题、献祭选牌）——没有 ✕，点背景也不关 */
+  function openModal(body, center, blocking) {
     clear(modal); modal.hidden = false;
     var box = el('div', 'modal-box' + (center ? ' center' : ''));
-    var close = el('button', 'modal-x', '✕'); close.onclick = closeModal;
-    box.appendChild(close); box.appendChild(body);
+    if (!blocking) { var close = el('button', 'modal-x', '✕'); close.onclick = closeModal; box.appendChild(close); }
+    box.appendChild(body);
     modal.appendChild(box);
-    modal.onclick = function (ev) { if (ev.target === modal) closeModal(); };
+    modal.onclick = blocking ? null : function (ev) { if (ev.target === modal) closeModal(); };
   }
   function closeModal() { modal.hidden = true; clear(modal); }
   G.closeModal = closeModal;
@@ -921,9 +948,8 @@
   }
 
   /* ================= 启动 ================= */
-  G.on('runStart', function () {});
   G.loadWords().then(function (n) {
-    if (!n) { screen.innerHTML = '<div class="ti-wrap"><p class="dim">词库加载失败，请检查 /data/en/levels/ 是否可访问。</p></div>'; return; }
+    if (!n) { screen.innerHTML = '<div class="ti-wrap"><p class="dim">词库加载失败，请检查 /data/babel-words.json 是否可访问。</p></div>'; return; }
     G.go('title');
   }).catch(function (err) {
     screen.innerHTML = '<div class="ti-wrap"><p class="dim">加载出错：' + err.message + '</p></div>';

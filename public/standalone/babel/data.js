@@ -17,16 +17,26 @@ window.G = window.G || {};
   G.wordTiers = [[], [], [], [], [], [], [], []];
 
   /* 加载构建期瘦身的合并词包（8 档各高频前 450 词，已算好简短中文+词性，
-     ~170KB 一个请求，取代原先 8 文件 3.5MB —— 秒开） */
+     ~190KB 一个请求，取代原先 8 文件 3.5MB —— 秒开）。
+     第 5 项是 ECDICT 核对过的构词：「正确形式/…|其他真实变形/…」，~ 开头 = 原词 + 后缀
+     （见 scripts/build-babel-words.py）；没有该项的词不出构词题 */
+  function decodeForms(w, s) {
+    function dec(x) { return x.charAt(0) === '~' ? w + x.slice(1) : x; }
+    var parts = s.split('|');
+    return { forms: parts[0].split('/').map(dec), avoid: parts[1] ? parts[1].split('/').map(dec) : [] };
+  }
+  G.addWord = function (e, ti) {
+    var rec = { w: e[0], ipa: e[1] || '', cn: e[2] || '', pos: e[3] || 'noun', tier: ti, forms: null, avoid: [] };
+    if (e[4]) { var f = decodeForms(e[0], e[4]); rec.forms = f.forms; rec.avoid = f.avoid; }
+    G.words.push(rec);
+    G.wordByKey[e[0].toLowerCase()] = rec;
+    G.wordTiers[ti].push(rec);
+    return rec;
+  };
   G.loadWords = function () {
     return fetch('/data/babel-words.json').then(function (r) { return r.json(); }).then(function (pack) {
       (pack.tiers || []).forEach(function (bucket, ti) {
-        bucket.forEach(function (e) {
-          var rec = { w: e[0], ipa: e[1] || '', cn: e[2] || '', pos: e[3] || 'noun', tier: ti };
-          G.words.push(rec);
-          G.wordByKey[e[0].toLowerCase()] = rec;
-          G.wordTiers[ti].push(rec);
-        });
+        bucket.forEach(function (e) { G.addWord(e, ti); });
       });
       return G.words.length;
     }).catch(function () { return 0; });
@@ -43,16 +53,38 @@ window.G = window.G || {};
     }
     return G.pick(G.words);
   };
-  G.distractorsCn = function (correct, n) {
-    var out = [], guard = 0;
-    while (out.length < n && guard++ < 200) {
-      var r = G.pick(G.words);
-      if (r.cn && r.cn !== correct && out.indexOf(r.cn) < 0) out.push(r.cn);
+  /* 词义干扰项：同词性、相邻难度档；不与正确释义重复，也不共享任一义项
+     （「大的，重要的」不会配上「大的，大量的」）——否则一眼就能排除或两个都对 */
+  function senses(cn) { return cn.split(/[，,；;、]/).map(function (s) { return s.trim(); }).filter(Boolean); }
+  G.distractorsCn = function (rec, n) {
+    var mine = senses(rec.cn), out = [], used = [];
+    function ok(r) {
+      if (!r.cn || r.w === rec.w || r.cn === rec.cn || out.indexOf(r.cn) >= 0) return false;
+      var s = senses(r.cn);
+      for (var i = 0; i < s.length; i++) if (mine.indexOf(s[i]) >= 0 || used.indexOf(s[i]) >= 0) return false;
+      return true;
     }
+    /* 由近及远放宽：同词性 ±1 档 → ±2 → ±3 → 全库同词性 → 全库 */
+    [1, 2, 3, 7, -1].forEach(function (span) {
+      if (out.length >= n) return;
+      var pool = G.words.filter(function (r) {
+        return span < 0 || (r.pos === rec.pos && Math.abs(r.tier - rec.tier) <= span);
+      });
+      G.shuffle(pool).forEach(function (r) {
+        if (out.length < n && ok(r)) { out.push(r.cn); used = used.concat(senses(r.cn)); }
+      });
+    });
     return out;
   };
+  /* 词义多选题 */
+  G.meaningQuiz = function (rec) {
+    return { kind: 'meaning', label: '词义', q: rec.w, correct: rec.cn,
+      opts: G.shuffle([rec.cn].concat(G.distractorsCn(rec, 3))) };
+  };
 
-  /* ---------- 英语构词：复数 / 过去式（规则法 + 不规则表，用于篝火复习测验） ---------- */
+  /* ---------- 英语构词：规则法复数 / 过去式 / 比较级 ----------
+     规则法会出 beautifuler / eated / clifves 之类的错词，所以只用来造「干扰项」；
+     正确答案一律来自词包里 ECDICT 核对过的 rec.forms */
   var IRREG_PLURAL = { man: 'men', woman: 'women', child: 'children', foot: 'feet', tooth: 'teeth', goose: 'geese', mouse: 'mice', person: 'people', ox: 'oxen', datum: 'data', sheep: 'sheep', fish: 'fish', deer: 'deer' };
   var IRREG_PAST = { be: 'was', go: 'went', do: 'did', have: 'had', make: 'made', take: 'took', come: 'came', see: 'saw', get: 'got', give: 'gave', find: 'found', think: 'thought', know: 'knew', say: 'said', tell: 'told', become: 'became', leave: 'left', feel: 'felt', bring: 'brought', begin: 'began', keep: 'kept', hold: 'held', write: 'wrote', stand: 'stood', hear: 'heard', let: 'let', mean: 'meant', set: 'set', meet: 'met', run: 'ran', pay: 'paid', sit: 'sat', speak: 'spoke', lie: 'lay', lead: 'led', read: 'read', grow: 'grew', lose: 'lost', fall: 'fell', send: 'sent', build: 'built', understand: 'understood', draw: 'drew', break: 'broke', spend: 'spent', cut: 'cut', rise: 'rose', drive: 'drove', buy: 'bought', wear: 'wore', choose: 'chose', seek: 'sought', throw: 'threw', catch: 'caught', deal: 'dealt', win: 'won', forget: 'forgot', teach: 'taught', fight: 'fought', put: 'put' };
   var VOWEL = 'aeiou';
@@ -82,24 +114,35 @@ window.G = window.G || {};
     if (/^[^aeiou]*[aeiou][^aeiouwxy]$/.test(lw)) return w + lw.slice(-1) + 'er';
     return w + 'er';
   };
-  /* 生成一道构词多选题：{q, correct, opts[]} —— 多选避免自由输入判错的老 bug */
+  G.FORM_LABEL = { noun: '复数', verb: '过去式', adj: '比较级' };
+  /* 按词性列出「规则误用」候选：规则法结果排第一（最有迷惑性），其余为常见错法 */
+  function wrongForms(rec, correct) {
+    var w = rec.w.toLowerCase(), last = w.slice(-1), stem = w.slice(0, -1), c = correct.toLowerCase();
+    var y = /y$/.test(w), e = /e$/.test(w), cs = /s$/.test(c);
+    if (rec.pos === 'verb') return [G.pastTense(w), w + 'ed', w + 'd', w + last + 'ed', y ? stem + 'ied' : w + 'ied',
+      /e?d$/.test(c) ? '' : c + 'ed', w + 'en', w + 'ded', /([^aeiou])\1$/.test(w) ? stem + 'ed' : '', /ee$/.test(w) ? stem + 'd' : ''];
+    if (rec.pos === 'adj') return [G.comparative(w), w + 'er', w + 'r', w + last + 'er', y ? stem + 'ier' : w + 'ier',
+      /er$/.test(c) ? '' : c + 'er', w + 'der', e ? stem + 'ier' : ''];
+    return [G.pluralize(w), w + 's', w + 'es', y ? stem + 'ies' : '', /fe?$/.test(w) ? w.replace(/fe?$/, 'ves') : '',
+      cs ? '' : c + 's', cs ? '' : c + 'es', w + "'s", w + 'en', cs ? c + "'" : '', e ? stem + 'en' : ''];
+  }
+  /* 生成一道构词多选题：{kind, label, q, correct, opts[]}；该词没有核对过的形式时返回 null
+     （调用方改出词义题）。干扰项绝不等于该词的任何真实变形，也不是词库里的另一个词 */
   G.formQuiz = function (rec) {
-    var base = rec.w, correct, label, wrongs;
-    if (rec.pos === 'verb') {
-      correct = G.pastTense(base); label = '过去式';
-      wrongs = [base + 'ed', base + 'd', base + 's', base + (base.slice(-1)) + 'ed'];
-    } else if (rec.pos === 'adj') {
-      correct = G.comparative(base); label = '比较级';
-      wrongs = [base + 'er', base + 'est', base + 'r', base.slice(0, -1) + 'ier'];
-    } else {
-      correct = G.pluralize(base); label = '复数';
-      wrongs = [base + 's', base + 'es', base + (/y$/.test(base) ? base.slice(0, -1) + 'ies' : 'ies'), base.slice(0, -1) + 'ves'];
-    }
-    var opts = [correct];
-    wrongs.forEach(function (x) { if (x !== correct && opts.indexOf(x) < 0 && opts.length < 4) opts.push(x); });
-    while (opts.length < 4) { var f = base + G.pick(['en', 'er', 'ing']); if (opts.indexOf(f) < 0) opts.push(f); }
-    return { q: base, label: label, correct: correct, opts: G.shuffle(opts) };
+    if (!rec || !rec.forms || !rec.forms.length || !G.FORM_LABEL[rec.pos]) return null;
+    var correct = rec.forms[0], bad = rec.forms.concat(rec.avoid || [], [rec.w]).map(function (x) { return x.toLowerCase(); });
+    var wrongs = [];
+    wrongForms(rec, correct).forEach(function (x) {
+      if (!x || x.length < 2 || /(.)\1\1/.test(x)) return;          /* 三连字母（glassses）太假 */
+      if (bad.indexOf(x) >= 0 || wrongs.indexOf(x) >= 0 || G.wordByKey[x]) return;
+      wrongs.push(x);
+    });
+    if (wrongs.length < 3) return null;
+    var opts = [correct].concat(wrongs.slice(0, 1), G.shuffle(wrongs.slice(1)).slice(0, 2));
+    return { kind: 'form', label: G.FORM_LABEL[rec.pos], q: rec.w, correct: correct, opts: G.shuffle(opts) };
   };
+  /* 复习/测验出题：有核对过的构词就考构词，否则考词义 */
+  G.quizFor = function (rec) { return G.formQuiz(rec) || G.meaningQuiz(rec); };
 
   /* ---------- Buff / 状态定义 ---------- */
   G.BUFFS = {
@@ -133,7 +176,7 @@ window.G = window.G || {};
     { id: 'pommel',  ch: '劈砍', type: 'attack', cost: 1, rarity: 'common', eff: { dmg: 9, draw: 1 }, up1: { dmg: 10, draw: 2 }, up2: { dmg: 13, draw: 2 } },
     { id: 'clothesline', ch: '铁臂', type: 'attack', cost: 2, rarity: 'common', eff: { dmg: 12, applies: [{ buff: 'weak', amt: 2 }] }, up1: { dmg: 14, applies: [{ buff: 'weak', amt: 3 }] }, up2: { dmg: 16, applies: [{ buff: 'weak', amt: 3 }] } },
     { id: 'thunder', ch: '雷击', type: 'attack', cost: 1, rarity: 'common', eff: { dmg: 4, hits: 2 }, up1: { dmg: 4, hits: 3 }, up2: { dmg: 6, hits: 3 } },
-    { id: 'shrug',   ch: '耸肩', type: 'skill', cost: 1, rarity: 'common', eff: { blk: 8, applies: [{ buff: 'regen', amt: 0 }] }, up1: { blk: 11 }, up2: { blk: 14 } },
+    { id: 'shrug',   ch: '耸肩', type: 'skill', cost: 1, rarity: 'common', eff: { blk: 8 }, up1: { blk: 11 }, up2: { blk: 14 } },
     { id: 'flex',    ch: '屈伸', type: 'skill', cost: 0, rarity: 'common', eff: { applies: [{ buff: 'str', amt: 2, self: true }] }, up1: { applies: [{ buff: 'str', amt: 4, self: true }] }, up2: { applies: [{ buff: 'str', amt: 4, self: true }] } },
     { id: 'warcry',  ch: '战吼', type: 'skill', cost: 0, rarity: 'common', kw: ['exhaust'], eff: { draw: 1 }, up1: { draw: 2 }, up2: { draw: 2 } },
 
@@ -182,7 +225,7 @@ window.G = window.G || {};
     { id: 'boot', cn: '旧靴', r: 'w', desc: '攻击伤害若 ≤4 则提升到 6', hook: 'minDmg', v: 6 },
     { id: 'pen', cn: '羽毛笔', r: 'w', desc: '每 3 张能力牌抽 1 张', hook: 'passive' },
     { id: 'dagger', cn: '仪式匕首', r: 'w', desc: '首次抽卡 +1 张', hook: 'firstDraw', v: 1 },
-    { id: 'ancientinkwell', cn: '古墨瓶', r: 'w', desc: '生词初次学习答对额外 +1 数值', hook: 'passive' },
+    { id: 'ancientinkwell', cn: '古墨瓶', r: 'w', desc: '初次学习答对时回复 5 点生命', hook: 'passive', v: 5 },
     /* blue */
     { id: 'kunai', cn: '苦无', r: 'b', desc: '每回合打出 3 张攻击牌获得 1 敏捷', hook: 'attackCount', v: 3 },
     { id: 'shuriken', cn: '手里剑', r: 'b', desc: '每回合打出 3 张攻击牌获得 1 力量', hook: 'attackCount2', v: 3 },
@@ -193,15 +236,15 @@ window.G = window.G || {};
     { id: 'mercuryhg', cn: '水银沙漏', r: 'b', desc: '回合开始对全体造成 3 伤害', hook: 'turnStartAoe', v: 3 },
     { id: 'paperphrog', cn: '纸蛙', r: 'b', desc: '易伤使敌人多受 75% 而非 50%', hook: 'vulnBoost' },
     { id: 'thescales', cn: '天平', r: 'b', desc: '每场战斗第 1 次受伤减少 3 点', hook: 'passive' },
-    { id: 'selfformingclay', cn: '自塑黏土', r: 'b', desc: '本回合受伤后，下回合 +3 格挡', hook: 'clay' },
-    { id: 'bird', cn: '铜鸟', r: 'b', desc: '篝火复习成功额外 +1 数值', hook: 'passive' },
+    { id: 'selfformingclay', cn: '自塑黏土', r: 'b', desc: '受到未格挡的伤害后，下回合开始 +3 格挡', hook: 'clay', v: 3 },
+    { id: 'bird', cn: '铜鸟', r: 'b', desc: '篝火复习可多选 1 张卡（最多 3 张）', hook: 'passive', v: 1 },
     /* gold */
     { id: 'runicpyramid', cn: '符文金字塔', r: 'g', desc: '回合结束不再弃掉手牌', hook: 'keepHand' },
     { id: 'sozu', cn: '添水', r: 'g', desc: '+2 最大能量，但不再获得药水（本作简化为无副作用）', hook: 'maxEnergy', v: 2 },
     { id: 'philostone', cn: '贤者之石', r: 'g', desc: '+1 能量，敌人开局多 1 力量', hook: 'stoneEnergy', v: 1 },
     { id: 'coffeedripper', cn: '滴滤壶', r: 'g', desc: '+1 能量，篝火不能休息（只能复习）', hook: 'dripEnergy', v: 1 },
     { id: 'runiccube', cn: '符文魔方', r: 'g', desc: '每受到 1 次未格挡伤害抽 1 张', hook: 'cube' },
-    { id: 'darkstone', cn: '黑曜石心', r: 'g', desc: '回合开始额外抽 1 弃 1', hook: 'darkstone' },
+    { id: 'darkstone', cn: '黑曜石心', r: 'g', desc: '每回合开始额外抽 1 张牌', hook: 'darkstone', v: 1 },
     { id: 'fossilizedhelix', cn: '化石螺壳', r: 'g', desc: '每场战斗免疫第 1 次受到的伤害', hook: 'fossil' },
     { id: 'lexicon', cn: '词典之魂', r: 'g', desc: '所有卡牌初始即为弱强化', hook: 'passive' },
     { id: 'crown', cn: '智慧之冠', r: 'g', desc: '开局额外获得 1 张随机稀有牌', hook: 'passive' },
