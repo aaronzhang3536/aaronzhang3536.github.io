@@ -1,13 +1,14 @@
 ---
 import Studio from '../layouts/Studio.astro';
 import Icon from '../components/Icon.astro';
+import PostCover from '../components/PostCover.astro';
 import PostCollection from '../components/PostCollection.astro';
 import {getPosts,postUrl} from '../lib/posts';
 const posts=await getPosts();
 const featured=posts.find(post=>post.id==='megalights-complete-logic')||posts[0];
 ---
 <Studio><main class="as-wrap as-page gx-home"><div class="gx-intro"><span>AARON'S FIELD NOTES</span><p>在技术里深入，也在日常里发现。</p></div><div class="gx-feature-grid">
-  {featured&&<a class="gx-hero-main" href={postUrl(featured)}><span class="gx-image gx-image-tech" aria-hidden="true"></span><span class="gx-shade" aria-hidden="true"></span><span class="gx-hero-label">ENGINEERING <i></i> {featured.data.cat} · {featured.data.sub||'技术笔记'}</span>{featured.id==='megalights-complete-logic'?<h1>光的背后，<br/>是一套怎样的逻辑？</h1>:<h1>{featured.data.title}</h1>}<span class="gx-hero-caption">{featured.data.title}</span><span class="gx-hero-bottom"><span class="gx-white-link">读这篇笔记<Icon/></span><span>{featured.data.mins} MIN READ</span></span></a>}
+  {featured&&<a class="gx-hero-main" href={postUrl(featured)}><PostCover post={featured} eager sizes="(max-width:700px) 90vw, 720px"/><span class="gx-shade" aria-hidden="true"></span><span class="gx-hero-label">ENGINEERING <i></i> {featured.data.cat} · {featured.data.sub||'技术笔记'}</span>{featured.id==='megalights-complete-logic'?<h1>光的背后，<br/>是一套怎样的逻辑？</h1>:<h1>{featured.data.title}</h1>}<span class="gx-hero-caption">{featured.data.title}</span><span class="gx-hero-bottom"><span class="gx-white-link">读这篇笔记<Icon/></span><span>{featured.data.mins} MIN READ</span></span></a>}
   <div class="gx-side-picks"><a class="gx-side-pick" href="/life/"><span class="gx-image gx-image-life" aria-hidden="true"></span><span class="gx-shade" aria-hidden="true"></span><span class="gx-cover-label">OFF THE SCREEN</span><span class="gx-side-title">日常，也值得<br/>认真喜欢。<Icon/></span></a><a class="gx-side-pick" href="/play/"><span class="gx-image gx-image-play" aria-hidden="true"></span><span class="gx-shade" aria-hidden="true"></span><span class="gx-cover-label">SMALL EXPERIMENTS</span><span class="gx-side-title">形状的另一面，<br/>动手才看得见。<Icon/></span></a></div></div>
   <div class="gx-section-heading"><h2>继续探索<span>RECENT NOTES</span></h2><a class="gx-link" href="/notes/">展开所有记录<Icon/></a></div><PostCollection posts={posts.slice(0,8)} mode="story" id="series"/>
 </main></Studio>

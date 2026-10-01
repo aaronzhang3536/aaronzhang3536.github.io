@@ -1,0 +1,163 @@
+{
+  "babel-tower": {
+    "src": "/images/posts/babel-tower.webp",
+    "small": "/images/posts/babel-tower-small.webp",
+    "alt": "卡牌与字母石块组成的奇幻攀登高塔（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "cutthrough-analysis": {
+    "src": "/images/posts/cutthrough-analysis.webp",
+    "small": "/images/posts/cutthrough-analysis-small.webp",
+    "alt": "几何网格被圆柱贯穿后留下通孔与切出体（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "fjsonobjectconverter": {
+    "src": "/images/posts/fjsonobjectconverter.webp",
+    "small": "/images/posts/fjsonobjectconverter-small.webp",
+    "alt": "嵌套容器经过棱镜转为有序的数据结构（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "groom-dev-guide": {
+    "src": "/images/posts/groom-dev-guide.webp",
+    "small": "/images/posts/groom-dev-guide-small.webp",
+    "alt": "控制引导线围绕陶瓷头模上的铜色发束（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "groom-render-pipeline": {
+    "src": "/images/posts/groom-render-pipeline.webp",
+    "small": "/images/posts/groom-render-pipeline-small.webp",
+    "alt": "细密发丝在掠射光下呈现各向异性高光（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "hairstrands-voxelization": {
+    "src": "/images/posts/hairstrands-voxelization.webp",
+    "small": "/images/posts/hairstrands-voxelization-small.webp",
+    "alt": "发束穿过透明体素网格并填充占用单元（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "mass-framework": {
+    "src": "/images/posts/mass-framework.webp",
+    "small": "/images/posts/mass-framework-small.webp",
+    "alt": "大量小人按共享组件分成紧凑的处理阵列（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "megalights-complete-logic": {
+    "src": "/images/posts/megalights-complete-logic.webp",
+    "small": "/images/posts/megalights-complete-logic-small.webp",
+    "alt": "多种局部光源照亮建筑大厅并投下柔和阴影（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "megalights-montecarlo": {
+    "src": "/images/posts/megalights-montecarlo.webp",
+    "small": "/images/posts/megalights-montecarlo-small.webp",
+    "alt": "半球采样点中的少量光线连接到面积光源（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "megalights-performance": {
+    "src": "/images/posts/megalights-performance.webp",
+    "small": "/images/posts/megalights-performance-small.webp",
+    "alt": "扫描平面将大量光照单元集中为稀疏亮区（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "megalights-pipeline": {
+    "src": "/images/posts/megalights-pipeline.webp",
+    "small": "/images/posts/megalights-pipeline-small.webp",
+    "alt": "同一拱门的采样、光线与最终光照分层展开（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "montecarlo-importance-sampling": {
+    "src": "/images/posts/montecarlo-importance-sampling.webp",
+    "small": "/images/posts/montecarlo-importance-sampling-small.webp",
+    "alt": "概率曲面上的样本集中在贡献较高的区域（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "nanite-complete-logic": {
+    "src": "/images/posts/nanite-complete-logic.webp",
+    "small": "/images/posts/nanite-complete-logic-small.webp",
+    "alt": "高精度石拱在边缘分解成细小三角形簇（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "nanite-material-cache": {
+    "src": "/images/posts/nanite-material-cache.webp",
+    "small": "/images/posts/nanite-material-cache-small.webp",
+    "alt": "不同粗糙度的材质块浮起露出下方缓存层（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "nanite-lod-selection": {
+    "src": "/images/posts/nanite-lod-selection.webp",
+    "small": "/images/posts/nanite-lod-selection-small.webp",
+    "alt": "同一雕塑随距离增加逐步简化几何细节（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "planecut-analysis": {
+    "src": "/images/posts/planecut-analysis.webp",
+    "small": "/images/posts/planecut-analysis-small.webp",
+    "alt": "几何球体沿一个平面切开并露出平整切面（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "planecut-callstack": {
+    "src": "/images/posts/planecut-callstack.webp",
+    "small": "/images/posts/planecut-callstack-small.webp",
+    "alt": "分层平台沿调用链逐层传递网格切割操作（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "planecut-callstack-keepbothhalves": {
+    "src": "/images/posts/planecut-callstack-keepbothhalves.webp",
+    "small": "/images/posts/planecut-callstack-keepbothhalves-small.webp",
+    "alt": "一对互补的几何切块同时保留并分开显示（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "probability-basics": {
+    "src": "/images/posts/probability-basics.webp",
+    "small": "/images/posts/probability-basics-small.webp",
+    "alt": "彩色小球穿过钉阵形成概率分布（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "skincache-overview": {
+    "src": "/images/posts/skincache-overview.webp",
+    "small": "/images/posts/skincache-overview-small.webp",
+    "alt": "弯曲手臂的骨骼与缓存后的变形顶点并列（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "skincache-recompute-tangents": {
+    "src": "/images/posts/skincache-recompute-tangents.webp",
+    "small": "/images/posts/skincache-recompute-tangents-small.webp",
+    "alt": "弯曲三角网格表面的切线与法线方向（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "yotei-ambient-lighting": {
+    "src": "/images/posts/yotei-ambient-lighting.webp",
+    "small": "/images/posts/yotei-ambient-lighting-small.webp",
+    "alt": "山间亭廊与植被呈现柔和环境漫反射（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  },
+  "yotei-pipeline-flowchart": {
+    "src": "/images/posts/yotei-pipeline-flowchart.webp",
+    "small": "/images/posts/yotei-pipeline-flowchart-small.webp",
+    "alt": "山地场景的地形、雾与光照呈分层构图（主题概念插画）",
+    "width": 1440,
+    "height": 960
+  }
+}

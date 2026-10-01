@@ -4,11 +4,11 @@ import StudioFooter from '../components/StudioFooter.astro';
 import '../styles/studio.css';
 import '../styles/studio-content.css';
 import 'katex/dist/katex.min.css';
-const { title, desc, type='website', published, noindex=false, legacy=false }=Astro.props;
+const { title, desc, type='website', published, noindex=false, legacy=false, image, imageAlt }=Astro.props;
 const pageTitle=title?`${title} · 一帧之内`:'一帧之内 · Within One Frame';
 const pageDesc=desc||'Aaron Zhang 的技术笔记、交互实验与生活记录。Unreal Engine、实时渲染、角色与几何，以及工作之外的好奇心。';
 const canonical=new URL(Astro.url.pathname,Astro.site);
-const cover=new URL('/images/editorial/cover-atlas.webp',Astro.site);
+const cover=new URL(image||'/images/editorial/cover-atlas.webp',Astro.site);
 const isArticle=type==='article';
 ---
 <!doctype html>
@@ -21,7 +21,7 @@ const isArticle=type==='article';
   <meta property="og:type" content={isArticle?'article':'website'}/><meta property="og:title" content={pageTitle}/><meta property="og:description" content={pageDesc}/>
   {!noindex&&<meta property="og:url" content={canonical}/>}
   {isArticle&&published&&<meta property="article:published_time" content={new Date(published).toISOString()}/>}
-  <meta property="og:site_name" content="一帧之内 Within One Frame"/><meta property="og:image" content={cover}/><meta name="twitter:card" content="summary_large_image"/>
+  <meta property="og:site_name" content="一帧之内 Within One Frame"/><meta property="og:image" content={cover}/>{imageAlt&&<meta property="og:image:alt" content={imageAlt}/>}<meta name="twitter:image" content={cover}/><meta name="twitter:card" content="summary_large_image"/>
   <meta name="theme-color" content="#f8fafb"/>
 </head>
 <body class:list={['studio',{'studio-legacy':legacy}]} data-design="gallery-v1">

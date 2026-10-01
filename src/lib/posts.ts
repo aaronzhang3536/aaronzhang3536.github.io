@@ -1,5 +1,8 @@
 import {getCollection,type CollectionEntry} from 'astro:content';
 import {excerpt,plainText} from './text.mjs';
+import coverData from '../data/post-covers.json';
+const covers=coverData as Record<string,{src:string;small:string;alt:string;width:number;height:number}>;
+export const postCover=(post:Post)=>covers[post.id]||null;
 export type Post=CollectionEntry<'posts'>;
 export const categories=['UE 剖析','读渲染','AI 与认知','音乐与生活','基础知识'];
 export const kindLabels={all:'全部记录',tech:'技术笔记',life:'生活片段',play:'交互实验'};

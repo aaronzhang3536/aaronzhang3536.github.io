@@ -28,3 +28,9 @@ Cover design brief: three equal square compositions in one wide contact sheet wi
 ## Verification
 
 Run `npm run build`, `node --test scripts/tests/gallery-search.test.mjs`, and the repository test runner when available. Inspect home, index, long articles, embedded articles, search, play, About and existing applications at desktop and phone widths. Verify long TOC scrolling, native anchors, math/code/table overflow, filtering, view persistence, bookmarks and keyboard navigation.
+
+## Article-specific cover update · 2026-10-01
+
+All 23 current posts now have individually generated conceptual covers. `src/data/post-covers.json` maps the article ID to its full image, small variant and Chinese alternative text. `PostCover.astro` is shared by homepage recommendations, collection/category/tag cards, related posts and article headers; the same full image is used for Open Graph and Twitter previews. New posts without a registered cover show a neutral fallback, not a reused article image.
+
+Files: `public/images/posts/<article-id>.webp` (1440 × 960) and `<article-id>-small.webp` (480 × 320). Images use responsive source selection and below-the-fold lazy loading. The original three-scene atlas remains only for non-article section artwork. These are editorial illustrations, not engine screenshots or exact algorithm diagrams. The built-in image generator was used; final prompts are recorded in `public/images/posts/README.md`.
