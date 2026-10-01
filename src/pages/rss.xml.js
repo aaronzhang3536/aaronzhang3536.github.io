@@ -7,6 +7,7 @@ export async function GET(context) {
     title: '一帧之内 · Within One Frame',
     description: 'UE5 引擎剖析、实时渲染与角色技术笔记；也写深度学习、脑机接口，和管弦乐。',
     site: context.site,
+    customData: '<language>zh-CN</language>',
     items: posts.map((p) => ({
       title: p.data.title,
       pubDate: p.data.date,

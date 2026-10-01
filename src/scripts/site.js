@@ -7,9 +7,6 @@
     var CLOUD = '<path d="M4.6 9.8a2.9 2.9 0 1 1 .5-5.7 4 4 0 0 1 7.8 1.1 2.4 2.4 0 0 1-.9 4.6z"/>';
     var SUN = '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.4v1.8M8 12.8v1.8M1.4 8h1.8M12.8 8h1.8M3.3 3.3l1.3 1.3M11.4 11.4l1.3 1.3M12.7 3.3l-1.3 1.3M4.6 11.4l-1.3 1.3"/>';
     var icons = {
-      dark:  SVG + '<path d="M13.4 9.6A5.8 5.8 0 1 1 6.4 2.6a4.6 4.6 0 0 0 7 7z"/></svg>',
-      light: SVG + SUN + '</svg>',
-      wire:  SVG + '<path d="M3 5.5h7v7H3zM6 3h7v7h-7zM3 5.5 6 3M10 5.5 13 3M10 12.5 13 10M3 12.5 6 10"/></svg>',
       rain:  SVG + CLOUD + '<path d="M5.4 11.6l-.7 1.9M8.2 11.6l-.7 1.9M11 11.6l-.7 1.9"/></svg>',
       storm: SVG + CLOUD + '<path d="M8.6 10.6 7 12.9h2.1L7.5 15.4"/></svg>',
       wind:  SVG + '<path d="M1.8 5.2h6.7a1.7 1.7 0 1 0-1.7-1.7M1.8 8.3h9.8a1.7 1.7 0 1 1-1.7 1.7M1.8 11.4h4.6"/></svg>',
@@ -28,14 +25,21 @@
     var themeOrder = ['dark', 'light', 'wire'];
     var themeNames = { dark: 'DARK', light: 'LIGHT', wire: 'WIREFRAME' };
     var themeZh = { dark: '暗色', light: '亮色', wire: '线框' };
+    /* 主题只在用户明确选择（按钮 / 控制台命令）时才写入 yzzn-theme；
+       没选过就一直跟随系统 prefers-color-scheme（含运行中切换），与 Base.astro 防闪烁脚本一致 */
     var storedTheme = null;
     try { storedTheme = localStorage.getItem('yzzn-theme'); } catch (err) {}
-    var curTheme = storedTheme ||
-      (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    if (!themeNames.hasOwnProperty(storedTheme)) storedTheme = null;
+    var mqLight = window.matchMedia('(prefers-color-scheme: light)');
+    function sysTheme() { return mqLight && mqLight.matches ? 'light' : 'dark'; }
+    var curTheme = storedTheme || sysTheme();
     var lastLit = curTheme === 'wire' ? 'dark' : curTheme;
-    function setTheme(m) {
+    function setTheme(m, auto) {
       curTheme = m;
-      try { localStorage.setItem('yzzn-theme', m); } catch (err) {}
+      if (!auto) {
+        storedTheme = m;
+        try { localStorage.setItem('yzzn-theme', m); } catch (err) {}
+      }
       body.classList.toggle('vm-wire', m === 'wire');
       if (m !== 'wire') {
         document.documentElement.setAttribute('data-theme', m);
@@ -44,6 +48,13 @@
       var tl = '主题：' + themeZh[m] + '（点击切换）';
       btnTheme.title = tl;
       btnTheme.setAttribute('aria-label', tl);
+      bgSchedule();   /* 线框主题下背景图不可见（--bgimg:0），暂停拉图；离开线框再恢复 */
+    }
+    /* MediaQueryList 变化监听（老 Safari 只有 addListener） */
+    function onMQ(mq, fn) {
+      if (!mq) return;
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', fn);
+      else if (typeof mq.addListener === 'function') mq.addListener(fn);
     }
     /* 日月变形图标：只注入一次，形态由 data-theme 的 CSS 过渡驱动（Josh 式主题切换） */
     btnTheme.innerHTML =
@@ -59,9 +70,23 @@
     btnTheme.addEventListener('click', function () {
       setTheme(themeOrder[(themeOrder.indexOf(curTheme) + 1) % themeOrder.length]);
     });
-    setTheme(curTheme);
+    setTheme(curTheme, true);
+    onMQ(mqLight, function () {
+      if (!storedTheme) setTheme(sysTheme(), true);   /* 用户没选过：跟随系统实时切换 */
+    });
 
-    var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    /* 减少动态效果：运行中也会变化，各模块在 reducedHooks 里登记自己的开关 */
+    var mqReduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var reduced = !!(mqReduced && mqReduced.matches);
+    var reducedHooks = [];
+    onMQ(mqReduced, function () {
+      var r = !!mqReduced.matches;
+      if (r === reduced) return;
+      reduced = r;
+      reducedHooks.forEach(function (fn) { try { fn(); } catch (err) {} });
+    });
+    /* 不透明的 PIE 层盖住整页时（禅模式是透明层，不算），背后的天气/光标/背景图都看不见 */
+    function pieCovers() { return !!pieMode && pieMode !== 'zen'; }
 
     /* 控制台 */
     var cmd = document.getElementById('cmd');
@@ -73,7 +98,7 @@
       if (v.indexOf('weather') === 0) {
         var wm = v.slice(7).trim();
         if (!wm) echo.textContent = '用法：weather auto | rain | storm | wind | snow | sand | cloudy | fog | clear（auto=实时天气）';
-        else setWeather(wm, false);
+        else setWeather(wm, false, true);
         return;
       }
       if (v === 'bg' || v.indexOf('bg ') === 0) {
@@ -81,11 +106,12 @@
         if (ba === 'off') {
           bgOn = false;
           bgSave();
-          if (bgTimer) clearInterval(bgTimer);
+          bgSchedule();
           bgImgs.forEach(function (im) { im.classList.remove('show'); });
           echo.textContent = '背景图已关闭。';
         } else if (ba === 'on') {
-          bgOn = true; bgSave(); bgNext(); bgStart();
+          bgOn = true; bgSave();
+          if (bgVisible()) bgNext(); else bgSchedule();
           echo.textContent = '背景图已开启，每 ' + (bgInterval / 1000) + ' 秒刷新。';
         } else if (ba === 'next') {
           if (!bgOn) { echo.textContent = '背景图处于关闭状态，先执行 bg on。'; }
@@ -93,7 +119,7 @@
         } else if (/^\d+$/.test(ba)) {
           bgInterval = Math.max(5, parseInt(ba, 10)) * 1000;
           bgSave();
-          if (bgOn) bgStart();
+          bgSchedule();
           echo.textContent = '背景图刷新间隔已设为 ' + (bgInterval / 1000) + ' 秒。';
         } else {
           echo.textContent = '用法：bg on | off | next | <秒数>　当前：' +
@@ -145,19 +171,20 @@
     });
 
     /* ---------- 随机背景图 ----------
-       图源均为免 key 的公开随机图接口（已实测可用）：
-       - bing.img.run/rand.php       必应壁纸随机（约 300KB，速度快）
-       - api.dujin.org/bing/1920.php 必应壁纸随机镜像
-       - picsum.photos               随机摄影图（Fastly CDN） */
+       图源为免 key 的公开随机图接口：picsum.photos（Fastly CDN）。
+       原先的 bing.img.run（DNS 已失效）与 api.dujin.org（521）已移除；要加新源直接往数组里追加，
+       失败时按顺序换下一个源，单次最多 BG_MAX_TRIES 次。
+       只在「看得见」时拉图：bg off / 线框主题（--bgimg:0）/ 标签页隐藏 / 不透明 PIE 盖住时都不发请求；
+       减少动态效果时只取一张静态图，不轮换、不淡入淡出。 */
     var bgSrcs = [
-      function () { return 'https://bing.img.run/rand.php?t=' + Date.now(); },
-      function () { return 'https://api.dujin.org/bing/1920.php?t=' + Date.now(); },
       function () { return 'https://picsum.photos/1920/1080?t=' + Date.now(); }
     ];
+    var BG_MAX_TRIES = Math.max(2, bgSrcs.length);
     var bgPref = '';
     try { bgPref = localStorage.getItem('yzzn-bg') || ''; } catch (err) {}
     var bgImgs = [], bgCur = 0, bgTimer = null, bgOn = bgPref !== 'off';
     var bgInterval = (parseInt(bgPref, 10) || 60) * 1000, bgLoading = false;
+    var bgSrcIdx = 0, bgHasImage = false, bgLastT = 0;
     function bgSave() {
       try { localStorage.setItem('yzzn-bg', bgOn ? String(bgInterval / 1000) : 'off'); } catch (err) {}
     }
@@ -173,8 +200,15 @@
         layer.appendChild(im);
       }
     })();
+    /* 背景图此刻是否可能被看见（线框主题把 --bgimg 置 0） */
+    function bgVisible() {
+      if (!bgOn) return false;
+      var v = parseFloat(getComputedStyle(body).getPropertyValue('--bgimg'));
+      return !(v === 0);
+    }
     function bgNext() {
       if (bgLoading) return;
+      if (bgTimer) { clearTimeout(bgTimer); bgTimer = null; }
       bgLoading = true;
       var idle = bgImgs[1 - bgCur], tries = 0;
       (function attempt() {
@@ -183,20 +217,33 @@
           if (bgOn) idle.classList.add('show');
           bgCur = 1 - bgCur;
           bgLoading = false;
+          bgHasImage = true;
+          bgLastT = Date.now();
+          bgSchedule();
         };
         idle.onerror = function () {
-          if (++tries < bgSrcs.length) attempt();   /* 换一个源重试 */
-          else bgLoading = false;
+          bgSrcIdx = (bgSrcIdx + 1) % bgSrcs.length;   /* 确定性地换下一个源 */
+          if (++tries < BG_MAX_TRIES) { attempt(); return; }
+          bgLoading = false;
+          bgLastT = Date.now();                        /* 全部失败：等一个完整间隔再试 */
+          bgSchedule();
         };
-        idle.src = bgSrcs[Math.floor(Math.random() * bgSrcs.length)]();
+        idle.src = bgSrcs[bgSrcIdx % bgSrcs.length]();
       })();
     }
-    function bgStart() {
-      if (bgTimer) clearInterval(bgTimer);
-      bgTimer = setInterval(bgNext, bgInterval);
+    /* 统一调度：主题、可见性、PIE、减少动态效果、bg 命令变化时都调用它 */
+    function bgSchedule() {
+      if (!bgImgs || !bgImgs.length) return;   /* 模块尚未初始化（setTheme 首次调用早于本段） */
+      if (bgTimer) { clearTimeout(bgTimer); bgTimer = null; }
+      bgImgs.forEach(function (im) { im.style.transition = reduced ? 'none' : ''; });
+      if (bgLoading || !bgVisible() || document.hidden || pieCovers()) return;
+      if (bgHasImage && reduced) return;       /* 减少动态效果：保留当前这张，不轮换 */
+      var wait = bgLastT ? Math.max(0, bgInterval - (Date.now() - bgLastT)) : 0;
+      bgTimer = setTimeout(function () { bgTimer = null; bgNext(); }, wait);
     }
-    bgNext();
-    bgStart();
+    bgSchedule();
+    document.addEventListener('visibilitychange', bgSchedule);
+    reducedHooks.push(bgSchedule);
 
     /* ---------- 天气系统 ---------- */
     var wxLoad = 0;
@@ -483,12 +530,18 @@
       g.beginPath(); g.arc(hx - 0.2, hy - 1, 0.6, 0, 6.2832); g.fill();
       g.fillStyle = cat.ear; g.beginPath(); g.arc(hx + 2.5, hy + 2.5, 1, 0, 6.2832); g.fill();   /* 鼻子粉 */
     }
-    function wxResize() {
+    var wxDpr = 0;
+    function wxResize(force) {
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      wxW = window.innerWidth; wxH = window.innerHeight;
+      var nw = window.innerWidth, nh = window.innerHeight;
+      if (!force && nw === wxW && nh === wxH && dpr === wxDpr) return;
+      /* 宽度 / DPR 变化或高度大幅变化才重建场景；手机地址栏伸缩这类小幅高度变化
+         只调整画布尺寸，保留雨雪粒子、积雪、积水和草地 */
+      var rebuild = force || nw !== wxW || dpr !== wxDpr || Math.abs(nh - wxH) > Math.max(160, wxH * 0.25);
+      wxW = nw; wxH = nh; wxDpr = dpr;
       wxCvs.width = wxW * dpr; wxCvs.height = wxH * dpr;
       wxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      wxBuild();
+      if (rebuild) wxBuild();
     }
     function wxBuild() {
       wxParts = []; wxLeaves = [];
@@ -737,24 +790,42 @@
         }, function (e) { clearTimeout(to); reject(e); });
       });
     }
-    function wxLocate() {
+    /* 定位权限是否已授予：只有已授权（或用户亲手切到「实时」）才调浏览器定位，
+       避免任意页面加载时无手势弹出定位授权框 */
+    function wxGeoGranted() {
+      return new Promise(function (resolve) {
+        try {
+          var pq = navigator.permissions && navigator.permissions.query &&
+            navigator.permissions.query({ name: 'geolocation' });
+          if (pq && typeof pq.then === 'function') {
+            pq.then(function (st) { resolve(!!st && st.state === 'granted'); }, function () { resolve(false); });
+            return;
+          }
+        } catch (e) {}
+        resolve(false);
+      });
+    }
+    function wxLocate(allowPrompt) {
       return new Promise(function (resolve) {
         var done = false;
         function ok(lat, lon, name) { if (!done) { done = true; resolve({ lat: lat, lon: lon, name: name }); } }
-        if (navigator.geolocation) {
-          try {
-            navigator.geolocation.getCurrentPosition(function (p) {
-              ok(p.coords.latitude, p.coords.longitude, null);
-            }, function () {}, { timeout: 3200, maximumAge: 600000 });
-          } catch (e) {}
-        }
-        setTimeout(function () {                       /* 定位拿不到就走 IP，再不行用默认坐标 */
+        function viaIP() {                             /* 定位拿不到就走 IP，再不行用默认坐标 */
           if (done) return;
           wxFetchJSON('https://ipwho.is/', 5000).then(function (j) {
             if (j && typeof j.latitude === 'number') ok(j.latitude, j.longitude, j.city || null);
             else ok(39.904, 116.407, '北京');
           }, function () { ok(39.904, 116.407, '北京'); });
-        }, 3400);
+        }
+        if (!navigator.geolocation) { viaIP(); return; }
+        (allowPrompt ? Promise.resolve(true) : wxGeoGranted()).then(function (useGeo) {
+          if (!useGeo) { viaIP(); return; }
+          try {
+            navigator.geolocation.getCurrentPosition(function (p) {
+              ok(p.coords.latitude, p.coords.longitude, null);
+            }, viaIP, { timeout: 3200, maximumAge: 600000 });
+          } catch (e) {}
+          setTimeout(viaIP, 3400);
+        });
       });
     }
     function wxPlaceName(lat, lon) {
@@ -763,18 +834,31 @@
         .then(function (j) { return (j && (j.city || j.locality || j.principalSubdivision)) || '本地'; },
           function () { return '本地'; });
     }
+    var wxVisualSet = false;   /* setVisual 至少执行过一次 */
+    var wxHeld = false;        /* 茶歇临时接管了天气画面：实时天气只更新信息，不改画面 */
     function wxApplyLive(info, fromCache) {
       if (wxSel !== 'auto') return;
       wxLiveInfo = info;
       var mode = wmoToMode(info.code, info.wind, info.cloud);
       /* 叠加层由真实数据驱动：云量 / 昼夜 / 湿度→近地雾 */
-      wxNight = info.day === 0;
-      wxCloudDensity = (typeof info.cloud === 'number') ? info.cloud / 100
+      var night = info.day === 0;
+      var cloud = (typeof info.cloud === 'number') ? info.cloud / 100
         : (OVERLAY_DEF[mode] != null ? OVERLAY_DEF[mode] : 0);
-      wxMist = mode === 'fog' ? 1
+      var mist = mode === 'fog' ? 1
         : ((typeof info.hum === 'number' && info.hum >= 88 && (mode === 'clear' || mode === 'cloudy'))
           ? Math.min(1, (info.hum - 88) / 12) : 0);
-      setVisual(mode, true);
+      if (!wxHeld) {
+        if (wxVisualSet && mode === wxMode) {
+          /* 天气类型没变（如切回标签页时重放缓存）：不重建场景、不重置积雪/积水/草地、不重启环境音；
+             只有昼夜或云量档（10% 一档）变化时才重排天空层 */
+          var skyChanged = night !== wxNight || Math.round(cloud * 10) !== Math.round(wxCloudDensity * 10);
+          wxNight = night; wxCloudDensity = cloud; wxMist = mist;
+          if (skyChanged) skyBuild();
+        } else {
+          wxNight = night; wxCloudDensity = cloud; wxMist = mist;
+          setVisual(mode, true);
+        }
+      }
       var label = '实时天气：' + (info.name || '本地') + ' ' + wmoDesc(info.code) + ' ' + info.temp + '°C' +
         (typeof info.hum === 'number' ? ' · 湿度' + info.hum + '%' : '') +
         (typeof info.cloud === 'number' ? ' · 云量' + info.cloud + '%' : '') +
@@ -783,12 +867,12 @@
       btnWx.title = label;
       btnWx.setAttribute('aria-label', label);
     }
-    function wxRefreshLive(force, quiet) {
+    function wxRefreshLive(force, quiet, byUser) {
       var cached = null;
       try { cached = JSON.parse(localStorage.getItem('yzzn-wx-live') || 'null'); } catch (e) { cached = null; }
       if (cached && typeof cached.code === 'number') wxApplyLive(cached, true);
       if (!force && cached && typeof cached.t === 'number' && Date.now() - cached.t < WX_LIVE_TTL) return;
-      wxLocate().then(function (pos) {
+      wxLocate(!!byUser).then(function (pos) {
         var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + pos.lat.toFixed(3) +
           '&longitude=' + pos.lon.toFixed(3) +
           '&current=temperature_2m,weather_code,wind_speed_10m,is_day,relative_humidity_2m,cloud_cover';
@@ -831,11 +915,13 @@
       wxLoad = wxLoadMap[m];
       bolts = null; wxFlashEl.style.opacity = '0';
       nextBolt = performance.now() + 2500;
+      wxVisualSet = true;
       wxBuild();
       wxRefreshColors();
       sndSet(m);
     }
-    function setWeather(m, silent) {
+    /* byUser：用户亲手切换（按钮 / 控制台），此时才允许弹定位授权 */
+    function setWeather(m, silent, byUser) {
       if (m !== 'auto' && !(m in wxLoadMap)) {
         echo.textContent = "未知天气 '" + m + "'。可选：auto rain storm wind snow sand cloudy fog clear";
         return;
@@ -852,8 +938,9 @@
         var wl0 = '实时天气获取中…（点击切换）';
         btnWx.title = wl0; btnWx.setAttribute('aria-label', wl0);
         if (!silent) echo.textContent = '天气切换：实时（跟随本地天气）';
-        wxRefreshLive(false, silent);
-        wxLiveTimer = setInterval(function () { wxRefreshLive(true, true); }, WX_LIVE_TTL);
+        wxRefreshLive(false, silent, byUser);
+        /* 后台标签页不刷新（回到前台时 visibilitychange 会按缓存时效补一次） */
+        wxLiveTimer = setInterval(function () { if (!document.hidden) wxRefreshLive(true, true); }, WX_LIVE_TTL);
         return;
       }
       wxLiveInfo = null;
@@ -865,7 +952,7 @@
     }
     btnWx.addEventListener('click', function () {
       var next = wxOrder[(wxOrder.indexOf(wxSel) + 1) % wxOrder.length];
-      setWeather(next, true);
+      setWeather(next, true, true);
     });
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden && wxSel === 'auto' && !reduced) wxRefreshLive(false, true);
@@ -876,6 +963,7 @@
     var sndOn = false;
     try { sndOn = localStorage.getItem('yzzn-snd') === '1'; } catch (err) {}
     var AC = null, sndNoise = null, sndStopFn = null, sndMode = 'clear';
+    var sndHold = false;   /* 茶歇关掉雨声时暂停环境音，退出茶歇后恢复 */
 
     function sndCtx() {
       if (!AC) {
@@ -903,7 +991,7 @@
     /* 每种天气一套合成配方：噪声源 + 滤波 + 缓慢 LFO */
     function sndBuild(mode) {
       sndStop();
-      if (mode === 'clear' || mode === 'cloudy' || mode === 'fog' || !sndOn) return;
+      if (mode === 'clear' || mode === 'cloudy' || mode === 'fog' || !sndOn || sndHold) return;
       var ctx = sndCtx();
       var master = ctx.createGain();
       master.gain.value = 0;
@@ -963,8 +1051,10 @@
       sndRefreshBtn();
     }
     function sndSet(mode) {
+      /* 声音配方没变且正在响就不重建（避免 0.5 s 淡出 + 1.2 s 淡入的无谓重启） */
+      var changed = mode !== sndMode;
       sndMode = mode;
-      if (sndOn && AC) sndBuild(mode);
+      if (sndOn && AC && (changed || !sndStopFn)) sndBuild(mode);
     }
     /* 雷声：随机远近的多层合成 —— 炸裂声 + 主体轰鸣 + 次声滚雷 + 回滚，近雷震屏 */
     function thunder(strikes) {
@@ -1061,11 +1151,24 @@
       document.addEventListener('keydown', sndArm);
     }
 
-    if (reduced) {
+    /* 天气层生命周期：减少动态效果时不创建；运行中切换也跟着开关。
+       rAF 循环只在看得见时跑——标签页隐藏、不透明 PIE 盖住整页时停表，条件恢复时 wxWake 重新拉起 */
+    var wxInited = false, wxRunning = false, wxPrev = 0, wxRzPend = 0;
+    function wxShouldRun() { return wxInited && !reduced && !document.hidden && !pieCovers(); }
+    function wxWake() {
+      if (wxRunning || !wxShouldRun()) return;
+      wxRunning = true;
+      wxPrev = performance.now();
+      requestAnimationFrame(wxLoop);
+    }
+    function wxOffIcon() {
       btnWx.innerHTML = icons.off;
       btnWx.title = '天气特效已停用（系统开启了减少动态效果）';
       btnWx.setAttribute('aria-label', btnWx.title);
-    } else {
+    }
+    function wxInit() {
+      if (wxInited) return;
+      wxInited = true;
       wxCvs = document.createElement('canvas');
       wxCvs.id = 'wx-canvas';
       wxCvs.setAttribute('aria-hidden', 'true');
@@ -1075,20 +1178,41 @@
       wxFlashEl.id = 'wx-flash';
       wxFlashEl.setAttribute('aria-hidden', 'true');
       document.body.appendChild(wxFlashEl);
-      window.addEventListener('resize', wxResize);
+      window.addEventListener('resize', function () {   /* 每帧最多处理一次 */
+        if (wxRzPend) return;
+        wxRzPend = requestAnimationFrame(function () { wxRzPend = 0; wxResize(false); });
+      });
       document.addEventListener('mousemove', function (e) { wxMX = e.clientX; wxMY = e.clientY; });
       document.documentElement.addEventListener('mouseleave', function () { wxMX = -9999; wxMY = -9999; });
-      wxResize();
+      wxResize(true);
       wxRefreshColors();
       wxCritter = makeCritter();
       var storedWx = null;
       try { storedWx = localStorage.getItem('yzzn-wx'); } catch (err) {}
       setWeather(storedWx && (storedWx === 'auto' || wxLoadMap.hasOwnProperty(storedWx)) ? storedWx : 'rain', true);
+      wxWake();
+    }
+    function wxReducedSync() {
+      if (reduced) {
+        if (wxLiveTimer) { clearInterval(wxLiveTimer); wxLiveTimer = null; }
+        if (wxCvs) { wxCvs.style.display = 'none'; wxFlashEl.style.opacity = '0'; bolts = null; }
+        wxOffIcon();
+      } else if (!wxInited) {
+        wxInit();
+      } else {
+        wxCvs.style.display = '';
+        setWeather(wxSel, true);
+        wxWake();
+      }
+    }
+    if (reduced) wxOffIcon(); else wxInit();
+    reducedHooks.push(wxReducedSync);
+    document.addEventListener('visibilitychange', wxWake);
 
-      var wxPrev = 0;
-      (function wxLoop(ts) {
+    function wxLoop(ts) {
+        if (!wxShouldRun()) { wxRunning = false; return; }
         requestAnimationFrame(wxLoop);
-        var dt = Math.min((ts - wxPrev) / 1000, 0.05);
+        var dt = Math.min(Math.max(0, ts - wxPrev) / 1000, 0.05);
         wxPrev = ts;
         wxT += dt;
         if (++wxColorTick % 45 === 0) wxRefreshColors();  /* 跟随主题/视图模式换色 */
@@ -1363,11 +1487,10 @@
         }
         drawMist(dt);
         wxDrawCritter(dt);
-      })(0);
     }
 
     /* ---------- PIE 娱乐区框架 ---------- */
-    var GM = {};   /* 各 GameMode 在下方注册：{ bp, zh, incognito?, start(stage) -> cleanup } */
+    var GM = {};   /* 各 GameMode 在下方注册：{ zh, incognito?, start(stage) -> cleanup } */
     var pieEl = document.getElementById('pie');
     var pieStage = document.getElementById('pie-stage');
     var pieTitleEl = document.getElementById('pie-title');
@@ -1375,13 +1498,38 @@
     var pieMenu = document.getElementById('pie-menu');
     var pieMode = null, pieCleanup = null;
     var pieEscHook = null;   /* 模式可拦截 Esc（如游戏厅内先返回大厅） */
+    var pieReturnFocus = null;   /* 退出 PIE 后把焦点还给谁 */
+    var fxWakeHook = null;       /* 光标特效模块（仅精确指针设备）登记的唤醒函数 */
+    pieEl.setAttribute('tabindex', '-1');   /* aria-modal 对话框本身可接收焦点 */
 
+    /* PIE 盖住 / 露出页面时：天气、背景图、光标特效按需停表或恢复 */
+    function pieCoverChanged() {
+      wxWake();
+      bgSchedule();
+      if (fxWakeHook) fxWakeHook();
+    }
+    function pieFocusables() {
+      return Array.prototype.filter.call(
+        pieEl.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+        function (el) { return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length); });
+    }
+    /* 焦点丢在层外（内容被整块替换时常见）就拉回对话框本身 */
+    function pieKeepFocus() {
+      if (pieMode && !pieEl.contains(document.activeElement)) {
+        try { pieEl.focus({ preventScroll: true }); } catch (err) {}
+      }
+    }
     function enterPie(m) {
       if (!GM[m]) {
         echo.textContent = "未知 GameMode '" + m + "'。可选：arcade tea workout idle zen";
         return;
       }
-      exitPie(true);
+      if (!pieMode) {
+        var a = document.activeElement;
+        if (a && pieMenu.contains(a)) a = btnPie;   /* 从菜单进入：退出后回到 ▶ 按钮 */
+        pieReturnFocus = (a && a !== body && a !== document.documentElement) ? a : null;
+      }
+      exitPie(true, true);
       pieMode = m;
       body.classList.add('pie-on');
       pieEl.classList.add('on');
@@ -1389,8 +1537,10 @@
       pieEl.classList.toggle('incognito', !!GM[m].incognito);
       pieTitleEl.textContent = '▶ ' + GM[m].zh;
       pieCleanup = GM[m].start(pieStage) || null;
+      pieKeepFocus();
+      pieCoverChanged();
     }
-    function exitPie(silent) {
+    function exitPie(silent, switching) {
       if (!pieMode) return;
       if (pieCleanup) { try { pieCleanup(); } catch (err) {} }
       pieCleanup = null;
@@ -1401,38 +1551,100 @@
       var name = GM[pieMode].zh;
       pieMode = null;
       if (!silent) echo.textContent = '已退出「' + name + '」。';
+      if (switching) return;
+      var rf = pieReturnFocus;
+      pieReturnFocus = null;
+      if (rf && rf.isConnected && typeof rf.focus === 'function') {
+        try { rf.focus({ preventScroll: true }); } catch (err) {}
+      }
+      pieCoverChanged();
+    }
+    /* 焦点陷阱：PIE 打开时 Tab / Shift+Tab 只在层内循环 */
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab' || !pieMode) return;
+      var f = pieFocusables();
+      var act = document.activeElement;
+      if (!f.length) { e.preventDefault(); pieKeepFocus(); return; }
+      var first = f[0], last = f[f.length - 1];
+      if (!pieEl.contains(act) || act === pieEl) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+      else if (e.shiftKey && act === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && act === last) { e.preventDefault(); first.focus(); }
+    });
+
+    /* 娱乐区菜单：菜单按钮模式（↑↓/Home/End 移动，Enter/空格进入，Esc 关闭并回到按钮，Tab 离开即关闭） */
+    var gmItems = Array.prototype.slice.call(pieMenu.querySelectorAll('.gm'));
+    gmItems.forEach(function (it) { if (!it.hasAttribute('tabindex')) it.setAttribute('tabindex', '-1'); });
+    function menuIsOpen() { return pieMenu.classList.contains('open'); }
+    function menuOpen(focusIdx) {
+      pieMenu.classList.add('open');
+      btnPie.setAttribute('aria-expanded', 'true');
+      if (focusIdx != null && gmItems.length) gmItems[(focusIdx + gmItems.length) % gmItems.length].focus();
+    }
+    function menuClose(refocus) {
+      if (!menuIsOpen()) return;
+      pieMenu.classList.remove('open');
+      btnPie.setAttribute('aria-expanded', 'false');
+      if (refocus) btnPie.focus();
     }
     btnPie.addEventListener('click', function (e) {
       e.stopPropagation();
-      var open = pieMenu.classList.toggle('open');
-      btnPie.setAttribute('aria-expanded', String(open));
+      if (menuIsOpen()) menuClose(false);
+      else menuOpen(e.detail === 0 ? 0 : null);   /* 键盘触发（detail=0）时焦点进入第一项 */
+    });
+    btnPie.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        menuOpen(e.key === 'ArrowDown' ? 0 : -1);
+      }
+    });
+    pieMenu.addEventListener('keydown', function (e) {
+      var i = gmItems.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        var n = gmItems.length;
+        gmItems[((i < 0 ? (e.key === 'ArrowDown' ? -1 : 0) : i) + (e.key === 'ArrowDown' ? 1 : -1) + n) % n].focus();
+      } else if (e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        gmItems[e.key === 'Home' ? 0 : gmItems.length - 1].focus();
+      } else if ((e.key === 'Enter' || e.key === ' ') && i >= 0) {
+        e.preventDefault();
+        gmItems[i].click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        menuClose(true);
+      } else if (e.key === 'Tab') {
+        menuClose(false);
+      }
     });
     document.addEventListener('click', function (e) {
-      if (!e.target.closest('#pie-menu')) {
-        pieMenu.classList.remove('open');
-        btnPie.setAttribute('aria-expanded', 'false');
-      }
+      if (!e.target.closest('#pie-menu')) menuClose(false);
     });
     pieMenu.addEventListener('click', function (e) {
       var it = e.target.closest('.gm');
       if (!it) return;
-      pieMenu.classList.remove('open');
+      menuClose(false);
       enterPie(it.getAttribute('data-gm'));
     });
     document.getElementById('pie-exit').addEventListener('click', function () { exitPie(false); });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && pieMode) {
+      if (e.key !== 'Escape') return;
+      if (pieMode) {
         if (pieEscHook && pieEscHook()) return;
         exitPie(false);
+      } else if (menuIsOpen()) {
+        menuClose(pieMenu.contains(document.activeElement));
       }
     });
 
     /* ---------- GameMode: 茶歇 · 烘焙光照 ---------- */
     GM.tea = {
-      bp: 'TeaBreak', zh: '茶歇 · 烘焙光照',
+      zh: '茶歇 · 烘焙光照',
       start: function (stage) {
         var prevWx = wxSel;
-        if (!reduced && wxMode !== 'rain') setVisual('rain');   /* 只切视觉，不覆盖用户的天气偏好 */
+        if (!reduced) {
+          if (wxMode !== 'rain') setVisual('rain');   /* 只切视觉，不覆盖用户的天气偏好 */
+          wxHeld = true;                             /* 茶歇期间实时天气刷新不改回画面 */
+        }
         stage.innerHTML =
           '<div class="pie-panel">' +
             '<h3 id="tea-h">Building Lighting…</h3>' +
@@ -1458,8 +1670,16 @@
           s = Math.max(0, Math.ceil(s));
           return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
         }
+        /* 环境音开着时，切到雨天后它本身就在放雨声：直接复用，不再叠第二层雨 */
+        function ambientRain() { return sndOn && sndMode === 'rain'; }
         function startRainSound() {
-          if (audio || !soundOn) return;
+          if (!soundOn) return;
+          if (ambientRain()) {
+            sndHold = false;
+            if (!sndStopFn) { sndCtx(); sndBuild('rain'); }
+            return;
+          }
+          if (audio) return;
           try {
             var AC = window.AudioContext || window.webkitAudioContext;
             var ctx = new AC();
@@ -1491,8 +1711,13 @@
         q('#tea-sound').addEventListener('click', function () {
           soundOn = !soundOn;
           this.textContent = '雨声：' + (soundOn ? '开' : '关');
-          if (!soundOn) stopRainSound();
-          else if (running) startRainSound();
+          if (!soundOn) {
+            stopRainSound();
+            if (ambientRain()) { sndHold = true; sndStop(); }   /* 雨声来自环境音：一并静音 */
+          } else {
+            if (sndHold) { sndHold = false; if (AC) sndBuild(sndMode); }
+            if (running) startRainSound();
+          }
         });
         q('#tea-go').addEventListener('click', function () {
           if (running) return;
@@ -1524,7 +1749,11 @@
           if (timer) clearInterval(timer);
           stopRainSound();
           document.title = SITE_TITLE0;
+          wxHeld = false;
+          var wasHeld = sndHold;
+          sndHold = false;
           if (!reduced && (wxSel !== prevWx || wxMode !== prevWx)) setWeather(prevWx, true);
+          if (wasHeld && sndOn && AC && !sndStopFn) sndBuild(sndMode);
         };
       }
     };
@@ -1532,6 +1761,10 @@
     /* ---------- 摸鱼 · WebGPU 写实鱼缸（glTF 模型 + PBR-lite + 假 GI） ---------- */
     function fishTankGPU(stage) {
       var dead = false, innerCleanup = null, raf = null;
+      var gpuDevice = null;   /* 每次进入都会新建 GPUDevice：退出 / 中途放弃 / 出错时都要销毁 */
+      function releaseDevice() {
+        if (gpuDevice) { try { gpuDevice.destroy(); } catch (err) {} gpuDevice = null; }
+      }
       var W = Math.min(840, window.innerWidth - 60);
       var H = Math.min(470, window.innerHeight - 230);
       var touched = 0;
@@ -1608,7 +1841,9 @@
             if (adapter) device = await adapter.requestDevice();
           }
         } catch (err) { device = null; }
-        if (!device || dead) { fallback(); return; }
+        gpuDevice = device;
+        if (dead) { releaseDevice(); return; }   /* 初始化期间已退出 */
+        if (!device) { fallback(); return; }
         try {
 
         var ctx = cvs.getContext('webgpu');
@@ -1958,7 +2193,7 @@
         try { fishMesh = await loadFishGLB(); } catch (err) { fishMesh = null; }
         var procFish = !fishMesh;
         if (!fishMesh) fishMesh = buildFishProc();
-        if (dead) return;
+        if (dead) { releaseDevice(); return; }
 
         function buildRibbon() {
           var SEG = 9, w = 0.09, pos = [], nrm = [], us = [], idx = [];
@@ -2385,17 +2620,20 @@
           cvs.removeEventListener('contextmenu', onCtx);
           try { depthTex.destroy(); } catch (err) {}
         };
+        if (dead) innerCleanup();
         } catch (err) { fallback(); }
+        if (dead || !innerCleanup) releaseDevice();   /* 出错降级或已退出：设备不再有用 */
       })();
 
       return function cleanup() {
         dead = true;
         if (innerCleanup) innerCleanup();
+        releaseDevice();
       };
     }
 
     GM.idle = {
-      bp: 'Idle', zh: '摸鱼 · 3D 鱼缸',
+      zh: '摸鱼 · 3D 鱼缸',
       start: function (stage) {
         return fishTankGPU(stage);
       }
@@ -3445,7 +3683,7 @@
 
     /* ---------- 棋盘 · 井字棋 ---------- */
     function tttGame(stage) {
-      var board, myTurn, over, w = 0, l = 0, d = 0;
+      var board, myTurn, over, w = 0, l = 0, d = 0, aiT = null;
       stage.innerHTML =
         '<div style="text-align:center;">' +
           '<div class="mono" id="tt-s" style="font-size:12px; color:var(--ink2); margin-bottom:10px;"></div>' +
@@ -3501,7 +3739,8 @@
         if (wnr) { render(); finish(wnr); return; }
         myTurn = false;
         render();
-        setTimeout(function () {
+        aiT = setTimeout(function () {
+          aiT = null;
           var mv = minimax(board.slice(), true);
           board[mv.i] = 'O';
           myTurn = true;
@@ -3529,7 +3768,7 @@
       }
       stat();
       reset();
-      return null;
+      return function () { if (aiT) { clearTimeout(aiT); aiT = null; } };
     }
 
     /* ---------- 棋盘 · 五子棋 ---------- */
@@ -3538,7 +3777,7 @@
       var W = PAD * 2 + (N - 1) * cell;
       var u = arcUI(stage, W, W, '你执黑先手 · 连成五子获胜 · 点击落子');
       var C = pal();
-      var board, over, thinking;
+      var board, over, thinking, aiT = null;
       var DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
       function at(r, c) { return (r < 0 || c < 0 || r >= N || c >= N) ? -1 : board[r * N + c]; }
       function runLen(r, c, dr, dc, who) {
@@ -3624,7 +3863,8 @@
         draw();
         if (winAt(r, c, 1)) { over = true; u.msg.textContent = '⚫ 你赢了！— 点击再来'; return; }
         thinking = true;
-        setTimeout(function () {
+        aiT = setTimeout(function () {
+          aiT = null;
           var i = aiMove();
           board[i] = 2;
           thinking = false;
@@ -3635,7 +3875,10 @@
       u.cvs.addEventListener('click', onClick);
       u.s.textContent = '⚫ 你'; u.hb.textContent = 'AI 🟠';
       reset();
-      return function () { u.cvs.removeEventListener('click', onClick); };
+      return function () {
+        u.cvs.removeEventListener('click', onClick);
+        if (aiT) { clearTimeout(aiT); aiT = null; }
+      };
     }
 
     /* ---------- 益智 · 迷宫 ---------- */
@@ -3885,6 +4128,7 @@
     /* ---------- 游戏厅 · 游戏 1：能量收集站 ---------- */
     /* 彩纸庆祝：从宿主元素底部两角向上喷彩纸 */
     function confettiBurst(host) {
+      if (reduced) return;   /* 减少动态效果：不放彩纸 */
       var rect = host.getBoundingClientRect();
       var PAD = 90;
       var w = rect.width + PAD * 2, h = rect.height + PAD * 2;
@@ -3977,7 +4221,7 @@
         sampleColors();
 
         var hi = 0;
-        try { hi = parseInt(localStorage.getItem('yzzn-arcade-hi') || '0', 10); } catch (err) {}
+        hi = hiGet('yzzn-arcade-hi');
         var px, acc, score, lives, blocks, spawnT, over, shakeT, flashT, submitT, tick = 0;
         var keys = {}, raf = null, prev = 0;
         var PW = 132, PH = 34;
@@ -4051,7 +4295,7 @@
                     over = true;
                     if (score > hi) {
                       hi = score;
-                      try { localStorage.setItem('yzzn-arcade-hi', String(hi)); } catch (err) {}
+                      hiSet('yzzn-arcade-hi', hi);
                     }
                   }
                 } else if (acc >= SUBMIT) {
@@ -4149,7 +4393,7 @@
       var BUGS = ['空指针', '越界', '竞态', '内存泄漏', 'off-by-one', '死锁'];
       var FEATS = ['需求', 'feature'];
       var hi = 0;
-      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      hi = hiGet(HIKEY);
       stage.innerHTML =
         '<div style="text-align:center;">' +
           '<div class="mono" style="display:flex; justify-content:space-between; width:min(430px,90vw); margin:0 auto 10px; font-size:12px; color:var(--ink2);">' +
@@ -4204,7 +4448,7 @@
         for (var i = 0; i < 12; i++) clearCell(i);
         if (score > hi) {
           hi = score;
-          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+          hiSet(HIKEY, hi);
           q('#bw-hi').textContent = 'HI ' + hi;
         }
         q('#bw-go').textContent = '再来一局（' + score + ' 分）';
@@ -4239,7 +4483,7 @@
         'groupshared', 'InterlockedAdd', 'RWTexture2D', 'SV_Position'
       ];
       var hi = 0;
-      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      hi = hiGet(HIKEY);
       stage.innerHTML =
         '<div style="text-align:center;">' +
           '<div class="mono" style="display:flex; justify-content:space-between; width:min(560px,90vw); margin:0 auto 10px; font-size:12px; color:var(--ink2);">' +
@@ -4264,7 +4508,7 @@
         input.disabled = true;
         if (score > hi) {
           hi = score;
-          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+          hiSet(HIKEY, hi);
           q('#ty-hi').textContent = 'HI ' + hi;
         }
         q('#ty-msg').textContent = '编译失败！得分 ' + score + ' — 点击输入框上方区域重开';
@@ -4336,7 +4580,7 @@
       var HIKEY = 'yzzn-arc-tex2048';
       var LBL = { 256: '256', 512: '512', 1024: '1K', 2048: '2K', 4096: '4K', 8192: '8K', 16384: '16K' };
       var hi = 0;
-      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      hi = hiGet(HIKEY);
       stage.innerHTML =
         '<div style="text-align:center;">' +
           '<div class="mono" style="display:flex; justify-content:space-between; width:min(340px,86vw); margin:0 auto 10px; font-size:12px; color:var(--ink2);">' +
@@ -4375,7 +4619,7 @@
         q('#t2-score').textContent = 'SCORE ' + score;
         if (score > hi) {
           hi = score;
-          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+          hiSet(HIKEY, hi);
           q('#t2-hi').textContent = 'HI ' + hi;
         }
       }
@@ -4441,7 +4685,7 @@
       }
       function bestKey(s) { return 'yzzn-arc-jig' + s; }
       function getBest(s) {
-        try { return parseInt(localStorage.getItem(bestKey(s)) || '0', 10); } catch (err) { return 0; }
+        return hiGet(bestKey(s));
       }
       function fmtT(s) { return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
       function stopTimers() { timers.forEach(clearInterval); timers = []; }
@@ -4592,7 +4836,7 @@
           confettiBurst(b.parentNode);
           var bs = getBest(size);
           var isBest = !bs || sec < bs;
-          if (isBest) { try { localStorage.setItem(bestKey(size), String(sec)); } catch (err) {} }
+          if (isBest) hiSet(bestKey(size), sec);
           q('#jg-msg').textContent =
             '✓ 拼好了！' + size + '×' + size + ' · 用时 ' + fmtT(sec) + ' · ' + moves + ' 步' + (isBest ? ' · 新纪录！' : '');
         }
@@ -4639,7 +4883,7 @@
       var HIKEY = 'yzzn-arc-nback';
       var LETTERS = 'BCDFGHKMPRSTX';
       var hi = 0;
-      try { hi = parseInt(localStorage.getItem(HIKEY) || '0', 10); } catch (err) {}
+      hi = hiGet(HIKEY);
       var N = 2, timers = [], seq = [], idx = -1, responded = false;
       var hits = 0, misses = 0, fa = 0, running = false;
       function setup() {
@@ -4711,7 +4955,7 @@
         var acc = Math.max(0, Math.round((hits + correctRej) / total * 100));
         if (acc > hi) {
           hi = acc;
-          try { localStorage.setItem(HIKEY, String(hi)); } catch (err) {}
+          hiSet(HIKEY, hi);
         }
         stage.innerHTML =
           '<div class="pie-panel" style="text-align:center;">' +
@@ -5649,23 +5893,22 @@
       music: ['音乐', '--c-life']
     };
     function arcHiOf(g) {
-      if (!g.hiKey) return 0;
-      try { return parseInt(localStorage.getItem(g.hiKey) || '0', 10); } catch (err) { return 0; }
+      return g.hiKey ? hiGet(g.hiKey) : 0;
     }
     GM.arcade = {
-      bp: 'Arcade', zh: '游戏厅',
+      zh: '游戏厅',
       start: function (stage) {
         var inGame = false, curClean = null, filter = 'all';
         function coins(delta) {
-          var c = 0;
-          try { c = parseInt(localStorage.getItem('yzzn-arc-coins') || '0', 10); } catch (err) {}
+          var c = hiGet('yzzn-arc-coins');
           if (delta) {
             c += delta;
-            try { localStorage.setItem('yzzn-arc-coins', String(c)); } catch (err) {}
+            hiSet('yzzn-arc-coins', c);
           }
           return c;
         }
-        function renderHall() {
+        /* focusSel：重绘后把焦点放回对应元素（整块 innerHTML 替换会把焦点丢到 body） */
+        function renderHall(focusSel) {
           inGame = false;
           pieTitleEl.textContent = '▶ 游戏厅';
           var html = '<div class="arc-hall"><div class="arc-top mono"><div class="arc-filters">' +
@@ -5677,13 +5920,12 @@
           ARC.forEach(function (g) {
             if (filter !== 'all' && g.cat !== filter) return;
             var hi = arcHiOf(g);
-            html += '<div class="arc-card' + (g.wip ? ' wip' : '') + '" data-id="' + g.id + '" role="button" tabindex="' + (g.wip ? -1 : 0) + '">' +
+            html += '<div class="arc-card" data-id="' + g.id + '" role="button" tabindex="0">' +
               '<div class="arc-glyph" style="color:var(' + ARC_CATS[g.cat][1] + ');">' + g.glyph + '</div>' +
               '<div class="arc-name">' + g.name + '</div>' +
               '<div class="arc-desc">' + g.desc + '</div>' +
               '<div class="arc-meta">' +
-                (g.wip ? '<span class="tag-wip">开发中</span>'
-                       : (hi ? '<span>' + (g.hiLabel || 'HI') + ' ' + hi + (g.hiSuf || '') + '</span>' : '<span>NEW</span>')) +
+                (hi ? '<span>' + (g.hiLabel || 'HI') + ' ' + hi + (g.hiSuf || '') + '</span>' : '<span>NEW</span>') +
                 '<span>' + ARC_CATS[g.cat][0] + '</span>' +
               '</div></div>';
           });
@@ -5692,20 +5934,28 @@
           stage.querySelectorAll('.arc-f').forEach(function (b) {
             b.addEventListener('click', function () {
               filter = b.getAttribute('data-f');
-              renderHall();
+              renderHall('.arc-f[data-f="' + filter + '"]');
             });
           });
           stage.querySelectorAll('.arc-card').forEach(function (c) {
-            c.addEventListener('click', function () {
+            function open() {
               var g = null;
               ARC.forEach(function (x) { if (x.id === c.getAttribute('data-id')) g = x; });
-              if (g && !g.wip) openGame(g);
+              if (g) openGame(g);
+            }
+            c.addEventListener('click', open);
+            c.addEventListener('keydown', function (e) {   /* role=button：Enter / 空格激活 */
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
             });
           });
+          var fe = focusSel && stage.querySelector(focusSel);
+          if (fe) fe.focus({ preventScroll: true }); else pieKeepFocus();
         }
+        var curId = null;
         function openGame(g) {
           coins(1);
           inGame = true;
+          curId = g.id;
           pieTitleEl.textContent = '▶ 游戏厅 › ' + g.name;
           stage.innerHTML =
             '<div class="arc-game">' +
@@ -5717,10 +5967,11 @@
             '</div>';
           stage.querySelector('#arc-back').addEventListener('click', backToHall);
           curClean = g.start(stage.querySelector('#arc-body')) || null;
+          pieKeepFocus();
         }
         function backToHall() {
           if (curClean) { try { curClean(); } catch (err) {} curClean = null; }
-          renderHall();
+          renderHall(curId ? '.arc-card[data-id="' + curId + '"]' : null);
         }
         pieEscHook = function () {
           if (inGame) { backToHall(); return true; }
@@ -5735,7 +5986,7 @@
 
     /* ---------- GameMode: 运动 · 拉伸 Montage ---------- */
     GM.workout = {
-      bp: 'Workout', zh: '工间拉伸',
+      zh: '工间拉伸',
       start: function (stage) {
         var EX = [
           { name: '颈部拉伸', desc: '头缓慢倒向一侧肩膀，保持 10 秒后换边。不要耸肩。', dur: 20, pose: 'neck' },
@@ -5851,7 +6102,7 @@
 
     /* ---------- GameMode: 禅 · 空关卡 ---------- */
     GM.zen = {
-      bp: 'Zen', zh: '禅 · 放空一会儿',
+      zh: '禅 · 放空一会儿',
       incognito: true,
       start: function (stage) {
         body.classList.add('zen-hide');
@@ -5869,10 +6120,12 @@
           '大脑是唯一用自己来研究自己的器官。',
           'Ship it.'
         ];
+        /* 禅模式没有横幅和退出按钮：触屏没有 Esc，所以触摸 / 触控笔「双击」或「长按」任意处退出 */
+        var coarse = window.matchMedia('(pointer: coarse)').matches;
         stage.innerHTML =
           '<div class="zen-quote">' +
             '<p id="zen-q"></p>' +
-            '<span class="hint mono">点击换一句 · ESC 退出</span>' +
+            '<span class="hint mono">' + (coarse ? '轻点换一句 · 双击或长按退出' : '点击换一句 · ESC 退出') + '</span>' +
           '</div>';
         var qEl = stage.querySelector('#zen-q');
         var last = -1;
@@ -5883,8 +6136,63 @@
           qEl.textContent = QUOTES[i];
         }
         pick();
-        stage.addEventListener('click', pick);
-        return function cleanup() { body.classList.remove('zen-hide'); };
+        var ptrType = 'mouse', lastTapT = 0, lastTapX = 0, lastTapY = 0;
+        var lpTimer = 0, lpX = 0, lpY = 0;
+        function lpCancel() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = 0; } }
+        function onDown(e) {
+          ptrType = e.pointerType || 'mouse';
+          lpCancel();
+          if (ptrType === 'mouse') return;
+          lpX = e.clientX; lpY = e.clientY;
+          lpTimer = setTimeout(function () {
+            lpTimer = 0;
+            /* 抬手时可能补发一个 click，别让它点穿到退出后露出的页面链接上 */
+            var swT = 0;
+            var swOff = function () {
+              clearTimeout(swT);
+              document.removeEventListener('click', swallow, true);
+              document.removeEventListener('pointerdown', swOff, true);
+            };
+            var swallow = function (ev) { ev.preventDefault(); ev.stopPropagation(); swOff(); };
+            document.addEventListener('click', swallow, true);
+            document.addEventListener('pointerdown', swOff, true);   /* 新的一次触摸开始就撤掉拦截 */
+            swT = setTimeout(swOff, 2500);
+            exitPie(false);
+          }, 600);
+        }
+        function onMove(e) {
+          if (lpTimer && Math.abs(e.clientX - lpX) + Math.abs(e.clientY - lpY) > 14) lpCancel();
+        }
+        function onClick(e) {
+          if (ptrType !== 'mouse') {
+            var now = Date.now();
+            if (now - lastTapT < 380 && Math.abs(e.clientX - lastTapX) + Math.abs(e.clientY - lastTapY) < 50) {
+              exitPie(false);
+              return;
+            }
+            lastTapT = now; lastTapX = e.clientX; lastTapY = e.clientY;
+          }
+          pick();
+        }
+        function onCtx(e) { if (ptrType !== 'mouse') e.preventDefault(); }   /* 长按别弹系统菜单 */
+        stage.addEventListener('pointerdown', onDown);
+        stage.addEventListener('pointermove', onMove);
+        stage.addEventListener('pointerup', lpCancel);
+        stage.addEventListener('pointercancel', lpCancel);
+        stage.addEventListener('click', onClick);
+        stage.addEventListener('contextmenu', onCtx);
+        stage.style.touchAction = 'manipulation';   /* 双击不触发浏览器缩放 */
+        return function cleanup() {
+          lpCancel();
+          stage.removeEventListener('pointerdown', onDown);
+          stage.removeEventListener('pointermove', onMove);
+          stage.removeEventListener('pointerup', lpCancel);
+          stage.removeEventListener('pointercancel', lpCancel);
+          stage.removeEventListener('click', onClick);
+          stage.removeEventListener('contextmenu', onCtx);
+          stage.style.touchAction = '';
+          body.classList.remove('zen-hide');
+        };
       }
     };
 
@@ -6169,12 +6477,13 @@
     }
     function muSetCh(ch) {
       if (!MU_CH[ch]) return false;
+      /* 还没选过本地文件：先弹选择框，真选了文件才切频道；取消则保持原频道（原来在播的也不打断） */
+      if (ch === 'file' && !MU.files.length) { muPickFiles(); muUiSync(); return true; }
       var was = MU.playing;
       muStop();
       MU.ch = ch;
       MU.track = '';
       muSave();
-      if (ch === 'file' && !MU.files.length) { muPickFiles(); muUiSync(); return true; }
       if (was || ch === 'file') muStart();
       muUiSync();
       return true;
@@ -6185,11 +6494,14 @@
       inp.type = 'file'; inp.accept = 'audio/*'; inp.multiple = true;
       inp.addEventListener('change', function () {
         if (!inp.files.length) { muUiSync(); return; }
+        if (MU.playing) muStop();
         MU.files = Array.prototype.slice.call(inp.files);
         MU.fileIdx = 0;
         MU.ch = 'file';
+        if (MU.audioEl) MU.audioEl.dataset.idx = '';   /* 换了一批文件：强制重新加载第 0 首 */
         muFilePlay();
       });
+      inp.addEventListener('cancel', function () { muUiSync(); });
       inp.click();
     }
     function muFilePlay() {
@@ -6205,7 +6517,15 @@
         MU.audioEl.dataset.idx = String(MU.fileIdx);
       }
       MU.audioEl.volume = MU.vol;
-      MU.audioEl.play();
+      var pr = MU.audioEl.play();
+      if (pr && typeof pr.catch === 'function') {
+        pr.catch(function (err) {
+          if (err && err.name === 'AbortError') return;   /* 切歌打断了上一次 play()，属正常 */
+          MU.playing = false;
+          muUiSync();
+          if (echo) echo.textContent = '本地音乐无法播放' + (err && err.name === 'NotSupportedError' ? '（格式不支持）' : '') + '：' + f.name;
+        });
+      }
       MU.playing = true;
       MU.track = f.name.replace(/\.[a-z0-9]+$/i, '');
       muUiSync();
@@ -6274,7 +6594,7 @@
       function sparkleHost(el) {
         el.style.position = 'relative';
         function burst() {
-          if (document.hidden || el.querySelectorAll('.spark-star').length >= 3) return;
+          if (reduced || document.hidden || el.querySelectorAll('.spark-star').length >= 3) return;
           var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           var size = 12 + Math.random() * 16;
           s.setAttribute('viewBox', '0 0 68 68');
@@ -6291,13 +6611,19 @@
         setInterval(burst, 1100 + Math.random() * 500);
         setTimeout(burst, 300);
       }
-      if (!reduced) {
+      var sparkInited = false;
+      function sparkSync() {   /* 减少动态效果时不启动；运行中关掉该设置再补上 */
+        if (reduced || sparkInited) return;
+        sparkInited = true;
         document.querySelectorAll('[data-sparkle]').forEach(sparkleHost);
       }
+      sparkSync();
+      reducedHooks.push(sparkSync);
       var logoA = document.querySelector('a.logo');
       var logoMark = document.querySelector('.logo-mark');
-      if (logoA && logoMark && !reduced) {
+      if (logoA && logoMark) {
         logoA.addEventListener('mouseenter', function () {
+          if (reduced) return;
           logoMark.classList.remove('boop');
           void logoMark.offsetWidth;
           logoMark.classList.add('boop');
@@ -6333,7 +6659,11 @@
       fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     fxResize();
-    window.addEventListener('resize', fxResize);
+    var fxRzPend = 0;
+    window.addEventListener('resize', function () {   /* 每帧最多重排一次 */
+      if (fxRzPend) return;
+      fxRzPend = requestAnimationFrame(function () { fxRzPend = 0; fxResize(); });
+    });
 
     /* 火花配色：主题 accent 家族 + 金 + 冷青点缀 + 纯白闪星，每秒随主题刷新 */
     var fxAccent = [255, 166, 60], fxLastPal = 0;
@@ -6369,13 +6699,15 @@
     }
 
     var tx = 0, ty = 0, lx = -9999, ly = -9999, lit = false;
-    var pvx = 0, pvy = 0, lastMX = 0, lastMY = 0, lastMT = 0, idleAcc = 0;
+    var pvx = 0, pvy = 0, lastMX = 0, lastMY = 0, lastMT = 0;
     document.addEventListener('mousemove', function (e) {
+      if (reduced) return;   /* 减少动态效果：光晕 / 亮核 / 星屑全部停用 */
       var now = performance.now();
       var dx = e.clientX - lastMX, dy = e.clientY - lastMY;
       var dtm = Math.max(8, now - lastMT);
       pvx = dx / dtm * 1000; pvy = dy / dtm * 1000;
-      if (lit && !reduced) {
+      var covered = pieCovers();
+      if (lit && !covered) {
         /* 沿轨迹插值撒星火，快速移动撒得多 */
         var dist = Math.sqrt(dx * dx + dy * dy);
         var n = Math.min(5, Math.floor(dist / 14));
@@ -6388,42 +6720,77 @@
       tx = e.clientX; ty = e.clientY;
       if (!lit) {
         lit = true; lx = tx; ly = ty;
-        light.style.opacity = '1'; curCore.style.opacity = '1';
+        light.style.opacity = '1'; fxSetStyle(curCore, 'opacity', '1');
       }
+      /* 不透明 PIE 盖住时光效看不见：不跑循环，直接视为已追上指针，退出时不会从旧位置滑过来 */
+      if (covered) { lx = tx; ly = ty; pvx = pvy = 0; }
+      else fxWake();
     });
     document.documentElement.addEventListener('mouseleave', function () {
-      light.style.opacity = '0'; curCore.style.opacity = '0'; lit = false;
+      light.style.opacity = '0'; fxSetStyle(curCore, 'opacity', '0'); lit = false;
     });
     document.addEventListener('mousedown', function (e) {
       if (e.button !== 0 || reduced || e.target.closest('.pie-layer')) return;
       rings.push({ x: e.clientX, y: e.clientY, life: 0 });
       for (var i = 0; i < 12; i++) emitSpark(e.clientX, e.clientY, 0, 0, 1.8);
+      fxWake();
     });
 
-    var fxPrev = performance.now(), fxDirty = false;
-    (function tick() {
+    /* rAF 循环按需运行：光晕追上指针、速度归零、星屑散尽后停表（不再每帧写样式），
+       下一次指针事件 / 静止微尘的定时器再唤醒；标签页隐藏、不透明 PIE 盖住、减少动态效果时也停 */
+    var fxPrev = performance.now(), fxDirty = false, fxRaf = 0, fxDustT = 0, fxDustTimer = 0;
+    function fxSetStyle(el, prop, v) {
+      var k = '_fx_' + prop;
+      if (el[k] === v) return;
+      el[k] = v;
+      el.style[prop] = v;
+    }
+    function fxWake() {
+      if (fxRaf || reduced || document.hidden || pieCovers()) return;
+      if (fxDustTimer) { clearTimeout(fxDustTimer); fxDustTimer = 0; }
+      fxPrev = performance.now();
+      fxRaf = requestAnimationFrame(tick);
+    }
+    fxWakeHook = fxWake;
+    document.addEventListener('visibilitychange', fxWake);
+    reducedHooks.push(function () {
+      if (!reduced) return;
+      lit = false;
+      light.style.opacity = '0'; fxSetStyle(curCore, 'opacity', '0');
+      sparks.length = 0; rings.length = 0;
+      if (fxDirty) { fxDirty = false; fxCtx.clearRect(0, 0, fxW, fxH); }
+    });
+    function tick() {
+      fxRaf = 0;
+      if (reduced || document.hidden || pieCovers()) {
+        sparks.length = 0; rings.length = 0;
+        if (fxDirty) { fxDirty = false; fxCtx.clearRect(0, 0, fxW, fxH); }
+        return;
+      }
       var now = performance.now();
       var fdt = Math.min(0.05, (now - fxPrev) / 1000);
       fxPrev = now;
       if (now - fxLastPal > 1000) { fxLastPal = now; fxRefreshPal(); }
-      if (reduced) { lx = tx; ly = ty; }
-      else { lx += (tx - lx) * 0.12; ly += (ty - ly) * 0.12; }
-      light.style.transform = 'translate(' + lx + 'px,' + ly + 'px)';
-      /* 亮核跟得更紧，速度越快越亮越大 */
-      var cx2 = reduced ? tx : lx + (tx - lx) * 0.6;
-      var cy2 = reduced ? ty : ly + (ty - ly) * 0.6;
+      lx += (tx - lx) * 0.12; ly += (ty - ly) * 0.12;
       var speed = Math.min(1, Math.sqrt(pvx * pvx + pvy * pvy) / 1400);
       pvx *= 0.9; pvy *= 0.9;
-      curCore.style.transform = 'translate(' + cx2 + 'px,' + cy2 + 'px) scale(' + (0.7 + speed * 1.1).toFixed(3) + ')';
-      curCore.style.opacity = lit ? String(0.35 + speed * 0.65) : '0';
-      /* 静止时偶尔升起一粒微尘，页面不至于完全死寂 */
-      if (lit && !reduced && speed < 0.04) {
-        idleAcc += fdt;
-        if (idleAcc > 1.4) {
-          idleAcc = 0;
+      /* 光晕已追上指针、速度归零：吸附到终值；再没有星屑就可以停表 */
+      var conv = Math.abs(tx - lx) < 0.05 && Math.abs(ty - ly) < 0.05 && speed < 0.0004;
+      if (conv) { lx = tx; ly = ty; pvx = 0; pvy = 0; speed = 0; }
+      var settled = conv && !sparks.length && !rings.length;
+      /* 亮核跟得更紧，速度越快越亮越大；值没变就不重复写样式（只剩星屑在动时零样式写入） */
+      var cx2 = lx + (tx - lx) * 0.6;
+      var cy2 = ly + (ty - ly) * 0.6;
+      fxSetStyle(light, 'transform', 'translate(' + lx + 'px,' + ly + 'px)');
+      fxSetStyle(curCore, 'transform', 'translate(' + cx2 + 'px,' + cy2 + 'px) scale(' + (0.7 + speed * 1.1).toFixed(3) + ')');
+      fxSetStyle(curCore, 'opacity', lit ? String(0.35 + speed * 0.65) : '0');
+      /* 静止时偶尔升起一粒微尘（约每 1.4 s 一粒），页面不至于完全死寂 */
+      if (lit && speed < 0.04) {
+        if (now - fxDustT > 1400) {
+          fxDustT = now;
           emitSpark(tx + (Math.random() - 0.5) * 26, ty + (Math.random() - 0.5) * 26, 0, -30, 0.35);
         }
-      } else idleAcc = 0;
+      } else fxDustT = now;
       /* 星屑与涟漪 */
       if (sparks.length || rings.length) {
         fxDirty = true;
@@ -6475,8 +6842,12 @@
         fxDirty = false;
         fxCtx.clearRect(0, 0, fxW, fxH);
       }
-      requestAnimationFrame(tick);
-    })();
+      if (settled && !fxDirty) {
+        if (lit) fxDustTimer = setTimeout(fxWake, Math.max(16, 1400 - (now - fxDustT)) + 20);
+        return;
+      }
+      fxRaf = requestAnimationFrame(tick);
+    }
 
     /* 2. 框选 Actor：空白处拖拽拉出选框 */
     var mq = document.createElement('div');
@@ -6490,9 +6861,26 @@
     function clearSelection() {
       document.querySelectorAll('.selected').forEach(function (el) { el.classList.remove('selected'); });
     }
+    /* 只在真正的空白背景上起框：文字、表单控件、画布、可点元素，以及文章 / 目录 / 实验台区域
+       都留给浏览器原生行为（选字、拖拽、画布交互） */
+    var MQ_SKIP = 'a, button, input, select, textarea, label, option, summary, video, audio, iframe, canvas, svg, img, pre, code, table, ' +
+      '[contenteditable], [role], [tabindex], [draggable="true"], header, .frame, .about, .console, .pie-layer, #mplayer, ' +
+      '.md-body, .reader, .toc, .lab-stage, .lab-ctl';
+    function mqOwnText(el) {
+      for (var n = el.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3 && /\S/.test(n.nodeValue)) return true;
+      }
+      return false;
+    }
     document.addEventListener('mousedown', function (e) {
       if (e.button !== 0) return;
-      if (e.target.closest('a, button, input, header, .frame, .about, .console, .pie-layer')) return;
+      var t = e.target;
+      if (!t || t.nodeType !== 1 || t.closest(MQ_SKIP) || mqOwnText(t)) return;
+      var de = document.documentElement;
+      if (e.clientX >= de.clientWidth || e.clientY >= de.clientHeight) return;   /* 按在滚动条上 */
+      var sel = window.getSelection ? window.getSelection() : null;
+      if (sel && !sel.isCollapsed && String(sel)) return;                       /* 已有选中的文字 */
+      if (t !== body && t !== de && getComputedStyle(t).cursor === 'pointer') return;   /* 自绘的可点元素 */
       drag = true; moved = false;
       sx = e.clientX; sy = e.clientY;
       selectables = Array.prototype.slice.call(document.querySelectorAll('.col-card, .post, .cvar'));
@@ -6533,17 +6921,20 @@
     });
 
     /* 3. 专栏卡片：跟随鼠标的 3D 倾斜 */
-    if (!reduced) {
-      document.querySelectorAll('.col-card').forEach(function (card) {
-        card.addEventListener('mousemove', function (e) {
-          var r = card.getBoundingClientRect();
-          var px = (e.clientX - r.left) / r.width - 0.5;
-          var py = (e.clientY - r.top) / r.height - 0.5;
-          card.style.transform = 'perspective(650px) rotateX(' + (-py * 4).toFixed(2) + 'deg) rotateY(' + (px * 5).toFixed(2) + 'deg)';
-        });
-        card.addEventListener('mouseleave', function () {
-          card.style.transform = '';
-        });
+    var tiltCards = Array.prototype.slice.call(document.querySelectorAll('.col-card'));
+    tiltCards.forEach(function (card) {
+      card.addEventListener('mousemove', function (e) {
+        if (reduced) return;
+        var r = card.getBoundingClientRect();
+        var px = (e.clientX - r.left) / r.width - 0.5;
+        var py = (e.clientY - r.top) / r.height - 0.5;
+        card.style.transform = 'perspective(650px) rotateX(' + (-py * 4).toFixed(2) + 'deg) rotateY(' + (px * 5).toFixed(2) + 'deg)';
       });
-    }
+      card.addEventListener('mouseleave', function () {
+        card.style.transform = '';
+      });
+    });
+    reducedHooks.push(function () {
+      if (reduced) tiltCards.forEach(function (card) { card.style.transform = ''; });
+    });
   })();
