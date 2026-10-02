@@ -9,7 +9,7 @@ tags: [MegaLights, 渲染管线]
 
 > 纯技术向文档，聚焦 MegaLights 的算法原理、数据流、GPU Pass 调度和 Shader 实现细节。
 
-源码版本：UE 5.7.3 （`release` 分支）
+源码版本：UE 5.7.3（`release` 分支）
 
 ---
 
