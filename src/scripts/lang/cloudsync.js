@@ -13,6 +13,7 @@ import { META_KEY, isSyncKey, isPlainObject, mergeAll, changedNames, counterSnap
 const DEFAULT_API = 'https://yzzn-sync-lzgf3t47.edgeone.dev';
 const CK = 'yzzn-cloud';          /* {token, u, uid, lastSync, owner, ownerName, dev} */
 const BK = 'yzzn-cloud-base';     /* {uid, v, keys, pv?, pkeys?}：计数器三方合并的公共祖先（+ 未确认的写入） */
+const RK = 'yzzn-cloud-recovery'; /* 本地写前日志：归属、接口、业务键/base 前后值与 lastSync；不含令牌，不上传 */
 const MAX_BYTES = 512 * 1024;     /* 与服务端一致：请求体字节数上限 */
 const LEGACY_MAX_CHARS = 300 * 1024;
 const DEBOUNCE = 12000;
@@ -20,12 +21,29 @@ const DEBOUNCE = 12000;
 let rawSet = (k, v) => localStorage.setItem(k, v);
 let rawRemove = (k) => localStorage.removeItem(k);
 const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
-const save = (k, v) => { try { rawSet(k, JSON.stringify(v)); } catch (e) {} };
+const save = (k, v) => rawSet(k, JSON.stringify(v));
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const str = (v) => (typeof v === 'string' ? v : '');
 
 let cloud = readCloud();
-let syncing = false, again = false, dirtyTimer = 0;
+let syncing = null, again = false, dirtyTimer = 0, sessionEpoch = 0;
+const requests = new Set();
+
+/* 请求固定到发起时的会话；持久化 CK 对照也能识别另一标签页切换账号。 */
+function snapshot() { return { epoch: sessionEpoch, token: cloud.token, uid: cloud.uid, owner: cloud.owner, api: apiBase() }; }
+function sessionCurrent(s) {
+  const persisted = readCloud();
+  return s.epoch === sessionEpoch && s.token === cloud.token && s.uid === cloud.uid && s.owner === cloud.owner && s.api === apiBase() &&
+    s.token === persisted.token && s.uid === persisted.uid && s.owner === persisted.owner;
+}
+function requireSession(s) { if (!sessionCurrent(s)) throw new Error('同步会话已变更'); }
+function invalidateSession() {
+  sessionEpoch++;
+  clearTimeout(dirtyTimer);
+  again = false;
+  requests.forEach((c) => c.abort());
+  requests.clear();
+}
 
 /* ---------- 登录状态（兼容旧版 {token, u, lastSync}） ---------- */
 function tokenUid(tok) {
@@ -62,14 +80,15 @@ function apiBase() {
 /* ---------- 本机数据 ---------- */
 function lsKeys() {
   const out = [];
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k) out.push(k); } } catch (e) {}
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k) out.push(k); }
   return out;
 }
 function collect() {
   const keys = {};
   lsKeys().forEach((k) => {
     if (!isSyncKey(k) && k !== META_KEY) return;
-    try { const v = JSON.parse(localStorage.getItem(k)); if (v != null) keys[k] = v; } catch (e) {}
+    const raw = localStorage.getItem(k);   /* 读取失败不能当成「没有本机数据」继续上传 */
+    try { const v = JSON.parse(raw); if (v != null) keys[k] = v; } catch (e) {}
   });
   return keys;
 }
@@ -81,19 +100,83 @@ function hasLearningData() {
     return Array.isArray(v) ? v.length > 0 : isPlainObject(v) ? Object.keys(v).length > 0 : true;
   });
 }
-function applyLocal(merged, names) {
-  names.forEach((k) => {
-    try {
-      if (merged[k] === undefined) rawRemove(k);
-      else rawSet(k, JSON.stringify(merged[k]));
-    } catch (e) { /* 配额满：这一键留到下次 */ }
-  });
+function storageError(message) {
+  const e = new Error('本机保存失败：' + message);
+  e.localStorage = true;
+  return e;
 }
-function wipeLocalLearning() {
+/* localStorage 没有跨键事务：先落前后值日志，数据与 base 一起成功才提交。
+   回滚逐键释放空间并恢复；记录正在恢复的键，以便识别中途关闭后的空值。
+   若本机值已不属于本次事务（例如失败后又学习），保留现值与日志并暂停，不能覆盖新进度。
+   日志只允许业务键/BK 和 lastSync 数字，绝不复制 CK 中的 token/dev。 */
+function recoverLocal(s) {
+  requireSession(s);
+  const raw = localStorage.getItem(RK);
+  if (raw === null) return [];
+  let j;
+  try { j = JSON.parse(raw); } catch (e) { throw storageError('恢复日志无法读取，请保留本机数据并导出备份'); }
+  if (!j || j.fmt !== 1 || j.uid !== s.uid || j.owner !== s.owner || j.api !== s.api || !Array.isArray(j.before) || !Array.isArray(j.after) ||
+      j.before.some((x) => !Array.isArray(x) || x.length !== 2 || !(isSyncKey(x[0]) || x[0] === META_KEY || x[0] === BK) || !(x[1] === null || typeof x[1] === 'string')) ||
+      new Set(j.before.map(([k]) => k)).size !== j.before.length || j.after.length !== j.before.length ||
+      j.after.some((x, i) => !Array.isArray(x) || x.length !== 2 || x[0] !== j.before[i][0] || !(x[1] === null || typeof x[1] === 'string')) ||
+      (j.restoring !== undefined && !j.before.some(([k]) => k === j.restoring)) ||
+      (j.lastSync !== undefined && (!Number.isFinite(j.lastSync) || !Number.isFinite(j.afterLastSync)))) {
+    throw storageError('恢复日志与当前账号或接口不匹配，已暂停同步，未覆盖任何数据');
+  }
+  const current = j.before.map(([k]) => localStorage.getItem(k));
+  if (j.before.some(([k, v], i) => current[i] !== v && current[i] !== j.after[i][1] && !(j.restoring === k && current[i] === null)) ||
+      (j.lastSync !== undefined && ![j.lastSync, j.afterLastSync].includes(readCloud().lastSync))) {
+    throw storageError('恢复日志之后出现了新的本机进度，已保留当前数据并暂停同步；请先导出备份，再处理恢复冲突');
+  }
+  const changed = j.before.filter(([k, v]) => localStorage.getItem(k) !== v);
+  try {
+    changed.forEach(([k, v]) => {
+      requireSession(s);
+      j.restoring = k;
+      save(RK, j);   /* 先记录允许出现空值的唯一键，再释放该键的空间 */
+      requireSession(s);
+      rawRemove(k);
+      if (v !== null) rawSet(k, v);
+    });
+    if (j.lastSync !== undefined) {
+      requireSession(s);
+      const c = readCloud();
+      if (c.lastSync !== j.lastSync) save(CK, { ...c, lastSync: j.lastSync });
+    }
+    requireSession(s);
+    rawRemove(RK);
+  } catch (e) { throw storageError('上次写入尚未恢复；请释放浏览器存储空间后重试，恢复完成前不会上传'); }
+  return changed.map(([k]) => k).filter((k) => k !== BK);
+}
+function writeLocal(changes, s, nextCloud) {
+  requireSession(s);
+  /* 调用者已从恢复后的快照计算合并；这里若出现新日志，绝不能恢复后沿用旧计算结果。 */
+  if (localStorage.getItem(RK) !== null) throw storageError('另一次本机写入尚未恢复，已暂停本次提交，请重试同步');
+  const before = changes.map(([k]) => [k, localStorage.getItem(k)]);
+  const journal = { fmt: 1, uid: s.uid, owner: s.owner, api: s.api, before, after: changes,
+    ...(nextCloud ? { lastSync: readCloud().lastSync, afterLastSync: nextCloud.lastSync } : {}) };
+  try {
+    requireSession(s);
+    save(RK, journal);   /* 日志本身保存失败时，业务数据完全不动 */
+    changes.forEach(([k, v]) => { requireSession(s); if (v === null) rawRemove(k); else rawSet(k, v); });
+    if (nextCloud) { requireSession(s); save(CK, nextCloud); }
+    requireSession(s);
+    rawRemove(RK);
+  } catch (e) {
+    if (!sessionCurrent(s)) throw e;
+    recoverLocal(s);
+    throw storageError('未完成本次保存，已恢复写入前的数据；请释放浏览器存储空间后重试');
+  }
+}
+function applyLocal(merged, names, base, s, nextCloud) {
+  const changes = names.map((k) => [k, merged[k] === undefined ? null : JSON.stringify(merged[k])]);
+  changes.push([BK, JSON.stringify(base)]);
+  writeLocal(changes, s, nextCloud);
+}
+function wipeLocalLearning(s) {
   const gone = lsKeys().filter((k) => isSyncKey(k) || k === META_KEY);
-  gone.forEach((k) => { try { rawRemove(k); } catch (e) {} });
-  try { rawRemove(BK); } catch (e) {}
-  notifyApplied(gone, true);
+  writeLocal(gone.concat(BK).map((k) => [k, null]), s);
+  return gone;
 }
 
 /* ---------- 编码：gzip + base64 ---------- */
@@ -133,25 +216,33 @@ const byteLen = (s) => (typeof TextEncoder === 'function' ? new TextEncoder().en
 const newVersion = () => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 
 /* ---------- API ---------- */
-async function call(path, method, body, auth) {
-  let r;
+async function call(path, method, body, auth, s = snapshot()) {
+  const cancelled = () => ({ status: 0, ok: false, body: null, cancelled: true });
+  if (!sessionCurrent(s)) return cancelled();
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  if (controller) requests.add(controller);
   try {
-    r = await fetch(apiBase() + path, {
+    const r = await fetch(s.api + path, {
       method,
-      headers: { 'content-type': 'application/json', ...(auth && cloud.token ? { authorization: 'Bearer ' + cloud.token } : {}) },
+      headers: { 'content-type': 'application/json', ...(auth && s.token ? { authorization: 'Bearer ' + s.token } : {}) },
       body: body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)),
+      ...(controller ? { signal: controller.signal } : {}),
     });
-  } catch (e) { return { status: 0, ok: false, body: null }; }
-  let j = null;
-  try { j = await r.json(); } catch (e) {}
-  if (r.status === 401 && auth && cloud.token) sessionLost();
-  return { status: r.status, ok: r.ok, body: j };
+    if (!sessionCurrent(s)) return cancelled();
+    let j = null;
+    try { j = await r.json(); } catch (e) {}
+    if (!sessionCurrent(s)) return cancelled();
+    if (r.status === 401 && auth && s.token) sessionLost(s);
+    return { status: r.status, ok: r.ok, body: j };
+  } catch (e) { return sessionCurrent(s) ? { status: 0, ok: false, body: null } : cancelled(); }
+  finally { if (controller) requests.delete(controller); }
 }
 const errText = (res) => (res.body && (res.body.msg || res.body.error)) || (res.status ? 'HTTP ' + res.status : '网络不可达');
-function sessionLost() {
+function sessionLost(s) {
+  if (!sessionCurrent(s)) return;
+  invalidateSession();
   cloud.token = '';
-  saveCloud();
-  clearTimeout(dirtyTimer);
+  try { saveCloud(); } catch (e) { note('登录已失效，本机退出状态无法保存，请释放浏览器存储空间后重新登录。'); renderUI(); return; }
   note('云同步的登录已失效（可能在别的设备上「退出全部设备」或注销了账号），请在「设置」里重新登录。本机数据不受影响。');
   renderUI();
 }
@@ -170,28 +261,37 @@ function tooLarge(n, limit) {
 async function fullSync(opts) {
   opts = opts || {};
   if (!cloud.token) return { ok: false };
-  if (syncing) { again = true; return { ok: false, busy: true }; }
-  syncing = true;
+  const s = snapshot();
+  if (!sessionCurrent(s)) return { ok: false, cancelled: true };
+  if (syncing && sessionCurrent(syncing)) { again = true; return { ok: false, busy: true }; }
+  syncing = s;
   if (!opts.silent) setMsg('同步中…');
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
-      const g = await call('/api/sync', 'GET', undefined, true);
+      requireSession(s);
+      const recovered = recoverLocal(s);
+      if (recovered.length) notifyApplied(recovered, true, s);
+      const g = await call('/api/sync', 'GET', undefined, true, s);
+      requireSession(s);
       if (!g.ok) throw new Error(errText(g));
       const rec = isPlainObject(g.body) ? g.body : {};
       const legacyServer = !('v' in rec);
       const remote = await decodeRemote(rec);
+      requireSession(s);
+      /* GET/解压期间另一标签页也可能留下未完成的事务，必须先恢复，再读取 base/local。 */
+      const restored = recoverLocal(s);
+      if (restored.length) notifyApplied(restored, true, s);
+      const baseRaw = localStorage.getItem(BK);
       let base = loadBase();
       if (base && base.pv && base.pv === rec.v) base = { uid: cloud.uid, v: base.pv, keys: base.pkeys || {} };   /* 上次的写入其实成功了 */
       const local = collect();
       const res = mergeAll(local, remote, base ? base.keys : null, Date.now());
       const merged = res.keys;
       const lc = changedNames(local, merged);
-      if (lc.length) { applyLocal(merged, lc); notifyApplied(lc); }
-      /* 本机此刻已包含这次用到的云端计数：公共祖先前移 */
-      save(BK, { uid: cloud.uid, v: rec.v, keys: counterSnapshot(res.remoteUsed) });
+      const nextBase = { uid: s.uid, v: rec.v, keys: counterSnapshot(res.remoteUsed) };
       const foreign = Object.keys(remote).some((k) => !isSyncKey(k) && k !== META_KEY);
       const needPut = legacyServer || rec.fmt !== 2 || foreign || changedNames(remote, merged).length > 0;
-      if (!needPut) return done(opts);
+      if (!needPut) return done(opts, s, nextBase, merged, lc);
       let body, nv = '';
       if (legacyServer) {
         body = JSON.stringify({ ts: Date.now(), keys: merged });
@@ -199,29 +299,45 @@ async function fullSync(opts) {
       } else {
         nv = newVersion();
         body = JSON.stringify({ fmt: 2, base: rec.v, v: nv, ts: Date.now(), ...(await encodeKeys(merged)) });
+        requireSession(s);
         const n = byteLen(body);
         if (n > MAX_BYTES) { tooLarge(n, MAX_BYTES); return { ok: false }; }
-        save(BK, { uid: cloud.uid, v: rec.v, keys: counterSnapshot(res.remoteUsed), pv: nv, pkeys: counterSnapshot(merged) });
+        nextBase.pv = nv;
+        nextBase.pkeys = counterSnapshot(merged);
       }
-      const p = await call('/api/sync', 'PUT', body, true);
+      /* 压缩期间用户可能又做了一道题；重新合并，不能把旧快照盖回本机。 */
+      if (baseRaw !== localStorage.getItem(BK) || changedNames(local, collect()).length) continue;
+      applyLocal(merged, lc, nextBase, s);
+      if (lc.length) notifyApplied(lc, false, s);
+      requireSession(s);   /* dispatchEvent 也可以同步重入并切换账号 */
+      const p = await call('/api/sync', 'PUT', body, true, s);
+      requireSession(s);
       if (p.status === 409 && p.body && p.body.error === 'conflict') continue;   /* 别的设备刚写过：重新合并 */
       if (p.status === 413) { tooLarge(byteLen(body), (p.body && p.body.limit) || MAX_BYTES); return { ok: false }; }
       if (!p.ok) throw new Error(errText(p));
-      save(BK, { uid: cloud.uid, v: (p.body && p.body.v) || nv || undefined, keys: counterSnapshot(merged) });
-      return done(opts);
+      return done(opts, s, { uid: s.uid, v: (p.body && p.body.v) || nv || undefined, keys: counterSnapshot(merged) });
     }
     throw new Error('云端数据一直在变化，稍后再试');
   } catch (e) {
+    if (!sessionCurrent(s)) return { ok: false, cancelled: true };
     setMsg('同步失败：' + (e && e.message || e));
+    if (e && e.localStorage) note(e.message);
     return { ok: false };
   } finally {
-    syncing = false;
-    if (again) { again = false; schedule(); }
+    if (syncing === s) {
+      syncing = null;
+      if (again && sessionCurrent(s)) { again = false; schedule(); }
+    }
   }
 }
-function done(opts) {
-  cloud.lastSync = Date.now();
-  saveCloud();
+function done(opts, s, base, merged = {}, names = []) {
+  requireSession(s);
+  const next = { ...cloud, lastSync: Date.now() };
+  /* PUT 后确认失败时，事务恢复到 pv/pkeys 待确认态；不能撤销已送达的 PUT。 */
+  applyLocal(merged, names, base, s, next);
+  cloud = next;
+  if (names.length) notifyApplied(names, false, s);
+  requireSession(s);
   if (noteEl && noteEl.dataset.kind === 'size') note('');
   const last = ui && ui.querySelector('#cs-last');
   if (last) last.textContent = '上次同步 ' + new Date(cloud.lastSync).toLocaleString();
@@ -231,16 +347,19 @@ function done(opts) {
 }
 function schedule() {
   if (!cloud.token) return;
+  const s = snapshot();
   clearTimeout(dirtyTimer);
-  dirtyTimer = setTimeout(() => fullSync({ silent: true }), DEBOUNCE);
+  dirtyTimer = setTimeout(() => { if (sessionCurrent(s)) fullSync({ silent: true }); }, DEBOUNCE);
   if (dirtyTimer && dirtyTimer.unref) dirtyTimer.unref();
 }
 
 /* 合并结果已写回本机：通知页面就地重读；没人处理就提示刷新 */
-function notifyApplied(keys, quiet) {
+function notifyApplied(keys, quiet, s) {
+  if (s) requireSession(s);
   const real = keys.filter((k) => k !== META_KEY);
   if (!real.length || typeof window === 'undefined' || typeof CustomEvent !== 'function' || !window.dispatchEvent) return;
   const handled = !window.dispatchEvent(new CustomEvent('yzzn-sync-applied', { detail: { keys: real }, cancelable: true }));
+  if (s) requireSession(s);
   if (quiet) return;
   if (handled) note('☁ 已合并其他设备的学习进度', { ttl: 5000 });
   else note('☁ 云端有更新，刷新页面后显示。', { reload: true });
@@ -304,8 +423,12 @@ function note(text, opt) {
 /* ---------- 账号 ---------- */
 async function auth(kind, u, p) {
   if (!u || !p) { setMsg('请输入用户名和密码'); return { ok: false }; }
+  try { recoverLocal(snapshot()); } catch (e) { setMsg(e.message); return { ok: false }; }
+  invalidateSession();   /* 最后发起的登录获胜；退出也会使尚未返回的登录作废 */
+  const s = snapshot();
   setMsg('请稍候…');
-  const res = await call(kind === 'reg' ? '/api/auth/register' : '/api/auth/login', 'POST', { u, p, dev: cloud.dev || undefined }, false);
+  const res = await call(kind === 'reg' ? '/api/auth/register' : '/api/auth/login', 'POST', { u, p, dev: cloud.dev || undefined }, false, s);
+  if (!sessionCurrent(s)) return { ok: false, cancelled: true };
   if (!res.ok || !res.body || !res.body.token) {
     setMsg((kind === 'reg' ? '注册失败：' : '登录失败：') + errText(res));
     return { ok: false };
@@ -323,38 +446,76 @@ async function auth(kind, u, p) {
       replace = true;
     }
   }
-  if (replace) {
-    if (!doExport()) { setMsg('备份下载失败，为安全起见没有替换本机数据，也没有登录'); return { ok: false, cancelled: true }; }
-    wipeLocalLearning();
+  let gone = [];
+  const next = { token: r.token, u: str(r.u) || u, uid, lastSync: 0, owner: uid, ownerName: str(r.u) || u, dev: str(r.dev) || cloud.dev };
+  try {
+    requireSession(s);
+    if (replace) {
+      if (!doExport()) { setMsg('备份下载失败，为安全起见没有替换本机数据，也没有登录'); return { ok: false, cancelled: true }; }
+      gone = wipeLocalLearning(s);
+    }
+    save(CK, next);   /* 单键写入成功后才接受新会话，失败不只改内存 */
+  } catch (e) {
+    setMsg('登录状态保存失败：' + e.message + (gone.length ? '；本机学习数据已按替换选择清空，可从刚导出的备份恢复。' : ''));
+    return { ok: false };
   }
-  cloud = { token: r.token, u: str(r.u) || u, uid, lastSync: 0, owner: uid, ownerName: str(r.u) || u, dev: str(r.dev) || cloud.dev };
-  saveCloud();
+  invalidateSession();
+  cloud = next;
+  if (gone.length) notifyApplied(gone, true);
   note('');
   renderUI();
   return fullSync({});
 }
 function logout() {
   /* 本机数据保留，并记住它属于哪个账号（owner），下次换账号登录时会先询问 */
-  clearTimeout(dirtyTimer);
+  const current = sessionCurrent(snapshot());
+  invalidateSession();
   cloud.token = '';
-  saveCloud();
+  if (!current) {
+    setMsg('另一页面已更换登录账号，本页已暂停；请刷新后操作。');
+    note('另一页面已更换登录账号，本页已暂停，请刷新。', { reload: true });
+    renderUI(true);
+    return { ok: false, cancelled: true };   /* 不用旧标签页的 owner 覆盖当前 CK */
+  }
+  try { saveCloud(); } catch (e) { setMsg('本页已停止同步，但退出状态无法保存，请释放浏览器存储空间后重试。'); renderUI(true); return { ok: false }; }
   setMsg('已退出（本机数据保留）');
   renderUI(true);
 }
 async function logoutAll() {
   if (!confirm('让这个账号在所有设备上的登录全部失效？（包括本机，学习数据不受影响）')) return;
-  const res = await call('/api/auth/logout', 'POST', { all: true }, true);
+  const s = snapshot();
+  const res = await call('/api/auth/logout', 'POST', { all: true }, true, s);
+  if (!sessionCurrent(s)) return { ok: false, cancelled: true };
   if (!res.ok && res.status !== 401) { setMsg('操作失败：' + errText(res)); return; }
-  logout();
+  if (logout()?.ok === false) return;
   setMsg('已退出全部设备');
 }
 async function deleteAccount(p) {
   if (!p) { setMsg('请输入密码确认'); return; }
-  const res = await call('/api/auth/delete', 'POST', { p }, true);
+  const s = snapshot();
+  try {
+    const recovered = recoverLocal(s);
+    if (recovered.length) notifyApplied(recovered, true, s);
+  } catch (e) { setMsg('注销前的本机恢复未完成：' + e.message); return { ok: false }; }
+  const res = await call('/api/auth/delete', 'POST', { p }, true, s);
+  if (!sessionCurrent(s)) return { ok: false, cancelled: true };
   if (!res.ok) { if (res.status !== 401) setMsg('注销失败：' + errText(res)); return; }
-  clearTimeout(dirtyTimer);
-  cloud = { token: '', u: '', uid: '', lastSync: 0, owner: '', ownerName: '', dev: '' };
-  saveCloud();
+  let recoveryError = null;
+  try {
+    const recovered = recoverLocal(s);
+    if (recovered.length) notifyApplied(recovered, true, s);
+  } catch (e) { recoveryError = e; }
+  if (!sessionCurrent(s)) return { ok: false, cancelled: true };
+  invalidateSession();
+  /* 请求期间产生的新日志若不能恢复，保留原归属供恢复，不能留下无主日志阻断后续登录。 */
+  cloud = recoveryError ? { ...cloud, token: '', dev: '' } : { token: '', u: '', uid: '', lastSync: 0, owner: '', ownerName: '', dev: '' };
+  try { saveCloud(); } catch (e) { setMsg('云端账号已注销，但本机退出状态无法保存，请释放浏览器存储空间后重试。'); renderUI(true); return; }
+  if (recoveryError) {
+    setMsg('云端账号已注销；本机恢复未完成，已停止同步并保留数据归属。' + recoveryError.message);
+    note(recoveryError.message);
+    renderUI(true);
+    return { ok: false, recovery: true };
+  }
   try { rawRemove(BK); } catch (e) {}
   renderUI(true);
   setMsg('账号已注销，云端数据已删除；本机数据保留');
@@ -491,10 +652,13 @@ function mount() {
 (function init() {
   if (typeof document === 'undefined') return;
   try { sessionStorage.removeItem('yzzn-cs-reloaded'); } catch (e) {}
-  saveCloud();
+  let recovered = [];
+  try { recovered = recoverLocal(snapshot()); cloud = readCloud(); saveCloud(); }
+  catch (e) { setMsg(e.message); }
   watchWrites();
   const go = () => {
     mount();
+    if (recovered.length) notifyApplied(recovered, true);
     if (cloud.token) fullSync({ silent: true });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
@@ -503,8 +667,8 @@ function mount() {
 
 /* 测试钩子（scripts/tests/lang.test.mjs 用，页面不调用） */
 export const __test = {
-  fullSync, auth, logout, collect, collectExport, hasLearningData,
+  fullSync, auth, logout, logoutAll, deleteAccount, collect, collectExport, hasLearningData,
   getCloud: () => cloud,
-  setCloud: (c) => { cloud = { ...readCloud(), ...c }; saveCloud(); },
-  reloadCloud: () => { cloud = readCloud(); return cloud; },
+  setCloud: (c) => { invalidateSession(); const next = { ...readCloud(), ...c }; save(CK, next); cloud = next; },
+  reloadCloud: () => { invalidateSession(); cloud = readCloud(); return cloud; },
 };

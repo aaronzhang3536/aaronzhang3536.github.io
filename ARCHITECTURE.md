@@ -241,9 +241,13 @@
 - 合并（`synccore.js`）：词条按修改时间 `mt` 后写者胜（旧数据从复习状态反推）；删除 / 清空写入墓碑 `yzzn-sync-meta`（保留 180 天）；当日计数按「本机 + 云端 − 上次云端值」相加；星数 / 纪录取大；
 - 浏览器支持时 gzip + base64 压缩上传；仍超限则不上传并在页面顶部提示；
 - 合并后派发事件让页面就地刷新，不再自动 reload；
+- 异步操作绑定发起时的会话和接口地址；切换账号或退出后，旧请求的返回值不能继续修改新会话的数据、合并基线或登录状态；
+- 学习数据与合并基线的本地写入使用恢复日志，保存写入前后值及恢复步骤，写入或确认失败时不显示同步成功；未完成的恢复先于下一次合并计算处理，遇到恢复后另有本机修改则保留现值、暂停同步，避免重试重复累计或覆盖新学习；
 - 换账号登录前询问是否合并或用云端替换（替换前先下载备份）；
 - `yzzn-cloud-api` 覆盖接口地址**只在 localhost 生效**。
-- 测试：`scripts/tests/lang.test.mjs`（合并、多设备端到端）、`scripts/tests/sync-api.test.mjs`（直接调用处理函数，带随机延迟的内存 KV）。
+- 测试：`scripts/tests/lang.test.mjs`（合并、多设备端到端）、`scripts/tests/sync-api.test.mjs`（直接调用处理函数，带随机延迟的内存 KV）、`scripts/tests/cloudsync-safety.test.mjs`（会话切换、迟到响应、本地写入失败与恢复）。
+
+手机后端接入的数据范围及现有账号隔离限制见 `docs/phone-backend-data-inventory.md`。当前运行时仍使用上述 EdgeOne 接口；这些客户端修复不代表已完成 Django 账号接入、全站本地账号隔离或手机端持久化验证。
 
 ---
 
@@ -288,6 +292,7 @@ ECDICT（MIT，<https://github.com/skywind3000/ECDICT>）不在仓库里，重�
 | `yzzn-<ja\|ko\|fr\|de\|es\|it\|ru>-{words,dojo,game,daily}` | eastasian.js | 同上 | 是（`-cfg` 除外） |
 | `yzzn-sync-meta` | langdata.js | 删除 / 清空墓碑 | 随同步元数据处理 |
 | `yzzn-cloud` `yzzn-cloud-api` `yzzn-cloud-base` | cloudsync.js | 登录令牌与归属；接口地址覆盖（仅 localhost）；上次同步的云端快照（计数器三方合并的公共祖先 + 未确认的写入） | 否 |
+| `yzzn-cloud-recovery` | cloudsync.js | 本地批量写入的恢复记录：归属、接口、前后值、恢复中的键及必要的同步时间；处理部分写入失败，不复制令牌，不作为业务数据上传或导出 | 否 |
 | `yzzn-xlr-history` `yzzn-gy-history` | shu | 起课 / 抽签记录 | 否 |
 | `yzzn-uke-{cfg,rhythm,ear,plan}` | music | 延迟校准、训练进度 | 否 |
 | `babel-manual` | 巴别塔 | 生词手册 | 否 |
