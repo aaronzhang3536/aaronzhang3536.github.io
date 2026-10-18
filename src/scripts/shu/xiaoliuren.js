@@ -161,12 +161,12 @@ function render(nums, path, sourceText) {
 
 /* 历史（最近 6 课） */
 function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(HKEY) || '[]'); } catch (e) { return []; }
+  try { return JSON.parse((globalThis.WOFStorage || localStorage).getItem(HKEY) || '[]'); } catch (e) { return []; }
 }
 function saveHistory(nums, path, sourceText) {
   const h = loadHistory();
   h.unshift({ n: nums, p: path, s: sourceText, t: Date.now() });
-  try { localStorage.setItem(HKEY, JSON.stringify(h.slice(0, 6))); } catch (e) {}
+  try { (globalThis.WOFStorage || localStorage).setItem(HKEY, JSON.stringify(h.slice(0, 6))); } catch (e) {}
   renderHistory();
 }
 function renderHistory() {

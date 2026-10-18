@@ -1,5 +1,6 @@
 ---
 import '../styles/site.css';
+import AccountHead from '../components/AccountHead.astro';
 import '../styles/playground-shell.css';
 import 'katex/dist/katex.min.css';
 /* type: 'article' 只给文章页（posts/[id]），其余一律 website；published 为文章日期；
@@ -15,6 +16,7 @@ const publishedISO = isArticle && published ? new Date(published).toISOString() 
 <!doctype html>
 <html lang="zh-CN">
 <head>
+<AccountHead/>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="generator" content={Astro.generator} />
@@ -42,7 +44,7 @@ const publishedISO = isArticle && published ? new Date(published).toISOString() 
    （site.js 只在用户点按钮 / 输命令时才写 yzzn-theme，与此保持一致） */
 (function () {
   try {
-    var t = localStorage.getItem('yzzn-theme');
+    var t = (globalThis.WOFStorage || localStorage).getItem('yzzn-theme');
     if (t === 'wire') {
       document.documentElement.setAttribute('data-theme', 'dark');
       document.body.classList.add('vm-wire');

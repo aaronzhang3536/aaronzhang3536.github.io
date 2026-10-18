@@ -18,10 +18,10 @@ export function legacyAltDay(d) {
 }
 
 function readMeta() {
-  try { return normMeta(JSON.parse(localStorage.getItem(META_KEY))); } catch (e) { return normMeta(null); }
+  try { return normMeta(JSON.parse((globalThis.WOFStorage || localStorage).getItem(META_KEY))); } catch (e) { return normMeta(null); }
 }
 function writeMeta(m) {
-  try { localStorage.setItem(META_KEY, JSON.stringify(m)); } catch (e) {}
+  try { (globalThis.WOFStorage || localStorage).setItem(META_KEY, JSON.stringify(m)); } catch (e) {}
 }
 /* 用户主动删除词条：记墓碑，让其他设备同步时也删掉（而不是把它复活） */
 export function noteDelete(key, w, now) {

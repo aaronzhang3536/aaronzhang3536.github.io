@@ -1,0 +1,39 @@
+---
+import Studio from '../layouts/Studio.astro';
+---
+<Studio title="账号与数据" noindex>
+  <main class="account-page as-wrap">
+    <p class="account-eyebrow">WITHIN ONE FRAME</p>
+    <h1>账号与数据</h1>
+    <p id="account-identity">正在读取本机账号…</p>
+    <p>复用 CommonTools 公共账号。学习进度、收藏、音乐练习、术数历史与游戏成绩保存在自己的账号空间。</p>
+    <form id="account-login">
+      <label>用户名<input name="username" required maxlength="150" autocomplete="username" /></label>
+      <label>密码<input name="password" required type="password" maxlength="128" autocomplete="current-password" /></label>
+      <div class="account-actions"><button value="login" type="submit">登录</button><button value="register" type="submit">注册新账号</button></div>
+    </form>
+    <p id="account-message" role="status" aria-live="polite"></p>
+    <div class="account-actions">
+      <button id="account-sync" type="button">立即同步</button>
+      <button id="account-export" type="button">导出业务数据</button>
+      <button id="account-import-guest" type="button" hidden>导入本机访客数据</button>
+      <button id="account-logout" type="button" hidden>退出当前会话</button>
+      <button id="account-local-logout" type="button" hidden>仅退出本机（服务端令牌等待过期）</button>
+    </div>
+    <label>导入已导出的业务备份<input id="account-import-file" type="file" accept="application/json,.json" /></label>
+    <section id="account-conflict" hidden>
+      <h2>同一份数据有两种修改</h2><p>自动同步已暂停。选择前会下载本机备份；未冲突的数据会保留。</p>
+      <div class="account-actions"><button id="account-cloud-choice">冲突项使用云端版本</button><button id="account-local-choice">冲突项使用本机版本</button></div>
+    </section>
+    <h2>我的本机数据</h2>
+    <p>删除会在同步时传播到云端。断网时会保留待发送修改；页面右下角会显示保存状态。</p>
+    <div class="account-table"><table><thead><tr><th>数据类别</th><th>大小</th><th>操作</th></tr></thead><tbody id="account-records"></tbody></table></div>
+    <h2>数据范围</h2>
+    <p>AI 密钥、语音及音频校准、天气位置缓存、出生信息和聊天内容不会上传。评论继续使用 GitHub Discussions。旧 EdgeOne 数据请先在旧设备导出或确认本机归属，再主动导入；同名账号不会自动合并。</p>
+    <p>公共账号令牌有效期为 7 天，无自动刷新；每个账号最多保留 5 个 API 会话。退出仅注销当前会话，修改公共账号密码会使所有旧会话失效。</p>
+    <p><a id="account-admin" href="https://within-one-frame.zhangjieyi.cn/admin/within_frame/">管理员入口</a> · 管理员可管理应用访问权限、查看数据；普通用户在本页管理自己的数据。</p>
+  </main>
+</Studio>
+<style>
+  .account-page{max-width:900px;margin:64px auto 100px;padding:0 24px;line-height:1.8}.account-eyebrow{letter-spacing:.18em;font-size:12px}h1{font-size:clamp(32px,6vw,52px)}h2{margin-top:36px}form{max-width:420px}label{display:block;margin:14px 0}input{display:block;width:100%;padding:10px;border:1px solid var(--line,#bbc3cb);border-radius:6px;background:var(--paper,#fff);color:inherit}.account-actions{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}button{padding:9px 14px;border:1px solid var(--line,#bbc3cb);border-radius:6px;background:var(--paper,#fff);color:inherit;cursor:pointer}button:disabled{opacity:.5}.account-table{overflow:auto}table{width:100%;text-align:left}td,th{padding:10px;border-bottom:1px solid var(--line,#bbc3cb)}#account-message{min-height:2em}section{padding:18px;border:1px solid var(--line,#bbc3cb);border-radius:8px}
+</style>

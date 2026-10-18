@@ -1,6 +1,10 @@
 node_modules/
 dist/
 .astro/
+.local/
+.playwright-mcp/
+__pycache__/
+*.pyc
 
 # Tencent Cloud EdgeOne
 .env

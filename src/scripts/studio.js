@@ -1,4 +1,4 @@
-const storage={get(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'null')??fallback;}catch{return fallback;}},set(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}};
+const storage={get(key,fallback){try{return JSON.parse((globalThis.WOFStorage || localStorage).getItem(key)||'null')??fallback;}catch{return fallback;}},set(key,value){try{(globalThis.WOFStorage || localStorage).setItem(key,JSON.stringify(value));}catch{}}};
 const viewKey='wof:browse-mode';
 const bookmarkKey='wof:bookmarks';
 const sizeKey='wof:reading-size';

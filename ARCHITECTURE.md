@@ -8,7 +8,7 @@
 
 ## 1. 总览
 
-纯静态站点：**Astro 5**（lock 中为 5.18.2）构建出约 99 个 HTML 页面，部署到 GitHub Pages；腾讯云 EdgeOne Makers 做国内镜像。唯一的服务端是独立部署的云同步接口 `sync-api/`（EdgeOne 边缘函数 + KV），只给外语中心用。
+**Astro 5**（lock 中为 5.18.2）构建 100 个静态页面，部署到 GitHub Pages；腾讯云 EdgeOne Makers 做国内镜像。账号与用户数据由 Android/Termux 上的 CommonTools Django 后端承载，扩展在 `phone-backend/`。旧 `sync-api/` EdgeOne 服务与测试保留，当前页面不再调用。
 
 页面分三层外壳：
 
@@ -182,7 +182,7 @@
 
 | 页面 | 脚本 | 功能 |
 |---|---|---|
-| `/lang/english/` | `english.js` + `cloudsync.js` | SM-2 复习、生词本、听写、闯关、词典 + AI 讲解、AI 口语陪练 |
+| `/lang/english/` | `english.js` + 全站账号组件 | SM-2 复习、生词本、听写、闯关、词典 + AI 讲解、AI 口语陪练 |
 | `/lang/japanese/` `/lang/korean/` | `eastasian.js`（`boot('ja'\|'ko')`）+ `cloudsync.js` | 五十音 / 谚文道场、复习、闯关 |
 | `/lang/{fr,de,es,it,ru}/` | `eastasian.js` | 词性竞技场、复习、闯关；俄语另有西里尔字母道场 |
 
@@ -212,42 +212,20 @@
 
 ---
 
-## 8. 云同步（`sync-api/` + `cloudsync.js`）
+## 8. 手机公共账号与全站用户数据
 
-独立的 EdgeOne Pages 项目 `yzzn-sync`（overseas 区，预设域名 `yzzn-sync-lzgf3t47.edgeone.dev`）。
+入口为 /account/；Studio、Playground 和独立 Babel 页面均在业务脚本前加载 AccountHead 对应的 public/account/{config,core,storage,client}.js。各模块通过 WOFStorage 访问业务数据和用户本地配置。可信静态 config.js 配置公共认证地址与专属业务地址，不接受存档中的 URL。
 
-> ⚠ 2026-10-01 从国内网络实测，该预设域名返回平台层 401（`X-EOP-MSG: eo_time missing`），请求到不了函数；国内访客的云同步很可能不可用，需要绑定自定义域名解决。
+- 公共账号：https://api.zhangjieyi.cn/api/v1；复用注册、登录、当前用户、退出和密码修改。7 天 Bearer 会话、每账号最多 5 个 API 会话；每个应用独立登录，401 后保留本人存档并重新登录。
+- 业务：https://within-one-frame.zhangjieyi.cn/api/v1/apps/within-one-frame；GET/PUT state 与 records 的 CRUD。Django Application/Membership/AppSession 校验活动成员和会话应用；State/Record/Operation 保存版本、经字段验证的业务数据及幂等记录。旧公共令牌不能绕过应用绑定。
+- 数据按后端、应用、用户分区；访客独立。单次本机修改使用独立原子操作条目，快照记录已应用的条目后再清理；避免另一个标签页提交快照覆盖新修改，清理中断不会重复应用。待发送请求先持久化，重试保留同一个 UUID。
+- 服务端 SQLite IMMEDIATE 事务保护版本检查与写入；陈旧 base 返回 409，不会覆盖云端。删除保留 null 墓碑。本版保留操作编号与墓碑，不自动清理。
+- 三方比较按数据类别处理：单方修改自动合并；双方同时修改同类数据暂停并在账号页选择版本，先下载备份。保留最快时间、最高成绩、偏好调低、取消勾选等单机规则；不擅自自动累加跨设备计数或复活重置记录。
+- 浏览器 Web Locks 串行化同步。请求绑定当前会话；账号变更后旧页面不能提交。远端数据或其他标签页改变业务内容后重新载入页面；仅版本/同步时间变化不触发刷新循环。
+- 所有八种语言、收藏、阅读偏好、音乐进度、最近 6 条术数历史、Babel 手册、游戏成绩及显示偏好接入。AI 配置/缓存按用户留在本机；音频校准、天气位置缓存、出生资料、聊天和本地音频不上传。评论继续由 GitHub Discussions 提供。
+- 原 cloudsync.js/synccore.js/sync-api 的实现和回归测试保留作历史参考；页面不再加载旧云同步。访客/旧文件由本人明确导入，不凭同名账号映射。
 
-**端点**（`sync-api/edge-functions/`，公共代码 `_lib.js`）：
-
-| 端点 | 说明 |
-|---|---|
-| `GET /api/health` | 自检结果在模块级缓存 60 s（不再每次跑 PBKDF2） |
-| `POST /api/auth/register` / `login` | `{u, p[, dev]}` → `{token, u, uid, dev}`；PBKDF2-SHA256 6 万次（运行时拒绝 ≥ 12 万）；不存在的用户也跑一次同成本散列 |
-| `POST /api/auth/logout` | `{all:true}` 时令牌版本 `tv + 1`，所有设备下线 |
-| `POST /api/auth/delete` | `{p}` 再验一次密码，删除账户与数据 |
-| `GET /api/sync` | `{fmt:2, v, ts, z\|keys}`；版本号也放在 ETag |
-| `PUT /api/sync` | `{fmt:2, base, v, ts, z\|keys}`；`base` 与当前版本不符 → 409，客户端重拉合并重试；上限 512 KB（按字节，先看 Content-Length 再流式读）；旧客户端格式在记录已升级后返回 409 `client_outdated` |
-
-- **令牌**：`uid.uname.exp.tv`（注册时签发的带 `.n`），30 天；校验时比对账户的 `tv` 与 uid。另有一年有效的**设备令牌**，凭它登录不受账户锁影响（防恶意锁号）。
-- **频控**：登录每 IP 20 次 / 10 分钟（实例内存精确）+ 40 次 / 10 分钟（KV 近似，按 IP 散列分桶）；账户连续失败 5 次后指数退避锁定（30 s 起，最长 15 分钟）；注册每 IP 5 次/小时、10 次/天，全站每天 300 个。EdgeOne KV 没有 TTL、没有原子操作、跨节点最终一致约 60 s，所以跨节点的频控是近似的。
-- **KV 布局**：`acct:<小写用户名>`（含 `tv`、`u`）、`u:<uid>:data`（含 `fmt v z wd wn`，每日写入计数存在记录里）、`lk_<用户名>`、`rl_login_*`、`rl_reg_*`、`rl_reg_all`。
-- **控制台配置**：KV 命名空间绑定为 `yzzn_kv`，环境变量 `AUTH_SECRET`（**不要轮换**，否则所有会话与设备令牌失效）。
-
-**前端 `cloudsync.js`**：
-
-- **只同步白名单** `^yzzn-(en|ja|ko|fr|de|es|it|ru)-*`，排除 `*-cfg`、`yzzn-en-ai`、`yzzn-en-dict`；
-- 拦截 `Storage.prototype` 的写入，防抖 12 s；未登录时页面加载不发任何请求，health 只在打开「设置」时检查一次；
-- 合并（`synccore.js`）：词条按修改时间 `mt` 后写者胜（旧数据从复习状态反推）；删除 / 清空写入墓碑 `yzzn-sync-meta`（保留 180 天）；当日计数按「本机 + 云端 − 上次云端值」相加；星数 / 纪录取大；
-- 浏览器支持时 gzip + base64 压缩上传；仍超限则不上传并在页面顶部提示；
-- 合并后派发事件让页面就地刷新，不再自动 reload；
-- 异步操作绑定发起时的会话和接口地址；切换账号或退出后，旧请求的返回值不能继续修改新会话的数据、合并基线或登录状态；
-- 学习数据与合并基线的本地写入使用恢复日志，保存写入前后值及恢复步骤，写入或确认失败时不显示同步成功；未完成的恢复先于下一次合并计算处理，遇到恢复后另有本机修改则保留现值、暂停同步，避免重试重复累计或覆盖新学习；
-- 换账号登录前询问是否合并或用云端替换（替换前先下载备份）；
-- `yzzn-cloud-api` 覆盖接口地址**只在 localhost 生效**。
-- 测试：`scripts/tests/lang.test.mjs`（合并、多设备端到端）、`scripts/tests/sync-api.test.mjs`（直接调用处理函数，带随机延迟的内存 KV）、`scripts/tests/cloudsync-safety.test.mjs`（会话切换、迟到响应、本地写入失败与恢复）。
-
-手机后端接入的数据范围及现有账号隔离限制见 `docs/phone-backend-data-inventory.md`。当前运行时仍使用上述 EdgeOne 接口；这些客户端修复不代表已完成 Django 账号接入、全站本地账号隔离或手机端持久化验证。
+接口、限额、生产备份、迁移与恢复步骤见 [手机接入文档](docs/phone-backend-integration.md)；实际测试见 [验证记录](docs/phone-backend-verification.md)。服务扩展安装脚本不替换原 commerce 账号、订单和商业授权代码。
 
 ---
 
@@ -280,22 +258,22 @@ ECDICT（MIT，<https://github.com/skywind3000/ECDICT>）不在仓库里，重�
 
 ## 10. 浏览器存储键
 
-站点自己的键：功能页用 `yzzn-` 前缀，画廊界面用 `wof:` 前缀。**只有白名单里的 `yzzn-<语言>-*` 会被云同步上传**（见 §8），其余键都只在本机。
+逻辑键仍使用功能页 `yzzn-`、画廊 `wof:` 和 Babel 的原名称。物理存储转为 `wof-account-v1:<编码后的业务API与应用>:session`、`:data:<用户ID或guest>` 及该分区的 `:edit:<UUID>` 原子操作条目。账号、基线、待发送请求与业务缓存按同一范围隔离；上传白名单见 `public/account/core.js`，字段校验见 `phone-backend/within_frame/validation.py`。
 
 | 键 | 归属 | 内容 | 同步 |
 |---|---|---|---|
-| `wof:browse-mode` `wof:bookmarks` `wof:reading-size` | studio.js | 浏览模式、稍后读、阅读字号 | 否 |
-| `yzzn-theme` `yzzn-bg` `yzzn-wx` `yzzn-wx-live` `yzzn-snd` `yzzn-music` | site.js（/extras/） | 主题、背景图、天气、实时天气缓存、环境音、电台 | 否 |
-| `yzzn-fish` `yzzn-arcade-hi` `yzzn-arc-coins` `yzzn-arc-<游戏>` | site.js（PIE） | 鱼缸、游戏厅成绩与金币 | 否 |
+| `wof:browse-mode` `wof:bookmarks` `wof:reading-size` | studio.js | 浏览模式、稍后读、阅读字号 | 是 |
+| `yzzn-theme` `yzzn-bg` `yzzn-wx` `yzzn-wx-live` `yzzn-snd` `yzzn-music` | site.js（/extras/） | 主题、背景图、天气、实时天气缓存、环境音、电台 | 显示偏好同步；实时天气缓存不上传 |
+| `yzzn-fish` `yzzn-arcade-hi` `yzzn-arc-coins` `yzzn-arc-<游戏>` | site.js（PIE） | 摸鱼次数、游戏厅成绩与累计游玩次数 | 是 |
 | `yzzn-en-{words,stats,daily,game}` | english.js | 生词与 SRS 状态、统计 | 是 |
 | `yzzn-en-cfg` `yzzn-en-ai` `yzzn-en-dict` | english.js | 配置（含 AI Key）、AI 缓存、词典缓存 | 否 |
 | `yzzn-<ja\|ko\|fr\|de\|es\|it\|ru>-{words,dojo,game,daily}` | eastasian.js | 同上 | 是（`-cfg` 除外） |
 | `yzzn-sync-meta` | langdata.js | 删除 / 清空墓碑 | 随同步元数据处理 |
 | `yzzn-cloud` `yzzn-cloud-api` `yzzn-cloud-base` | cloudsync.js | 登录令牌与归属；接口地址覆盖（仅 localhost）；上次同步的云端快照（计数器三方合并的公共祖先 + 未确认的写入） | 否 |
 | `yzzn-cloud-recovery` | cloudsync.js | 本地批量写入的恢复记录：归属、接口、前后值、恢复中的键及必要的同步时间；处理部分写入失败，不复制令牌，不作为业务数据上传或导出 | 否 |
-| `yzzn-xlr-history` `yzzn-gy-history` | shu | 起课 / 抽签记录 | 否 |
-| `yzzn-uke-{cfg,rhythm,ear,plan}` | music | 延迟校准、训练进度 | 否 |
-| `babel-manual` | 巴别塔 | 生词手册 | 否 |
+| `yzzn-xlr-history` `yzzn-gy-history` | shu | 最近 6 条起课 / 神课记录 | 是 |
+| `yzzn-uke-{cfg,rhythm,ear,plan}` | music | 延迟校准、训练进度 | 进度同步；cfg 校准保留设备本地 |
+| `babel-manual` | 巴别塔 | 生词手册 | 是 |
 
 ---
 
@@ -311,7 +289,8 @@ ECDICT（MIT，<https://github.com/skywind3000/ECDICT>）不在仓库里，重�
 | giscus.app、GitHub Discussions | comments.js | 文章页滚动到评论区附近时 |
 | dictionaryapi.dev、freedictionaryapi.com | english.js | 查词时 |
 | 用户自配的 LLM 接口 | english.js | 使用 AI 功能时 |
-| yzzn-sync-lzgf3t47.edgeone.dev | cloudsync.js | **仅登录后**同步，或打开「设置」时检查一次 |
+| api.zhangjieyi.cn | public/account/client.js | 用户主动注册/登录、恢复会话核验、退出；Bearer 公共账号接口 |
+| within-one-frame.zhangjieyi.cn | public/account/client.js | 仅已登录用户的数据同步；断网修改先留在当前用户本机分区 |
 | cdn.jsdelivr.net（KaTeX） | `public/standalone/yotei-*.html` | 打开这两篇时 |
 
 ---
@@ -334,5 +313,5 @@ ECDICT（MIT，<https://github.com/skywind3000/ECDICT>）不在仓库里，重�
 2. **site.css 仍承载所有功能页样式**：经 `Base.astro` 加载到实验室 / 外语 / 术数 / 音乐页；可按页拆分。
 3. **lab 重复代码**：`_kit.js` 收掉了失败处理、循环、resize、触控；但 `pipeline.js` 仍大量复制 meshlet 与 megalights，wgpu-matrix 与手写向量运算并存。
 4. **外语中心两套实现**：english.js 与 eastasian.js 的 SRS 数据结构仍不同（合并层已兼容两种），每关词数不同。
-5. **云同步可达性**：overseas 预设域名从国内被平台拦截（见 §8），需要自定义域名。
+5. **手机后端可达性**：手机断网、后台被结束或关机时同步不可用；本地保存与重试不代表公网持续可用。服务重启持久化已测，整机重启和长期锁屏另行验证。
 6. **DEM 数据未压缩**：luoyun 8 MB 原始 Uint16，可做差分 + 压缩。

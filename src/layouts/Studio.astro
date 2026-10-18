@@ -1,6 +1,7 @@
 ---
 import StudioHeader from '../components/StudioHeader.astro';
 import StudioFooter from '../components/StudioFooter.astro';
+import AccountHead from '../components/AccountHead.astro';
 import '../styles/studio.css';
 import '../styles/studio-content.css';
 import 'katex/dist/katex.min.css';
@@ -14,6 +15,7 @@ const isArticle=type==='article';
 <!doctype html>
 <html lang="zh-CN" data-theme="light">
 <head>
+  <AccountHead/>
   <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="generator" content={Astro.generator}/>
   <title>{pageTitle}</title><meta name="description" content={pageDesc}/>
   {noindex?<meta name="robots" content="noindex"/>:<link rel="canonical" href={canonical}/>}

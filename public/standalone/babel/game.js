@@ -7,8 +7,8 @@
      星级只来自答题：★ 初次学习（词义）· ★★ 篝火复习 · ★★★ 最终测验精通 */
   var MKEY = 'babel-manual';
   G.manual = {};
-  try { G.manual = JSON.parse(localStorage.getItem(MKEY) || '{}') || {}; } catch (e) { G.manual = {}; }
-  G.manualSave = function () { try { localStorage.setItem(MKEY, JSON.stringify(G.manual)); } catch (e) {} };
+  try { G.manual = JSON.parse((globalThis.WOFStorage || localStorage).getItem(MKEY) || '{}') || {}; } catch (e) { G.manual = {}; }
+  G.manualSave = function () { try { (globalThis.WOFStorage || localStorage).setItem(MKEY, JSON.stringify(G.manual)); } catch (e) {} };
   G.manualStar = function (w) { return G.manual[w.toLowerCase()] || 0; };
   G.manualSet = function (w, star) {
     var k = w.toLowerCase();

@@ -40,8 +40,8 @@ const PACKS = [
 ];
 
 function $(id) { return document.getElementById(id); }
-function load(key, fb) { try { return JSON.parse(localStorage.getItem(key) || 'null') || fb; } catch (e) { return fb; } }
-function store(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
+function load(key, fb) { try { return JSON.parse((globalThis.WOFStorage || localStorage).getItem(key) || 'null') || fb; } catch (e) { return fb; } }
+function store(key, v) { try { (globalThis.WOFStorage || localStorage).setItem(key, JSON.stringify(v)); } catch (e) {} }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 let words = load(K.words, []);

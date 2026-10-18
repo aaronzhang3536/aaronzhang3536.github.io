@@ -28,7 +28,7 @@
     /* 主题只在用户明确选择（按钮 / 控制台命令）时才写入 yzzn-theme；
        没选过就一直跟随系统 prefers-color-scheme（含运行中切换），与 Base.astro 防闪烁脚本一致 */
     var storedTheme = null;
-    try { storedTheme = localStorage.getItem('yzzn-theme'); } catch (err) {}
+    try { storedTheme = (globalThis.WOFStorage || localStorage).getItem('yzzn-theme'); } catch (err) {}
     if (!themeNames.hasOwnProperty(storedTheme)) storedTheme = null;
     var mqLight = window.matchMedia('(prefers-color-scheme: light)');
     function sysTheme() { return mqLight && mqLight.matches ? 'light' : 'dark'; }
@@ -38,7 +38,7 @@
       curTheme = m;
       if (!auto) {
         storedTheme = m;
-        try { localStorage.setItem('yzzn-theme', m); } catch (err) {}
+        try { (globalThis.WOFStorage || localStorage).setItem('yzzn-theme', m); } catch (err) {}
       }
       body.classList.toggle('vm-wire', m === 'wire');
       if (m !== 'wire') {
@@ -181,12 +181,12 @@
     ];
     var BG_MAX_TRIES = Math.max(2, bgSrcs.length);
     var bgPref = '';
-    try { bgPref = localStorage.getItem('yzzn-bg') || ''; } catch (err) {}
+    try { bgPref = (globalThis.WOFStorage || localStorage).getItem('yzzn-bg') || ''; } catch (err) {}
     var bgImgs = [], bgCur = 0, bgTimer = null, bgOn = bgPref !== 'off';
     var bgInterval = (parseInt(bgPref, 10) || 60) * 1000, bgLoading = false;
     var bgSrcIdx = 0, bgHasImage = false, bgLastT = 0;
     function bgSave() {
-      try { localStorage.setItem('yzzn-bg', bgOn ? String(bgInterval / 1000) : 'off'); } catch (err) {}
+      try { (globalThis.WOFStorage || localStorage).setItem('yzzn-bg', bgOn ? String(bgInterval / 1000) : 'off'); } catch (err) {}
     }
     (function bgInit() {
       var layer = document.createElement('div');
@@ -869,7 +869,7 @@
     }
     function wxRefreshLive(force, quiet, byUser) {
       var cached = null;
-      try { cached = JSON.parse(localStorage.getItem('yzzn-wx-live') || 'null'); } catch (e) { cached = null; }
+      try { cached = JSON.parse((globalThis.WOFStorage || localStorage).getItem('yzzn-wx-live') || 'null'); } catch (e) { cached = null; }
       if (cached && typeof cached.code === 'number') wxApplyLive(cached, true);
       if (!force && cached && typeof cached.t === 'number' && Date.now() - cached.t < WX_LIVE_TTL) return;
       wxLocate(!!byUser).then(function (pos) {
@@ -888,7 +888,7 @@
             cloud: (typeof cur.cloud_cover === 'number') ? Math.round(cur.cloud_cover) : null
           };
           var finish = function () {
-            try { localStorage.setItem('yzzn-wx-live', JSON.stringify(info)); } catch (e) {}
+            try { (globalThis.WOFStorage || localStorage).setItem('yzzn-wx-live', JSON.stringify(info)); } catch (e) {}
             wxApplyLive(info, false);
             if (!quiet && wxSel === 'auto') {
               echo.textContent = '实时天气：' + (info.name || '本地') + ' ' + wmoDesc(info.code) + ' ' +
@@ -931,7 +931,7 @@
         return;
       }
       wxSel = m;
-      try { localStorage.setItem('yzzn-wx', m); } catch (err) {}
+      try { (globalThis.WOFStorage || localStorage).setItem('yzzn-wx', m); } catch (err) {}
       if (wxLiveTimer) { clearInterval(wxLiveTimer); wxLiveTimer = null; }
       btnWx.innerHTML = icons[m];
       if (m === 'auto') {
@@ -961,7 +961,7 @@
     /* ---------- 天气环境音（WebAudio 合成，无音频文件） ---------- */
     var btnSnd = document.getElementById('btn-snd');
     var sndOn = false;
-    try { sndOn = localStorage.getItem('yzzn-snd') === '1'; } catch (err) {}
+    try { sndOn = (globalThis.WOFStorage || localStorage).getItem('yzzn-snd') === '1'; } catch (err) {}
     var AC = null, sndNoise = null, sndStopFn = null, sndMode = 'clear';
     var sndHold = false;   /* 茶歇关掉雨声时暂停环境音，退出茶歇后恢复 */
 
@@ -1129,7 +1129,7 @@
         return;
       }
       sndOn = !sndOn;
-      try { localStorage.setItem('yzzn-snd', sndOn ? '1' : '0'); } catch (err) {}
+      try { (globalThis.WOFStorage || localStorage).setItem('yzzn-snd', sndOn ? '1' : '0'); } catch (err) {}
       if (sndOn) { sndCtx(); sndBuild(sndMode); }
       else sndStop();
       sndRefreshBtn();
@@ -1188,7 +1188,7 @@
       wxRefreshColors();
       wxCritter = makeCritter();
       var storedWx = null;
-      try { storedWx = localStorage.getItem('yzzn-wx'); } catch (err) {}
+      try { storedWx = (globalThis.WOFStorage || localStorage).getItem('yzzn-wx'); } catch (err) {}
       setWeather(storedWx && (storedWx === 'auto' || wxLoadMap.hasOwnProperty(storedWx)) ? storedWx : 'rain', true);
       wxWake();
     }
@@ -1768,7 +1768,7 @@
       var W = Math.min(840, window.innerWidth - 60);
       var H = Math.min(470, window.innerHeight - 230);
       var touched = 0;
-      try { touched = parseInt(localStorage.getItem('yzzn-fish') || '0', 10); } catch (err) {}
+      try { touched = parseInt((globalThis.WOFStorage || localStorage).getItem('yzzn-fish') || '0', 10); } catch (err) {}
       stage.innerHTML =
         '<div style="text-align:center;">' +
           '<canvas id="f4d" style="border:1px solid var(--line); max-width:94vw;"></canvas>' +
@@ -2332,7 +2332,7 @@
         /* ---- 交互：自由视口 + 点按撒食/摸鱼 ---- */
         function touch(i) {
           touched++;
-          try { localStorage.setItem('yzzn-fish', String(touched)); } catch (err) {}
+          try { (globalThis.WOFStorage || localStorage).setItem('yzzn-fish', String(touched)); } catch (err) {}
           hud();
           var f = fishes[i];
           f.burst = 1.4;
@@ -2640,8 +2640,8 @@
     };
 
     /* ---------- 游戏厅 · 通用工具 ---------- */
-    function hiGet(k) { try { return parseInt(localStorage.getItem(k) || '0', 10); } catch (err) { return 0; } }
-    function hiSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (err) {} }
+    function hiGet(k) { try { return parseInt((globalThis.WOFStorage || localStorage).getItem(k) || '0', 10); } catch (err) { return 0; } }
+    function hiSet(k, v) { try { (globalThis.WOFStorage || localStorage).setItem(k, String(v)); } catch (err) {} }
     function pal() {
       var cs = getComputedStyle(document.body), o = {};
       ['--ink', '--ink2', '--line', '--surface', '--surface2', '--accent', '--play',
@@ -5469,7 +5469,7 @@
         { id: 'hell',   name: '地狱', bpm: 140, dens: 1.5,  speed: 300, pw: 0.038, gw: 0.100, dbl: 0.34, bars: 32 },
       ];
       var di = 1;
-      try { di = Math.max(0, Math.min(3, parseInt(localStorage.getItem(K + '-diff') || '1', 10))); } catch (err) {}
+      try { di = Math.max(0, Math.min(3, parseInt((globalThis.WOFStorage || localStorage).getItem(K + '-diff') || '1', 10))); } catch (err) {}
       function hiKey() { return di === 1 ? K : K + '-' + DIFFS[di].id; }
       var best = hiGet(hiKey());
       var W = 460, H = 330;
@@ -5790,7 +5790,7 @@
       function setDiff(i2) {
         if (playing || i2 === di) return;
         di = i2;
-        try { localStorage.setItem(K + '-diff', String(di)); } catch (err) {}
+        try { (globalThis.WOFStorage || localStorage).setItem(K + '-diff', String(di)); } catch (err) {}
         best = hiGet(hiKey());
       }
       function start() {
@@ -6276,13 +6276,13 @@
     };
     var muSt = {};
     try {
-      var mSaved = JSON.parse(localStorage.getItem('yzzn-music') || 'null');
+      var mSaved = JSON.parse((globalThis.WOFStorage || localStorage).getItem('yzzn-music') || 'null');
       if (mSaved) {
         if (MU_CH[mSaved.ch] && mSaved.ch !== 'file') MU.ch = mSaved.ch;
         if (typeof mSaved.vol === 'number') MU.vol = Math.min(1, Math.max(0, mSaved.vol));
       }
     } catch (err) {}
-    function muSave() { try { localStorage.setItem('yzzn-music', JSON.stringify({ ch: MU.ch === 'file' ? 'lofi' : MU.ch, vol: MU.vol })); } catch (err) {} }
+    function muSave() { try { (globalThis.WOFStorage || localStorage).setItem('yzzn-music', JSON.stringify({ ch: MU.ch === 'file' ? 'lofi' : MU.ch, vol: MU.vol })); } catch (err) {} }
     function midiHz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
     var muNoiseBuf = null;
     function muCtx() {

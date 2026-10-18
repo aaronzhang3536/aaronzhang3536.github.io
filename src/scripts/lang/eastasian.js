@@ -133,8 +133,8 @@ export function boot(langId) {
   if (!L || !document.querySelector('.enx-side')) return;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
-  const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const load = (k, d) => { try { const v = JSON.parse((globalThis.WOFStorage || localStorage).getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
+  const store = (k, v) => { try { (globalThis.WOFStorage || localStorage).setItem(k, JSON.stringify(v)); } catch (e) {} };
   const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
   const today = () => localDay();
 
@@ -697,7 +697,7 @@ export function boot(langId) {
     if ($('ea-wipe')) $('ea-wipe').addEventListener('click', () => {
       if (!confirm('清空 ' + L.name + ' 的全部学习数据（生词、道场、闯关进度）？\n已登录云同步时，其他设备上的这些数据也会被清空。')) return;
       noteWipe([K.words, K.dojo, K.game, K.daily]);   /* 清空标记：同步时其他设备上更早的数据一并清掉，不会被云端复活 */
-      [K.words, K.dojo, K.game, K.daily].forEach((k) => localStorage.removeItem(k));
+      [K.words, K.dojo, K.game, K.daily].forEach((k) => (globalThis.WOFStorage || localStorage).removeItem(k));
       words = []; dojoStore = {}; gameStore = { stars: {} }; dk = {};
       buildQueue(); renderDojo(); renderGameMap(); revStats();
     });

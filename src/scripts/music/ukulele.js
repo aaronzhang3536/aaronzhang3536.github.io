@@ -464,8 +464,8 @@ function makeLooper(tick, interval) {
    校准存 yzzn-uke-cfg：*-cfg 键不参与云同步，延迟是设备本地属性。 */
 const CFG_KEY = 'yzzn-uke-cfg';
 let ukeCfg = {};
-try { ukeCfg = JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch (e) { ukeCfg = {}; }
-function cfgSave() { try { localStorage.setItem(CFG_KEY, JSON.stringify(ukeCfg)); } catch (e) {} }
+try { ukeCfg = JSON.parse((globalThis.WOFStorage || localStorage).getItem(CFG_KEY) || '{}') || {}; } catch (e) { ukeCfg = {}; }
+function cfgSave() { try { (globalThis.WOFStorage || localStorage).setItem(CFG_KEY, JSON.stringify(ukeCfg)); } catch (e) {} }
 export function outLatency(ctx) {
   const o = ctx && Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : 0;
   const b = ctx && Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : 0;
@@ -507,8 +507,8 @@ const RG_DIFF = {
   hell:   { name: '地狱', win: [40, 72],  anyKey: false, accel: true },
 };
 const RG_KEY = 'yzzn-uke-rhythm';
-function rgLoadBest() { try { return JSON.parse(localStorage.getItem(RG_KEY) || '{}') || {}; } catch (e) { return {}; } }
-function rgSaveBest() { try { localStorage.setItem(RG_KEY, JSON.stringify(rgBest)); } catch (e) {} }
+function rgLoadBest() { try { return JSON.parse((globalThis.WOFStorage || localStorage).getItem(RG_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function rgSaveBest() { try { (globalThis.WOFStorage || localStorage).setItem(RG_KEY, JSON.stringify(rgBest)); } catch (e) {} }
 let patIdx = 2;
 let rgMode = 'follow', rgRun = null, rgSweep = null;
 let rgBest = rgLoadBest();
@@ -1132,7 +1132,7 @@ const EAR_LEVELS = [
   { name: '挑战 · 6 个', set: ['C', 'F', 'G', 'Am', 'Dm', 'Em'] },
 ];
 let earLv = 0, earAns = null, earScore = 0, earStreak = 0, earLock = false, earBest = 0;
-try { earBest = parseInt(localStorage.getItem('yzzn-uke-ear') || '0', 10) || 0; } catch (e) {}
+try { earBest = parseInt((globalThis.WOFStorage || localStorage).getItem('yzzn-uke-ear') || '0', 10) || 0; } catch (e) {}
 function earNew() {
   const set = EAR_LEVELS[earLv].set;
   earAns = set[Math.floor(Math.random() * set.length)];
@@ -1152,7 +1152,7 @@ function earGuess(btn) {
   if (n === earAns) {
     earLock = true; btn.classList.add('good');
     earScore++; earStreak++;
-    if (earStreak > earBest) { earBest = earStreak; try { localStorage.setItem('yzzn-uke-ear', String(earBest)); } catch (e) {} }
+    if (earStreak > earBest) { earBest = earStreak; try { (globalThis.WOFStorage || localStorage).setItem('yzzn-uke-ear', String(earBest)); } catch (e) {} }
     $('ear-msg').textContent = '✓ 答对了，是 ' + earAns + '！';
     setTimeout(() => { if ($('ear-btns')) earNew(); }, 950);
   } else {
@@ -1175,8 +1175,8 @@ const PLAN = [
   { d: '第 7 天', title: '第一首歌！', tasks: ['「⑥ 弹唱曲库」开小星星伴奏跟弹', '不看图能按出 C、F、G7', '完整弹完一遍，给自己录一段 🎉'] },
 ];
 let planState = {};
-try { planState = JSON.parse(localStorage.getItem('yzzn-uke-plan') || '{}') || {}; } catch (e) { planState = {}; }
-function planSave() { try { localStorage.setItem('yzzn-uke-plan', JSON.stringify(planState)); } catch (e) {} }
+try { planState = JSON.parse((globalThis.WOFStorage || localStorage).getItem('yzzn-uke-plan') || '{}') || {}; } catch (e) { planState = {}; }
+function planSave() { try { (globalThis.WOFStorage || localStorage).setItem('yzzn-uke-plan', JSON.stringify(planState)); } catch (e) {} }
 function renderPlan() {
   const total = PLAN.reduce((t, d) => t + d.tasks.length, 0);
   const done = Object.keys(planState).filter((k) => planState[k]).length;
